@@ -433,6 +433,84 @@ test "guard with comparison function" {
     try testing.expectEqual(@as(i64, 5), val.int);
 }
 
+// ── Lists ─────────────────────────────────────────────────
+
+test "create empty list" {
+    const val = try run(
+        \\module Test {
+        \\    fn make() -> int {
+        \\        items = list();
+        \\        return items.len;
+        \\    }
+        \\}
+    , "Test", "make", &.{});
+    try testing.expectEqual(@as(i64, 0), val.int);
+}
+
+test "append to list and read" {
+    const val = try run(
+        \\module Test {
+        \\    fn make() -> int {
+        \\        items = list();
+        \\        append items { 42; }
+        \\        return items[0];
+        \\    }
+        \\}
+    , "Test", "make", &.{});
+    try testing.expectEqual(@as(i64, 42), val.int);
+}
+
+test "list length after appends" {
+    const val = try run(
+        \\module Test {
+        \\    fn make() -> int {
+        \\        items = list();
+        \\        append items { 1; }
+        \\        append items { 2; }
+        \\        append items { 3; }
+        \\        return items.len;
+        \\    }
+        \\}
+    , "Test", "make", &.{});
+    try testing.expectEqual(@as(i64, 3), val.int);
+}
+
+test "iterate list with while" {
+    const val = try run(
+        \\module Test {
+        \\    fn sum() -> int {
+        \\        items = list();
+        \\        append items { 10; }
+        \\        append items { 20; }
+        \\        append items { 30; }
+        \\        total = 0;
+        \\        i = 0;
+        \\        while i < items.len {
+        \\            total = total + items[i];
+        \\            i = i + 1;
+        \\        }
+        \\        return total;
+        \\    }
+        \\}
+    , "Test", "sum", &.{});
+    try testing.expectEqual(@as(i64, 60), val.int);
+}
+
+test "list out of bounds returns poison" {
+    const val = try run(
+        \\module Test {
+        \\    fn bad() -> int {
+        \\        items = list();
+        \\        append items { 1; }
+        \\        return items[5];
+        \\    }
+        \\}
+    , "Test", "bad", &.{});
+    try testing.expect(val.isPoison());
+}
+
+// ── Guards with functions ─────────────────────────────────
+
 test "guard with comparison function fails" {
     const val = try run(
         \\module Test {

@@ -289,7 +289,14 @@ pub const Interpreter = struct {
                 }
                 return .{ .value = .{ .void = {} }, .returned = false };
             },
-            .append => return .{ .value = .{ .void = {} }, .returned = false },
+            .append => |a| {
+                const target = try self.evalExpr(a.target, scope);
+                const value = try self.evalExpr(a.value, scope);
+                if (target == .list) {
+                    target.list.append(value) catch return error.OutOfMemory;
+                }
+                return .{ .value = .{ .void = {} }, .returned = false };
+            },
             .send_stmt => return .{ .value = .{ .void = {} }, .returned = false },
             .tell_stmt => |t| {
                 // tell — fire and forget, execute handler, ignore result
@@ -417,10 +424,14 @@ pub const Interpreter = struct {
             .unary_op => |op| return try self.evalUnaryOp(op, scope),
 
             .field_access => |fa| {
-                // Check for module function call (handled in call)
                 const target = try self.evalExpr(fa.target.*, scope);
+                // .len on lists and strings
+                if (std.mem.eql(u8, fa.field, "len")) {
+                    if (target == .list) return .{ .int = @intCast(target.list.len()) };
+                    if (target == .string) return .{ .int = @intCast(target.string.len) };
+                    if (target == .map) return .{ .int = @intCast(target.map.len()) };
+                }
                 if (target == .struct_val) {
-                    // Find field in struct
                     for (target.struct_val.field_names, 0..) |fname, i| {
                         if (std.mem.eql(u8, fname, fa.field)) {
                             return target.struct_val.field_values[i];
@@ -436,10 +447,13 @@ pub const Interpreter = struct {
                 const index = try self.evalExpr(ia.index.*, scope);
                 if (target == .list and index == .int) {
                     const idx = index.int;
-                    if (idx < 0 or idx >= @as(i64, @intCast(target.list.len))) {
+                    if (idx < 0 or idx >= @as(i64, @intCast(target.list.len()))) {
                         return .{ .out_of_bounds = {} };
                     }
-                    return target.list[@intCast(@as(u64, @intCast(idx)))];
+                    return target.list.get(@intCast(@as(u64, @intCast(idx)))) orelse .{ .out_of_bounds = {} };
+                }
+                if (target == .map and index == .string) {
+                    return target.map.getVal(index) orelse .{ .none = {} };
                 }
                 return error.TypeError;
             },
@@ -604,6 +618,12 @@ pub const Interpreter = struct {
             if (std.mem.eql(u8, name, "println")) {
                 return self.builtinPrintln(args);
             }
+            if (std.mem.eql(u8, name, "list")) {
+                // list() — create empty mutable list
+                const ml = try self.alloc.create(Value.MutableList);
+                ml.* = Value.MutableList.init(self.alloc);
+                return .{ .list = ml };
+            }
             if (std.mem.eql(u8, name, "spawn")) {
                 // spawn expects first arg to be a process name (identifier)
                 // In practice: p = spawn Ledger(); — parsed as call to spawn with Ledger as arg
@@ -693,6 +713,15 @@ pub const Interpreter = struct {
             .out_of_bounds => std.debug.print(":out_of_bounds", .{}),
             .nan => std.debug.print(":nan", .{}),
             .infinity => std.debug.print(":infinity", .{}),
+            .list => |v| {
+                std.debug.print("[", .{});
+                for (v.items.items, 0..) |item, i| {
+                    if (i > 0) std.debug.print(", ", .{});
+                    printValueToStdout(item);
+                }
+                std.debug.print("]", .{});
+            },
+            .process_id => |v| std.debug.print("process<{d}>", .{v}),
             else => std.debug.print("(...)", .{}),
         }
     }

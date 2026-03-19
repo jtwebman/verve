@@ -80,14 +80,22 @@ pub fn main() !void {
             return;
         };
 
+        // Build args list
+        const args_list = try alloc.create(Value.MutableList);
+        args_list.* = Value.MutableList.init(alloc);
+        while (args.next()) |arg| {
+            try args_list.append(.{ .string = arg });
+        }
+        const args_val = [_]Value{.{ .list = args_list }};
+
         const result = blk: {
             if (entry.is_process) {
-                break :blk interp.runProcessMain(entry.module, &.{}) catch |err| {
+                break :blk interp.runProcessMain(entry.module, &args_val) catch |err| {
                     std.debug.print("Runtime error: {}\n", .{err});
                     return;
                 };
             } else {
-                break :blk interp.callFunction(entry.module, entry.name, &.{}) catch |err| {
+                break :blk interp.callFunction(entry.module, entry.name, &args_val) catch |err| {
                     std.debug.print("Runtime error: {}\n", .{err});
                     return;
                 };

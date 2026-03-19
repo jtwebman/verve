@@ -9,8 +9,8 @@ pub const Value = union(enum) {
     tag_with_value: TagWithValue, // :ok{42}, :error{"reason"}
     none: void,
     void: void,
-    list: []Value,
-    map: Map,
+    list: *MutableList,
+    map: *MutableMap,
     struct_val: StructVal,
     function_ref: FunctionRef,
     process_id: u64,
@@ -27,9 +27,59 @@ pub const Value = union(enum) {
         values: []Value,
     };
 
-    pub const Map = struct {
-        keys: []Value,
-        values: []Value,
+    pub const MutableList = struct {
+        items: std.ArrayListUnmanaged(Value),
+        alloc: std.mem.Allocator,
+
+        pub fn init(alloc: std.mem.Allocator) MutableList {
+            return .{ .items = .{}, .alloc = alloc };
+        }
+
+        pub fn append(self: *MutableList, val: Value) !void {
+            try self.items.append(self.alloc, val);
+        }
+
+        pub fn len(self: *const MutableList) usize {
+            return self.items.items.len;
+        }
+
+        pub fn get(self: *const MutableList, index: usize) ?Value {
+            if (index >= self.items.items.len) return null;
+            return self.items.items[index];
+        }
+    };
+
+    pub const MutableMap = struct {
+        keys: std.ArrayListUnmanaged(Value),
+        values: std.ArrayListUnmanaged(Value),
+        alloc: std.mem.Allocator,
+
+        pub fn init(alloc: std.mem.Allocator) MutableMap {
+            return .{ .keys = .{}, .values = .{}, .alloc = alloc };
+        }
+
+        pub fn put(self: *MutableMap, key: Value, val: Value) !void {
+            // Check for existing key
+            for (self.keys.items, 0..) |k, i| {
+                if (Value.eql(k, key)) {
+                    self.values.items[i] = val;
+                    return;
+                }
+            }
+            try self.keys.append(self.alloc, key);
+            try self.values.append(self.alloc, val);
+        }
+
+        pub fn getVal(self: *const MutableMap, key: Value) ?Value {
+            for (self.keys.items, 0..) |k, i| {
+                if (Value.eql(k, key)) return self.values.items[i];
+            }
+            return null;
+        }
+
+        pub fn len(self: *const MutableMap) usize {
+            return self.keys.items.len;
+        }
     };
 
     pub const StructVal = struct {
@@ -105,7 +155,7 @@ pub const Value = union(enum) {
             .infinity => try writer.writeAll(":infinity"),
             .list => |v| {
                 try writer.writeAll("[");
-                for (v, 0..) |item, i| {
+                for (v.items.items, 0..) |item, i| {
                     if (i > 0) try writer.writeAll(", ");
                     try item.format(writer);
                 }
