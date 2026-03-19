@@ -81,7 +81,7 @@
 - [ ] Type checking — constrained types (range, precision, min/max)
 - [ ] Type checking — Result<T> and send wrapping
 - [ ] Type checking — function references match signatures
-- [ ] Call graph cycle detection (no recursion)
+- [x] Call graph cycle detection (no recursion — direct, mutual, cross-module)
 
 ## Phase 3 — Verifier
 

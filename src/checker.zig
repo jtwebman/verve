@@ -208,8 +208,22 @@ pub const Checker = struct {
                 if (m.arms.len == 0) {
                     try self.addError("match must have at least one arm", 0, 0);
                 }
+
+                // Check boolean exhaustiveness
+                if (m.subject == .binary_op) {
+                    // Comparison result — should have true and false
+                    try self.checkBooleanExhaustiveness(m.arms);
+                }
+                if (m.subject == .identifier) {
+                    // Check if it's a bool variable
+                    if (self.current_scope.get(m.subject.identifier)) |type_name| {
+                        if (std.mem.eql(u8, type_name, "bool")) {
+                            try self.checkBooleanExhaustiveness(m.arms);
+                        }
+                    }
+                }
+
                 for (m.arms) |arm| {
-                    // Add pattern bindings to scope
                     switch (arm.pattern) {
                         .tag => |t| {
                             for (t.bindings) |binding| {
@@ -390,6 +404,39 @@ pub const Checker = struct {
             .generic => |g| g.name,
             else => "unknown",
         };
+    }
+
+    // ── Match exhaustiveness ────────────────────────────────────
+
+    fn checkBooleanExhaustiveness(self: *Checker, arms: []const ast.MatchArm) !void {
+        var has_true = false;
+        var has_false = false;
+        var has_wildcard = false;
+
+        for (arms) |arm| {
+            switch (arm.pattern) {
+                .literal => |e| {
+                    if (e == .bool_literal) {
+                        if (e.bool_literal) has_true = true else has_false = true;
+                    }
+                },
+                .wildcard => has_wildcard = true,
+                else => {},
+            }
+        }
+
+        if (!has_wildcard) {
+            if (!has_true and !has_false) {
+                // Neither — could be matching on something else
+                return;
+            }
+            if (!has_true) {
+                try self.addError("match on boolean is missing 'true' case", 0, 0);
+            }
+            if (!has_false) {
+                try self.addError("match on boolean is missing 'false' case", 0, 0);
+            }
+        }
     }
 
     // ── Call graph cycle detection (no recursion) ──────────────

@@ -305,6 +305,56 @@ test "error: empty match" {
     , "match must have at least one arm");
 }
 
+test "valid: boolean match with both cases" {
+    try expectNoErrors(
+        \\module Main {
+        \\    fn main(x: int) -> int {
+        \\        match x > 0 {
+        \\            true => return 1;
+        \\            false => return 0;
+        \\        }
+        \\    }
+        \\}
+    );
+}
+
+test "error: boolean match missing false" {
+    try expectError(
+        \\module Main {
+        \\    fn main(x: int) -> int {
+        \\        match x > 0 {
+        \\            true => return 1;
+        \\        }
+        \\    }
+        \\}
+    , "missing 'false' case");
+}
+
+test "error: boolean match missing true" {
+    try expectError(
+        \\module Main {
+        \\    fn main(x: int) -> int {
+        \\        match x > 0 {
+        \\            false => return 0;
+        \\        }
+        \\    }
+        \\}
+    , "missing 'true' case");
+}
+
+test "valid: boolean match with wildcard" {
+    try expectNoErrors(
+        \\module Main {
+        \\    fn main(x: int) -> int {
+        \\        match x > 0 {
+        \\            true => return 1;
+        \\            _ => return 0;
+        \\        }
+        \\    }
+        \\}
+    );
+}
+
 // ── While checks ──────────────────────────────────────────
 
 test "error: string condition in while" {
