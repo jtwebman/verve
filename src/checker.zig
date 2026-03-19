@@ -250,6 +250,17 @@ pub const Checker = struct {
             },
             .tell_stmt => |t| {
                 try self.checkExpr(t.target);
+                // Verify target is a process, not a module
+                if (t.target == .identifier) {
+                    const name = t.target.identifier;
+                    if (self.modules.get(name) != null) {
+                        try self.addError(
+                            try std.fmt.allocPrint(self.alloc, "cannot use 'tell' with module '{s}' — tell is for processes only", .{name}),
+                            0,
+                            0,
+                        );
+                    }
+                }
                 for (t.args) |arg| try self.checkExpr(arg);
             },
             .expr_stmt => |e| {

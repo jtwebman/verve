@@ -455,6 +455,24 @@ test "valid: full program with module and process" {
     );
 }
 
+// ── send/tell checks ──────────────────────────────────────
+
+test "error: tell on module" {
+    try expectError(
+        \\module Logger {
+        \\    fn log(msg: string) -> void {
+        \\        return;
+        \\    }
+        \\}
+        \\module Main {
+        \\    fn main() -> int {
+        \\        tell Logger.log("hello");
+        \\        return 0;
+        \\    }
+        \\}
+    , "cannot use 'tell' with module 'Logger'");
+}
+
 // ── Recursion detection ───────────────────────────────────
 
 test "valid: no recursion" {
