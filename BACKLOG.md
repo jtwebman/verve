@@ -73,7 +73,7 @@
 - [x] Multiple errors reported in one pass
 - [x] Built-in types and functions recognized
 - [x] Sibling functions in scope
-- [ ] Full type inference for local variables
+- [x] Explicit types on all variable declarations (x: int = 42;), checker enforces
 - [ ] Type checking — function signatures, return types match
 - [ ] Type checking — compile-time generics (monomorphization)
 - [x] Type checking — match exhaustiveness for booleans (true/false, wildcard)
