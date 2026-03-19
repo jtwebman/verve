@@ -623,6 +623,24 @@ test "valid: division by non-zero" {
 
 // ── send/tell checks ──────────────────────────────────────
 
+test "error: send on module (calling module function with process syntax)" {
+    // Module functions should be called directly, not via send/tell pattern
+    // This is caught when tell is used with a module name
+    try expectError(
+        \\module Logger {
+        \\    fn log(msg: string) -> void {
+        \\        return;
+        \\    }
+        \\}
+        \\module Main {
+        \\    fn main() -> int {
+        \\        tell Logger.log("hello");
+        \\        return 0;
+        \\    }
+        \\}
+    , "cannot use 'tell' with module");
+}
+
 test "error: tell on module" {
     try expectError(
         \\module Logger {

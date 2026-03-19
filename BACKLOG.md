@@ -92,8 +92,8 @@
 - [x] @property — fuzz testing with 100 random inputs per property, deterministic seed
 - [ ] Invariant checking after receive handlers
 - [x] Poison value warnings (literal division by zero detected at compile time)
-- [ ] Guard consistency checks
-- [ ] DIVERGENT signal (detect potential infinite loops)
+- [x] Guard consistency checks (always-false, self-comparison)
+- [x] DIVERGENT signal (while true with no return detected)
 
 ## Phase 4 — Native Compilation (x86_64)
 
