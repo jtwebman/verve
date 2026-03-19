@@ -1,0 +1,160 @@
+{
+  "name": "Verve",
+  "scopeName": "source.verve",
+  "fileTypes": ["vv"],
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#numbers" },
+    { "include": "#tags" },
+    { "include": "#keywords" },
+    { "include": "#types" },
+    { "include": "#functions" },
+    { "include": "#operators" },
+    { "include": "#punctuation" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.documentation.verve",
+          "match": "///.*$"
+        },
+        {
+          "name": "comment.line.double-slash.verve",
+          "match": "//.*$"
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.verve",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [
+            {
+              "name": "constant.character.escape.verve",
+              "match": "\\\\."
+            }
+          ]
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.float.verve",
+          "match": "\\b[0-9]+\\.[0-9]+\\b"
+        },
+        {
+          "name": "constant.numeric.integer.verve",
+          "match": "\\b[0-9]+\\b"
+        }
+      ]
+    },
+    "tags": {
+      "patterns": [
+        {
+          "name": "constant.language.tag.verve",
+          "match": ":[a-zA-Z_][a-zA-Z0-9_]*"
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.verve",
+          "match": "\\b(match|while|return|guard|receive)\\b"
+        },
+        {
+          "name": "keyword.declaration.verve",
+          "match": "\\b(fn|module|process|struct|type|state|invariant|export|import)\\b"
+        },
+        {
+          "name": "keyword.operator.verve",
+          "match": "\\b(send|tell|spawn|watch|connect|transition|append|use)\\b"
+        },
+        {
+          "name": "constant.language.verve",
+          "match": "\\b(true|false|none|void)\\b"
+        },
+        {
+          "name": "keyword.other.verve",
+          "match": "\\b(enum|union)\\b"
+        }
+      ]
+    },
+    "types": {
+      "patterns": [
+        {
+          "name": "support.type.primitive.verve",
+          "match": "\\b(int|int8|int16|int32|int64|uint8|uint16|uint32|uint64|float|float32|float64|decimal|string|bool|byte|bytes|void)\\b"
+        },
+        {
+          "name": "support.type.builtin.verve",
+          "match": "\\b(uuid|email|uri|phone|utc_datetime|duration|Result|list|map|process)\\b"
+        },
+        {
+          "name": "entity.name.type.verve",
+          "match": "\\b[A-Z][a-zA-Z0-9_]*\\b"
+        }
+      ]
+    },
+    "functions": {
+      "patterns": [
+        {
+          "name": "entity.name.function.verve",
+          "match": "\\b(fn|receive)\\s+([a-zA-Z_][a-zA-Z0-9_]*)",
+          "captures": {
+            "1": { "name": "keyword.declaration.verve" },
+            "2": { "name": "entity.name.function.verve" }
+          }
+        },
+        {
+          "name": "meta.annotation.verve",
+          "match": "///\\s*@(example|property)\\b",
+          "captures": {
+            "1": { "name": "storage.type.annotation.verve" }
+          }
+        }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        {
+          "name": "keyword.operator.comparison.verve",
+          "match": "(==|!=|>=|<=|>|<)"
+        },
+        {
+          "name": "keyword.operator.arithmetic.verve",
+          "match": "(\\+|-|\\*|/|%)"
+        },
+        {
+          "name": "keyword.operator.assignment.verve",
+          "match": "="
+        },
+        {
+          "name": "keyword.operator.arrow.verve",
+          "match": "(->|=>)"
+        },
+        {
+          "name": "keyword.operator.logical.verve",
+          "match": "!"
+        }
+      ]
+    },
+    "punctuation": {
+      "patterns": [
+        {
+          "name": "punctuation.separator.verve",
+          "match": "[;,]"
+        },
+        {
+          "name": "punctuation.bracket.verve",
+          "match": "[{}()\\[\\]]"
+        }
+      ]
+    }
+  }
+}

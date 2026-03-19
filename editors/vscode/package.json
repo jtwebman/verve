@@ -1,0 +1,33 @@
+{
+  "name": "verve-lang",
+  "displayName": "Verve Language",
+  "description": "Syntax highlighting for the Verve programming language",
+  "version": "0.1.0",
+  "publisher": "verve-lang",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/verve-lang/verve"
+  },
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": ["Programming Languages"],
+  "contributes": {
+    "languages": [
+      {
+        "id": "verve",
+        "aliases": ["Verve", "verve"],
+        "extensions": [".vv"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "verve",
+        "scopeName": "source.verve",
+        "path": "./syntaxes/verve.tmLanguage.json"
+      }
+    ]
+  }
+}
