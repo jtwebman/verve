@@ -176,8 +176,6 @@ pub fn main() !void {
             }
             break :blk false;
         };
-        _ = check_only;
-
         const source = std.fs.cwd().readFileAlloc(alloc, file_path, 1024 * 1024) catch |err| {
             std.debug.print("Error reading {s}: {}\n", .{ file_path, err });
             return;
@@ -195,11 +193,19 @@ pub fn main() !void {
             return;
         };
 
-        std.fs.cwd().writeFile(.{ .sub_path = file_path, .data = formatted }) catch |err| {
-            std.debug.print("Error writing {s}: {}\n", .{ file_path, err });
-            return;
-        };
-        std.debug.print("Formatted {s}\n", .{file_path});
+        if (check_only) {
+            if (!std.mem.eql(u8, source, formatted)) {
+                std.debug.print("FAIL — {s} is not formatted. Run: verve fmt {s}\n", .{ file_path, file_path });
+                std.process.exit(1);
+            }
+            std.debug.print("OK — {s} is formatted\n", .{file_path});
+        } else {
+            std.fs.cwd().writeFile(.{ .sub_path = file_path, .data = formatted }) catch |err| {
+                std.debug.print("Error writing {s}: {}\n", .{ file_path, err });
+                return;
+            };
+            std.debug.print("Formatted {s}\n", .{file_path});
+        }
     } else {
         printUsage();
     }

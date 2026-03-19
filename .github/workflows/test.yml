@@ -20,7 +20,7 @@ jobs:
       - name: Build
         run: zig build
 
-      - name: Run tests
+      - name: Run unit tests
         run: zig build test
 
       - name: Run examples
@@ -29,4 +29,14 @@ jobs:
           zig build run -- run examples/counter.vv
           zig build run -- run examples/multi.vv
           zig build run -- run examples/supervisor.vv
+          zig build run -- run examples/lists.vv
+
+      - name: Type check examples
+        run: |
           zig build run -- check examples/hello.vv
+          zig build run -- check examples/counter.vv
+          zig build run -- check examples/multi.vv
+
+      - name: Run verifier
+        run: |
+          zig build run -- test examples/tested.vv
