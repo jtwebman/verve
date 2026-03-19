@@ -57,7 +57,7 @@
 - [x] Opening brace on same line
 - [x] CLI — `verve fmt file.vv` (format in place)
 - [x] CLI — `verve fmt --check file.vv` (fail if not formatted, for CI)
-- [ ] Max 120 chars per line, wrap params/args
+- [x] Max 120 chars per line, wrap params one-per-line
 
 ## Phase 2 — Type Checker
 

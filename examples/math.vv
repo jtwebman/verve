@@ -1,26 +1,26 @@
 export module Math {
-    fn add(a: int, b: int) -> int {
-        return a + b;
-    }
+	fn add(a: int, b: int) -> int {
+		return a + b;
+	}
 
-    fn multiply(a: int, b: int) -> int {
-        return a * b;
-    }
+	fn multiply(a: int, b: int) -> int {
+		return a * b;
+	}
 
-    fn factorial(n: int) -> int {
-        result = 1;
-        i = 1;
-        while i <= n {
-            result = result * i;
-            i = i + 1;
-        }
-        return result;
-    }
+	fn factorial(n: int) -> int {
+		result: int = 1;
+		i: int = 1;
+		while i <= n {
+			result = result * i;
+			i = i + 1;
+		}
+		return result;
+	}
 }
 
 // Not exported — internal helper
 module MathInternal {
-    fn secret() -> int {
-        return 42;
-    }
+	fn secret() -> int {
+		return 42;
+	}
 }

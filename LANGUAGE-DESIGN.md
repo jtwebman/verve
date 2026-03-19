@@ -732,6 +732,7 @@ This is the model used in safety-critical systems (aerospace, medical devices) w
 - **If/else** — use `match` on booleans, always exhaustive
 - **For loops** — use `while`, one loop construct
 - **Default values** — every field, every argument, always explicit
+- **Untyped variables** — all variables must declare their type: `x: int = 42;`
 - **Hidden side effects** — `send` and `tell` keywords mark every process boundary
 - **Arbitrary mutation** — transitions only, in process receive handlers only
 - **Shared mutable state** — processes own their state, no direct access from outside

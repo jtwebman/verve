@@ -1,36 +1,36 @@
 module Main {
-    fn main() -> int {
-        println("=== List Test ===");
+	fn main() -> int {
+		println("=== List Test ===");
 
-        // Create a list and append to it
-        numbers = list();
-        append numbers { 10; }
-        append numbers { 20; }
-        append numbers { 30; }
+		// Create a list and append to it
+		numbers: list = list();
+		append numbers { 10; }
+		append numbers { 20; }
+		append numbers { 30; }
 
-        println("List length: ", numbers.len);
-        println("First: ", numbers[0]);
-        println("Last: ", numbers[2]);
+		println("List length: ", numbers.len);
+		println("First: ", numbers[0]);
+		println("Last: ", numbers[2]);
 
-        // Sum with while loop
-        total = 0;
-        i = 0;
-        while i < numbers.len {
-            total = total + numbers[i];
-            i = i + 1;
-        }
-        println("Sum: ", total);
+		// Sum with while loop
+		total: int = 0;
+		i: int = 0;
+		while i < numbers.len {
+			total = total + numbers[i];
+			i = i + 1;
+		}
+		println("Sum: ", total);
 
-        // Build a list of squares
-        squares = list();
-        i = 0;
-        while i < 5 {
-            append squares { i * i; }
-            i = i + 1;
-        }
-        println("Squares: ", squares);
+		// Build a list of squares
+		squares: list = list();
+		i = 0;
+		while i < 5 {
+			append squares { i * i; }
+			i = i + 1;
+		}
+		println("Squares: ", squares);
 
-        println("=== Done ===");
-        return 0;
-    }
+		println("=== Done ===");
+		return 0;
+	}
 }

@@ -635,6 +635,29 @@ pub const Parser = struct {
 
         const expr = try self.parseExpr();
 
+        // Declaration: name: type = value;
+        if (expr == .identifier and self.peekChar(':')) {
+            self.skipWhitespaceAndComments();
+            // Make sure it's : not :: or :tag
+            if (self.pos < self.source.len and self.source[self.pos] == ':') {
+                // Check next char isn't another : or a letter (which would be a tag)
+                if (self.pos + 1 < self.source.len and self.source[self.pos + 1] != ':') {
+                    try self.expectChar(':');
+                    const type_expr = try self.parseTypeExpr();
+                    try self.expectChar('=');
+                    const value = try self.parseExpr();
+                    try self.expectChar(';');
+                    return .{ .assign = .{
+                        .name = expr.identifier,
+                        .type_expr = type_expr,
+                        .value = value,
+                        .span = .{ .start = 0, .end = 0 },
+                    } };
+                }
+            }
+        }
+
+        // Reassignment: name = value;
         if (self.peekChar('=')) {
             self.skipWhitespaceAndComments();
             if (self.pos + 1 < self.source.len and self.source[self.pos + 1] != '=') {
@@ -645,7 +668,12 @@ pub const Parser = struct {
                     .identifier => |id| id,
                     else => return self.fail("left side of assignment must be an identifier", .{}),
                 };
-                return .{ .assign = .{ .name = name, .value = value, .span = .{ .start = 0, .end = 0 } } };
+                return .{ .assign = .{
+                    .name = name,
+                    .type_expr = null,
+                    .value = value,
+                    .span = .{ .start = 0, .end = 0 },
+                } };
             }
         }
 

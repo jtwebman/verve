@@ -159,6 +159,7 @@ pub const WatchStmt = struct {
 
 pub const Assign = struct {
     name: []const u8,
+    type_expr: ?TypeExpr, // null for reassignment, set for declaration
     value: Expr,
     span: Span,
 };

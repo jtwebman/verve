@@ -101,7 +101,30 @@ test "valid: variable defined before use" {
     try expectNoErrors(
         \\module Main {
         \\    fn main() -> int {
+        \\        x: int = 10;
+        \\        return x;
+        \\    }
+        \\}
+    );
+}
+
+test "error: variable without type declaration" {
+    try expectError(
+        \\module Main {
+        \\    fn main() -> int {
         \\        x = 10;
+        \\        return x;
+        \\    }
+        \\}
+    , "must be declared with a type");
+}
+
+test "valid: variable reassignment after declaration" {
+    try expectNoErrors(
+        \\module Main {
+        \\    fn main() -> int {
+        \\        x: int = 10;
+        \\        x = 20;
         \\        return x;
         \\    }
         \\}
@@ -510,7 +533,7 @@ test "valid: full program with module and process" {
         \\
         \\module Main {
         \\    fn main() -> int {
-        \\        fee = Pricing.apply_fee(100, 5);
+        \\        fee: int = Pricing.apply_fee(100, 5);
         \\        return 0;
         \\    }
         \\}

@@ -123,10 +123,11 @@ pub const Checker = struct {
             try self.current_scope.put(self.alloc, field.name, self.typeExprName(field.type_expr));
         }
 
-        // Check guards are boolean
+        // Check guards
         for (handler.guards) |guard| {
             try self.checkExprIsBoolean(guard);
         }
+        try self.checkGuardConsistency(handler.guards);
 
         // Check body
         for (handler.body) |stmt| {
@@ -157,10 +158,11 @@ pub const Checker = struct {
         // Check return type exists
         try self.checkTypeExists(func.return_type);
 
-        // Check guards are boolean
+        // Check guards
         for (func.guards) |guard| {
             try self.checkExprIsBoolean(guard);
         }
+        try self.checkGuardConsistency(func.guards);
 
         // Check body
         for (func.body) |stmt| {
@@ -195,7 +197,20 @@ pub const Checker = struct {
         switch (stmt) {
             .assign => |a| {
                 try self.checkExpr(a.value);
-                try self.current_scope.put(self.alloc, a.name, "unknown");
+                if (a.type_expr) |te| {
+                    // Declaration: x: int = 42;
+                    try self.checkTypeExists(te);
+                    try self.current_scope.put(self.alloc, a.name, self.typeExprName(te));
+                } else {
+                    // Reassignment: x = 43;
+                    if (self.current_scope.get(a.name) == null) {
+                        try self.addError(
+                            try std.fmt.allocPrint(self.alloc, "variable '{s}' must be declared with a type: {s}: <type> = ...", .{ a.name, a.name }),
+                            0,
+                            0,
+                        );
+                    }
+                }
             },
             .return_stmt => |r| {
                 if (r.value) |val| {
@@ -355,6 +370,45 @@ pub const Checker = struct {
     }
 
     // ── Poison value warnings ─────────────────────────────────
+
+    // ── Guard consistency ──────────────────────────────────────
+
+    fn checkGuardConsistency(self: *Checker, guards: []const ast.Expr) !void {
+        for (guards) |guard| {
+            // Check for always-false guards
+            if (guard == .bool_literal and !guard.bool_literal) {
+                try self.addError("guard is always false — function can never execute", 0, 0);
+            }
+            // Check for contradictions: guard x > 0; guard x < 0;
+            // (simplified: check literal contradictions)
+            if (guard == .binary_op) {
+                const op = guard.binary_op;
+                // Check: x > x, x < x, x != x — always false
+                if (op.left.* == .identifier and op.right.* == .identifier) {
+                    if (std.mem.eql(u8, op.left.identifier, op.right.identifier)) {
+                        switch (op.op) {
+                            .lt, .gt, .neq => {
+                                try self.addError(
+                                    try std.fmt.allocPrint(self.alloc, "guard '{s}' compared to itself with '{s}' is always false", .{
+                                        op.left.identifier,
+                                        switch (op.op) {
+                                            .lt => "<",
+                                            .gt => ">",
+                                            .neq => "!=",
+                                            else => "?",
+                                        },
+                                    }),
+                                    0,
+                                    0,
+                                );
+                            },
+                            else => {},
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     fn warnUnguardedDivision(self: *Checker, stmts: []const ast.Stmt, guards: []const ast.Expr) !void {
         // Check if any expression uses division without a guard checking divisor != 0
