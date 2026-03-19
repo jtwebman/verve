@@ -89,7 +89,7 @@
 - [x] @example — parse from doc comments, run as tests, compare results
 - [x] Verifier signals — VALID, INVALID(reason), INCOMPLETE
 - [x] CLI — `verve test file.vv`
-- [ ] @property — fuzz testing with random inputs
+- [x] @property — fuzz testing with 100 random inputs per property, deterministic seed
 - [ ] Invariant checking after receive handlers
 - [ ] Poison value coverage warnings
 - [ ] Guard consistency checks
