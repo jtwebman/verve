@@ -166,6 +166,9 @@ pub const Checker = struct {
         for (func.body) |stmt| {
             try self.checkStmt(stmt);
         }
+
+        // Warn about obvious poison values
+        try self.warnUnguardedDivision(func.body, func.guards);
     }
 
     // ── Struct checking ───────────────────────────────────────
@@ -343,12 +346,45 @@ pub const Checker = struct {
 
     fn checkExprIsBoolean(self: *Checker, expr: ast.Expr) !void {
         try self.checkExpr(expr);
-        // Full type inference would determine if the result is bool
-        // For now, check obvious non-boolean cases
         switch (expr) {
             .string_literal => try self.addError("guard/while condition must be boolean, got string", 0, 0),
             .int_literal => try self.addError("guard/while condition must be boolean, got int", 0, 0),
             .float_literal => try self.addError("guard/while condition must be boolean, got float", 0, 0),
+            else => {},
+        }
+    }
+
+    // ── Poison value warnings ─────────────────────────────────
+
+    fn warnUnguardedDivision(self: *Checker, stmts: []const ast.Stmt, guards: []const ast.Expr) !void {
+        // Check if any expression uses division without a guard checking divisor != 0
+        _ = guards;
+        for (stmts) |stmt| {
+            switch (stmt) {
+                .assign => |a| try self.checkForUnguardedDivision(a.value),
+                .return_stmt => |r| {
+                    if (r.value) |v| try self.checkForUnguardedDivision(v);
+                },
+                else => {},
+            }
+        }
+    }
+
+    fn checkForUnguardedDivision(self: *Checker, expr: ast.Expr) !void {
+        switch (expr) {
+            .binary_op => |op| {
+                if (op.op == .div or op.op == .mod) {
+                    // Check if divisor is a literal 0
+                    if (op.right.* == .int_literal and op.right.int_literal == 0) {
+                        try self.addError("division by zero — divisor is always 0", 0, 0);
+                    }
+                }
+                try self.checkForUnguardedDivision(op.left.*);
+                try self.checkForUnguardedDivision(op.right.*);
+            },
+            .call => |c| {
+                for (c.args) |arg| try self.checkForUnguardedDivision(arg);
+            },
             else => {},
         }
     }

@@ -517,6 +517,38 @@ test "valid: full program with module and process" {
     );
 }
 
+// ── Poison value warnings ─────────────────────────────────
+
+test "error: literal division by zero" {
+    try expectError(
+        \\module Main {
+        \\    fn main() -> int {
+        \\        return 42 / 0;
+        \\    }
+        \\}
+    , "division by zero");
+}
+
+test "error: literal modulo by zero" {
+    try expectError(
+        \\module Main {
+        \\    fn main() -> int {
+        \\        return 42 % 0;
+        \\    }
+        \\}
+    , "division by zero");
+}
+
+test "valid: division by non-zero" {
+    try expectNoErrors(
+        \\module Main {
+        \\    fn main() -> int {
+        \\        return 42 / 6;
+        \\    }
+        \\}
+    );
+}
+
 // ── send/tell checks ──────────────────────────────────────
 
 test "error: tell on module" {
