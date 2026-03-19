@@ -48,7 +48,26 @@ zig build run -- run examples/hello.vv
 zig build run -- check examples/hello.vv
 ```
 
-### Run tests
+### Check a program (type check)
+
+```
+zig build run -- check examples/hello.vv
+```
+
+### Run @example and @property tests
+
+```
+zig build run -- test examples/tested.vv
+```
+
+### Format a file
+
+```
+zig build run -- fmt file.vv
+zig build run -- fmt file.vv --check   # CI mode — fail if not formatted
+```
+
+### Run compiler tests
 
 ```
 zig build test
@@ -91,29 +110,37 @@ module Main {
 
 ```
 verve/
-├── build.zig               # Zig build config
-├── LANGUAGE-DESIGN.md       # Complete language specification
-├── BACKLOG.md               # Development roadmap and progress
-├── examples/                # Example Verve programs
-│   ├── hello.vv             # Basic: math, loops, match, functions
-│   ├── counter.vv           # Processes: spawn, send, state, transitions
-│   ├── multi.vv             # Multi-file imports
-│   ├── math.vv              # Exported module library
-│   └── supervisor.vv        # Process supervision with watch
+├── build.zig                # Zig build config
+├── LANGUAGE-DESIGN.md        # Complete language specification
+├── BACKLOG.md                # Development roadmap and progress
+├── editors/vscode/           # VS Code / Cursor syntax highlighting
+├── examples/
+│   ├── hello.vv              # Basic: math, loops, match, functions
+│   ├── counter.vv            # Processes: spawn, send, state, transitions
+│   ├── multi.vv              # Multi-file imports
+│   ├── math.vv               # Exported module library
+│   ├── lists.vv              # Lists: create, append, index, iterate
+│   ├── supervisor.vv         # Process supervision with watch
+│   └── tested.vv             # @example and @property annotations
 └── src/
-    ├── main.zig             # CLI entry point
-    ├── ast.zig              # AST node types
-    ├── parser.zig           # Hand-written recursive descent parser
-    ├── value.zig            # Runtime value types
-    ├── interpreter.zig      # Tree-walk interpreter
-    ├── process.zig          # Process scheduler and mailbox
-    ├── loader.zig           # Multi-file import resolver
-    └── *_test.zig           # 131 tests
+    ├── main.zig              # CLI: run, check, test, fmt
+    ├── ast.zig               # AST node types
+    ├── parser.zig            # Hand-written recursive descent parser
+    ├── value.zig             # Runtime value types with poison values
+    ├── interpreter.zig       # Tree-walk interpreter
+    ├── process.zig           # Process scheduler, mailbox, state
+    ├── loader.zig            # Multi-file import/export resolver
+    ├── checker.zig           # Type checker, recursion detection
+    ├── formatter.zig         # Canonical code formatter
+    ├── verifier.zig          # @example and @property test runner
+    └── *_test.zig            # 191 tests across 6 suites
 ```
 
 ## Status
 
-Early development. The interpreter runs Verve programs with modules, processes, message passing, and multi-file imports. Native compilation, type checking, and the verifier are planned.
+The interpreter runs Verve programs with modules, processes, typed message passing, multi-file imports, and lists. The type checker catches undefined variables, unknown types, recursion, and non-boolean guards. The verifier runs @example and @property tests with VALID/INVALID/INCOMPLETE signals. Native compilation is planned.
+
+See [BACKLOG.md](BACKLOG.md) for the full roadmap.
 
 See [BACKLOG.md](BACKLOG.md) for the full roadmap.
 
