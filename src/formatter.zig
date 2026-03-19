@@ -1,6 +1,8 @@
 const std = @import("std");
 const ast = @import("ast.zig");
 
+pub const MAX_LINE_LENGTH: usize = 120;
+
 pub const Formatter = struct {
     alloc: std.mem.Allocator,
     output: std.ArrayListUnmanaged(u8),
@@ -230,12 +232,61 @@ pub const Formatter = struct {
     }
 
     fn formatParams(self: *Formatter, params: []const ast.Param) !void {
+        if (params.len == 0) return;
+
+        // Measure single-line version
+        const start_col = self.currentCol();
+        var measure_len: usize = start_col;
         for (params, 0..) |param, i| {
-            if (i > 0) try self.write(", ");
-            try self.write(param.name);
-            try self.write(": ");
-            try self.formatTypeExpr(param.type_expr);
+            if (i > 0) measure_len += 2; // ", "
+            measure_len += param.name.len + 2; // "name: "
+            measure_len += self.typeExprLen(param.type_expr);
         }
+        measure_len += 1; // closing paren
+
+        if (measure_len <= MAX_LINE_LENGTH) {
+            // Single line
+            for (params, 0..) |param, i| {
+                if (i > 0) try self.write(", ");
+                try self.write(param.name);
+                try self.write(": ");
+                try self.formatTypeExpr(param.type_expr);
+            }
+        } else {
+            // Wrap: one param per line
+            try self.write("\n");
+            self.indent += 1;
+            for (params, 0..) |param, i| {
+                try self.writeIndent();
+                try self.write(param.name);
+                try self.write(": ");
+                try self.formatTypeExpr(param.type_expr);
+                if (i < params.len - 1) try self.write(",");
+                try self.write("\n");
+            }
+            self.indent -= 1;
+            try self.writeIndent();
+        }
+    }
+
+    fn currentCol(self: *Formatter) usize {
+        // Find the last newline and count chars since
+        var i = self.output.items.len;
+        while (i > 0) {
+            i -= 1;
+            if (self.output.items[i] == '\n') return self.output.items.len - i - 1;
+        }
+        return self.output.items.len;
+    }
+
+    fn typeExprLen(self: *Formatter, t: ast.TypeExpr) usize {
+        _ = self;
+        return switch (t) {
+            .simple => |name| name.len,
+            .generic => |g| g.name.len + 2 + g.args.len * 4, // rough estimate
+            .optional => 6,
+            else => 10,
+        };
     }
 
     // ── Type expressions ──────────────────────────────────────

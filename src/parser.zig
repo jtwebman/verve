@@ -276,7 +276,11 @@ pub const Parser = struct {
             return try self.parseUnionType();
         }
 
-        const name = try self.parseIdentifier();
+        // 'process' is reserved but valid as a type name (process<T>)
+        const name = if (self.matchKeyword("process"))
+            @as([]const u8, "process")
+        else
+            try self.parseIdentifier();
 
         if (self.peekChar('<')) {
             try self.expectChar('<');
