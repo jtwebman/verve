@@ -122,6 +122,46 @@ pub fn main() !void {
             .void => {},
             else => {},
         }
+    } else if (std.mem.eql(u8, command, "test")) {
+        const file_path = args.next() orelse {
+            std.debug.print("Error: no file specified\n", .{});
+            return;
+        };
+        var loader = Loader.init(alloc);
+        const merged = loader.loadFile(file_path) catch |err| {
+            switch (err) {
+                error.FileNotFound => std.debug.print("Error: file not found: {s}\n", .{file_path}),
+                error.ParseFailed => std.debug.print("Parse error in {s}\n", .{file_path}),
+                else => std.debug.print("Error: {}\n", .{err}),
+            }
+            return;
+        };
+
+        var interp = Interpreter.init(alloc);
+        interp.load(merged) catch |err| {
+            std.debug.print("Load error: {}\n", .{err});
+            return;
+        };
+
+        const Vfy = @import("verifier.zig").Verifier;
+        var verifier = Vfy.init(alloc, &interp);
+        const vresult = verifier.verify(merged) catch {
+            std.debug.print("Verifier error\n", .{});
+            return;
+        };
+
+        if (vresult.examples_failed == 0 and vresult.examples_passed > 0) {
+            std.debug.print("VALID — {d} examples passed\n", .{vresult.examples_passed});
+        } else if (vresult.examples_passed == 0 and vresult.examples_failed == 0) {
+            std.debug.print("INCOMPLETE — no @example annotations found\n", .{});
+        } else {
+            std.debug.print("INVALID — {d} passed, {d} failed\n", .{ vresult.examples_passed, vresult.examples_failed });
+            for (vresult.failures.items) |failure| {
+                std.debug.print("  FAIL {s}: {s}\n", .{ failure.function, failure.example });
+                std.debug.print("    expected: {s}\n", .{failure.expected});
+                std.debug.print("    got:      {s}\n", .{failure.got});
+            }
+        }
     } else if (std.mem.eql(u8, command, "fmt")) {
         const file_path = args.next() orelse {
             std.debug.print("Error: no file specified\n", .{});
@@ -169,6 +209,7 @@ fn printUsage() void {
         \\Usage:
         \\  verve run <file.vv>     Run a Verve program
         \\  verve check <file.vv>   Check a Verve program
+        \\  verve test <file.vv>    Run @example tests
         \\  verve fmt <file.vv>     Format a Verve file in place
         \\
     , .{});

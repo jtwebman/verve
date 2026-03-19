@@ -1,0 +1,33 @@
+module Math {
+    /// Adds two integers.
+    /// @example add(2, 3) == 5
+    /// @example add(0, 0) == 0
+    /// @example add(100, 200) == 300
+    fn add(a: int, b: int) -> int {
+        return a + b;
+    }
+
+    /// Multiplies two integers.
+    /// @example multiply(6, 7) == 42
+    /// @example multiply(0, 100) == 0
+    /// @example multiply(3, 3) == 9
+    fn multiply(a: int, b: int) -> int {
+        return a * b;
+    }
+
+    /// Returns the absolute value.
+    /// @example abs(5) == 5
+    /// @example abs(0) == 0
+    fn abs(x: int) -> int {
+        match x >= 0 {
+            true => return x;
+            false => return 0 - x;
+        }
+    }
+}
+
+module Main {
+    fn main() -> int {
+        return 0;
+    }
+}

@@ -65,6 +65,16 @@ pub fn build(b: *std.Build) void {
     });
     test_step.dependOn(&b.addRunArtifact(checker_tests).step);
 
+    // Verifier tests
+    const verifier_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/verifier_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    test_step.dependOn(&b.addRunArtifact(verifier_tests).step);
+
     // Interpreter tests
     const interp_tests = b.addTest(.{
         .root_module = b.createModule(.{
