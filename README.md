@@ -1,6 +1,6 @@
 # Verve
 
-An implementation language designed for AI to write and verify. Humans describe what they want and test the final product.
+A verbose, explicit programming language built for AI. One way to do everything. No magic.
 
 - Website: [vervelang.org](https://vervelang.org)
 - File extension: `.vv`
@@ -8,9 +8,9 @@ An implementation language designed for AI to write and verify. Humans describe 
 
 ## What is Verve?
 
-Verve is a programming language where AI writes the code and a verifier proves it correct. Humans stay at the product level — they describe what they want, test the result, and never review code.
+Verve is a verbose, explicit programming language built for AI to write. There is one way to do everything, no magic, no hidden behavior, and nothing for the AI to get tripped up on.
 
-The language is designed around a tight feedback loop: the AI generates code, the verifier says VALID or INVALID, the AI iterates. This is the same approach that makes [Leanstral](https://mistral.ai/news/leanstral) work for formal proofs, applied to systems programming.
+The language strips away the ambiguity that causes AI-generated code to fail — no exceptions, no null, no implicit conversions, no operator overloading, no inheritance, no macros. What's left is a small, strict set of constructs where the AI can produce correct code reliably because there are fewer ways to be wrong.
 
 ## Key Design Decisions
 
