@@ -43,8 +43,8 @@
 - [x] append statement execution
 - [x] list and map value types in interpreter (mutable, with .len, index, append)
 - [x] Pass command line args to main() as list<string>
-- [ ] @example parsing and extraction
-- [ ] @property parsing and extraction
+- [x] @example parsing and extraction (done in verifier)
+- [x] @property parsing and extraction (done in verifier)
 - [x] Struct literal creation and field access in interpreter
 
 ## Phase 1.5 — Formatter

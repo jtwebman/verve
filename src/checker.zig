@@ -211,14 +211,18 @@ pub const Checker = struct {
 
                 // Check boolean exhaustiveness
                 if (m.subject == .binary_op) {
-                    // Comparison result — should have true and false
                     try self.checkBooleanExhaustiveness(m.arms);
                 }
                 if (m.subject == .identifier) {
-                    // Check if it's a bool variable
                     if (self.current_scope.get(m.subject.identifier)) |type_name| {
                         if (std.mem.eql(u8, type_name, "bool")) {
                             try self.checkBooleanExhaustiveness(m.arms);
+                        }
+                        // Check enum exhaustiveness
+                        if (self.type_decls.get(type_name)) |td| {
+                            if (td.value == .enum_type) {
+                                try self.checkEnumExhaustiveness(td.value.enum_type, m.arms, type_name);
+                            }
                         }
                     }
                 }
@@ -446,6 +450,33 @@ pub const Checker = struct {
             }
             if (!has_false) {
                 try self.addError("match on boolean is missing 'false' case", 0, 0);
+            }
+        }
+    }
+
+    fn checkEnumExhaustiveness(self: *Checker, variants: []const []const u8, arms: []const ast.MatchArm, type_name: []const u8) !void {
+        var has_wildcard = false;
+        var covered: std.StringHashMapUnmanaged(void) = .{};
+
+        for (arms) |arm| {
+            switch (arm.pattern) {
+                .tag => |t| try covered.put(self.alloc, t.tag, {}),
+                .wildcard => has_wildcard = true,
+                .literal => |e| {
+                    if (e == .tag) try covered.put(self.alloc, e.tag, {});
+                },
+            }
+        }
+
+        if (!has_wildcard) {
+            for (variants) |variant| {
+                if (covered.get(variant) == null) {
+                    try self.addError(
+                        try std.fmt.allocPrint(self.alloc, "match on '{s}' is missing case ':{s}'", .{ type_name, variant }),
+                        0,
+                        0,
+                    );
+                }
             }
         }
     }

@@ -342,6 +342,68 @@ test "error: boolean match missing true" {
     , "missing 'true' case");
 }
 
+// ── Enum match exhaustiveness ─────────────────────────────
+
+test "valid: enum match covers all variants" {
+    try expectNoErrors(
+        \\type Color = enum { Red, Green, Blue };
+        \\module Main {
+        \\    fn name(c: Color) -> string {
+        \\        match c {
+        \\            :Red => return "red";
+        \\            :Green => return "green";
+        \\            :Blue => return "blue";
+        \\        }
+        \\    }
+        \\    fn main() -> int { return 0; }
+        \\}
+    );
+}
+
+test "error: enum match missing variant" {
+    try expectError(
+        \\type Color = enum { Red, Green, Blue };
+        \\module Main {
+        \\    fn name(c: Color) -> string {
+        \\        match c {
+        \\            :Red => return "red";
+        \\            :Green => return "green";
+        \\        }
+        \\    }
+        \\    fn main() -> int { return 0; }
+        \\}
+    , "missing case ':Blue'");
+}
+
+test "valid: enum match with wildcard" {
+    try expectNoErrors(
+        \\type Color = enum { Red, Green, Blue };
+        \\module Main {
+        \\    fn name(c: Color) -> string {
+        \\        match c {
+        \\            :Red => return "red";
+        \\            _ => return "other";
+        \\        }
+        \\    }
+        \\    fn main() -> int { return 0; }
+        \\}
+    );
+}
+
+test "error: enum match missing multiple variants" {
+    try expectError(
+        \\type Direction = enum { North, South, East, West };
+        \\module Main {
+        \\    fn name(d: Direction) -> string {
+        \\        match d {
+        \\            :North => return "north";
+        \\        }
+        \\    }
+        \\    fn main() -> int { return 0; }
+        \\}
+    , "missing case");
+}
+
 test "valid: boolean match with wildcard" {
     try expectNoErrors(
         \\module Main {
