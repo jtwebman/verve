@@ -45,7 +45,7 @@
 - [x] Pass command line args to main() as list<string>
 - [ ] @example parsing and extraction
 - [ ] @property parsing and extraction
-- [ ] Struct literal creation in interpreter
+- [x] Struct literal creation and field access in interpreter
 
 ## Phase 1.5 — Formatter
 

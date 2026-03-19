@@ -111,6 +111,41 @@ pub fn main() !void {
             .void => {},
             else => {},
         }
+    } else if (std.mem.eql(u8, command, "fmt")) {
+        const file_path = args.next() orelse {
+            std.debug.print("Error: no file specified\n", .{});
+            return;
+        };
+        const check_only = blk: {
+            if (args.next()) |arg| {
+                break :blk std.mem.eql(u8, arg, "--check");
+            }
+            break :blk false;
+        };
+        _ = check_only;
+
+        const source = std.fs.cwd().readFileAlloc(alloc, file_path, 1024 * 1024) catch |err| {
+            std.debug.print("Error reading {s}: {}\n", .{ file_path, err });
+            return;
+        };
+        var parser = Parser.init(source, alloc);
+        const file = parser.parseFile() catch {
+            std.debug.print("Parse error in {s}: {s}\n", .{ file_path, parser.formatError() });
+            return;
+        };
+
+        const Fmt = @import("formatter.zig").Formatter;
+        var fmt = Fmt.init(alloc);
+        const formatted = fmt.format(file) catch {
+            std.debug.print("Format error\n", .{});
+            return;
+        };
+
+        std.fs.cwd().writeFile(.{ .sub_path = file_path, .data = formatted }) catch |err| {
+            std.debug.print("Error writing {s}: {}\n", .{ file_path, err });
+            return;
+        };
+        std.debug.print("Formatted {s}\n", .{file_path});
     } else {
         printUsage();
     }
@@ -123,6 +158,7 @@ fn printUsage() void {
         \\Usage:
         \\  verve run <file.vv>     Run a Verve program
         \\  verve check <file.vv>   Check a Verve program
+        \\  verve fmt <file.vv>     Format a Verve file in place
         \\
     , .{});
 }
