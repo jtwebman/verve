@@ -112,6 +112,16 @@ pub const Formatter = struct {
         if (p.exported) try self.write("export ");
         try self.write("process ");
         try self.write(p.name);
+        if (p.memory) |mem| {
+            switch (mem) {
+                .sized => |expr| {
+                    try self.write(" [memory: ");
+                    try self.formatExpr(expr);
+                    try self.write("]");
+                },
+                .unbounded => try self.write(" [memory: unbounded]"),
+            }
+        }
         try self.write(" {\n");
         self.indent += 1;
 
@@ -124,11 +134,6 @@ pub const Formatter = struct {
                 try self.write(field.name);
                 try self.write(": ");
                 try self.formatTypeExpr(field.type_expr);
-                if (field.capacity) |cap| {
-                    try self.write(" [capacity: ");
-                    try self.formatExpr(cap);
-                    try self.write("]");
-                }
                 try self.write(";\n");
             }
             self.indent -= 1;

@@ -924,6 +924,21 @@ pub const Parser = struct {
 
     pub fn parseProcessDecl(self: *Parser) Error!ast.ProcessDecl {
         const name = try self.parseIdentifier();
+
+        // Parse optional memory budget: [memory: 64MB] or [memory: unbounded]
+        var memory: ?ast.MemoryBudget = null;
+        if (self.peekChar('[')) {
+            try self.expectChar('[');
+            try self.expect("memory");
+            try self.expectChar(':');
+            if (self.matchKeyword("unbounded")) {
+                memory = .unbounded;
+            } else {
+                memory = .{ .sized = try self.parseExpr() };
+            }
+            try self.expectChar(']');
+        }
+
         try self.expectChar('{');
 
         var state_fields: std.ArrayListUnmanaged(ast.StateField) = .{};
@@ -938,19 +953,10 @@ pub const Parser = struct {
                     const fname = try self.parseIdentifier();
                     try self.expectChar(':');
                     const ftype = try self.parseTypeExpr();
-                    var capacity: ?ast.Expr = null;
-                    if (self.peekChar('[')) {
-                        try self.expectChar('[');
-                        try self.expect("capacity");
-                        try self.expectChar(':');
-                        capacity = try self.parseExpr();
-                        try self.expectChar(']');
-                    }
                     try self.expectChar(';');
                     try state_fields.append(self.alloc, .{
                         .name = fname,
                         .type_expr = ftype,
-                        .capacity = capacity,
                         .span = .{ .start = 0, .end = 0 },
                     });
                 }
@@ -972,6 +978,7 @@ pub const Parser = struct {
 
         return .{
             .name = name,
+            .memory = memory,
             .state_fields = try state_fields.toOwnedSlice(self.alloc),
             .receive_handlers = try receive_handlers.toOwnedSlice(self.alloc),
             .invariants = try invariants.toOwnedSlice(self.alloc),

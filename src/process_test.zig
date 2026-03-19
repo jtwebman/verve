@@ -7,7 +7,7 @@ const testing = std.testing;
 // ── Helper ────────────────────────────────────────────────
 
 fn runMain(source: []const u8) !Value {
-    const alloc = testing.allocator;
+    const alloc = std.heap.page_allocator;
     var parser = Parser.init(source, alloc);
     const file = try parser.parseFile();
     var interp = Interpreter.init(alloc);
@@ -21,7 +21,7 @@ fn runMain(source: []const u8) !Value {
 }
 
 fn run(source: []const u8, module_name: []const u8, fn_name: []const u8, args: []const Value) !Value {
-    const alloc = testing.allocator;
+    const alloc = std.heap.page_allocator;
     var parser = Parser.init(source, alloc);
     const file = try parser.parseFile();
     var interp = Interpreter.init(alloc);
@@ -35,7 +35,7 @@ test "spawn process and send message" {
     const val = try runMain(
         \\process Counter {
         \\    state {
-        \\        count: int [capacity: 1];
+        \\        count: int;
         \\    }
         \\    receive GetCount() -> int {
         \\        return count;
@@ -58,7 +58,7 @@ test "spawn process and increment state" {
     const val = try runMain(
         \\process Counter {
         \\    state {
-        \\        count: int [capacity: 1];
+        \\        count: int;
         \\    }
         \\    receive Increment() -> int {
         \\        transition count { count + 1; }
@@ -85,7 +85,7 @@ test "process guard fails returns error" {
     const val = try runMain(
         \\process Account {
         \\    state {
-        \\        balance: int [capacity: 1];
+        \\        balance: int;
         \\    }
         \\    receive Withdraw(amount: int) -> int {
         \\        guard amount > 0;
@@ -112,7 +112,7 @@ test "multiple processes with independent state" {
     const val = try runMain(
         \\process Counter {
         \\    state {
-        \\        count: int [capacity: 1];
+        \\        count: int;
         \\    }
         \\    receive Add(n: int) -> int {
         \\        transition count { count + n; }
@@ -149,7 +149,7 @@ test "process state transition with guard" {
     const val = try runMain(
         \\process Ledger {
         \\    state {
-        \\        balance: int [capacity: 1];
+        \\        balance: int;
         \\    }
         \\    receive Deposit(amount: int) -> int {
         \\        guard amount > 0;
@@ -187,7 +187,7 @@ test "process entry point with main" {
     const val = try runMain(
         \\process App {
         \\    state {
-        \\        count: int [capacity: 1];
+        \\        count: int;
         \\    }
         \\    receive main() -> int {
         \\        return 42;
@@ -206,7 +206,7 @@ test "process calls module function" {
         \\}
         \\process Counter {
         \\    state {
-        \\        count: int [capacity: 1];
+        \\        count: int;
         \\    }
         \\    receive AddDoubled(n: int) -> int {
         \\        doubled = Math.double(n);
@@ -231,7 +231,7 @@ test "send to dead process returns error" {
     const val = try runMain(
         \\process Counter {
         \\    state {
-        \\        count: int [capacity: 1];
+        \\        count: int;
         \\    }
         \\    receive GetCount() -> int {
         \\        return count;
@@ -259,7 +259,7 @@ test "match send handles all three cases" {
     const val = try runMain(
         \\process Ledger {
         \\    state {
-        \\        balance: int [capacity: 1];
+        \\        balance: int;
         \\    }
         \\    receive Withdraw(amount: int) -> int {
         \\        guard balance >= amount;
@@ -292,7 +292,7 @@ test "multiple operations with guard success and failure" {
     const val = try runMain(
         \\process Account {
         \\    state {
-        \\        balance: int [capacity: 1];
+        \\        balance: int;
         \\    }
         \\    receive Deposit(amount: int) -> int {
         \\        guard amount > 0;
@@ -345,7 +345,7 @@ test "watch a process" {
     const val = try runMain(
         \\process Worker {
         \\    state {
-        \\        value: int [capacity: 1];
+        \\        value: int;
         \\    }
         \\    receive SetValue(v: int) -> int {
         \\        transition value { v; }
@@ -354,7 +354,7 @@ test "watch a process" {
         \\}
         \\process App {
         \\    state {
-        \\        count: int [capacity: 1];
+        \\        count: int;
         \\    }
         \\    receive main() -> int {
         \\        w = spawn Worker();
@@ -375,7 +375,7 @@ test "receive; processes a queued message" {
     const val = try runMain(
         \\process App {
         \\    state {
-        \\        count: int [capacity: 1];
+        \\        count: int;
         \\    }
         \\    receive main() -> int {
         \\        // No messages queued — receive; is no-op in single-threaded
@@ -391,7 +391,7 @@ test "tell fires and forgets" {
     const val = try runMain(
         \\process Logger {
         \\    state {
-        \\        count: int [capacity: 1];
+        \\        count: int;
         \\    }
         \\    receive Log(msg: string) -> void {
         \\        transition count { count + 1; }
@@ -420,7 +420,7 @@ test "send to process from module function" {
     const val = try runMain(
         \\process Counter {
         \\    state {
-        \\        count: int [capacity: 1];
+        \\        count: int;
         \\    }
         \\    receive Increment() -> int {
         \\        transition count { count + 1; }

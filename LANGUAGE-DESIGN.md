@@ -118,8 +118,8 @@ fn dequeue<T>(queue: Queue<T>) -> T? {
 
 // compiler generates concrete Queue<Order> and Queue<User>
 // each is verified separately
-orders: Queue<Order> [capacity: 1000];
-users: Queue<User> [capacity: 500];
+orders: Queue<Order>;
+users: Queue<User>;
 ```
 
 Built-in types already use generics: `list<T>`, `map<K, V>`, `process<T>`, `Result<T>`. User-defined generics follow the same pattern.
@@ -307,10 +307,10 @@ Runtime units that own state and communicate through typed messages. A process i
 Processes own their state in memory. No built-in persistence — if a process wants durability it sends data to a database, filesystem, or another process. If a process crashes, its state is gone.
 
 ```
-process Ledger {
+process Ledger [memory: 64MB] {
     state {
-        entries: list<Entry> [capacity: 100000];
-        balances: map<AccountId, Money> [capacity: 50000];
+        entries: list<Entry>;
+        balances: map<AccountId, Money>;
     }
 
     invariant {
@@ -389,7 +389,7 @@ The entry point is `fn main(args: list<string>) -> int` inside a process. There 
 Short-lived program (CLI tool, script):
 
 ```
-process App {
+process App [memory: 1MB] {
     fn main(args: list<string>) -> int {
         println("done");
         return 0;
@@ -400,7 +400,7 @@ process App {
 Long-lived service (HTTP server, worker):
 
 ```
-process App {
+process App [memory: 4MB] {
     state {
         running: bool;
     }
@@ -529,7 +529,7 @@ Examples test specific cases. Properties test all cases. Both are mandatory. Bot
 Process-level truths that the verifier checks after every receive handler.
 
 ```
-process Ledger {
+process Ledger [memory: 64MB] {
     invariant {
         all(account: AccountId, balances[account] >= 0);
     }
@@ -687,18 +687,18 @@ Maps and sets have defined iteration order. No "undefined behavior." Same inputs
 
 No garbage collector. No ownership system. No reference counting.
 
-Process state is pre-allocated with declared capacity at spawn. Local variables in functions and receive handlers live on the stack — allocated when the handler runs, freed when it returns. The compiler knows exact stack size at compile time.
+Each process declares a memory budget. The full budget is pre-allocated as an arena at spawn time. Collections grow dynamically within the arena using bump allocation. Local variables in functions and receive handlers live on the stack — allocated when the handler runs, freed when it returns. The compiler knows exact stack size at compile time.
 
 ```
-process Ledger {
+process Ledger [memory: 64MB] {
     state {
-        entries: list<Entry> [capacity: 10000];
-        balances: map<AccountId, Money> [capacity: 5000];
+        entries: list<Entry>;
+        balances: map<AccountId, Money>;
     }
 
     receive Transfer(from: AccountId, to: AccountId, amount: Money) -> Result<void> {
         // local variables — stack allocated, freed when handler returns
-        entry = Entry { from: from, to: to, amount: amount };
+        entry: Entry = Entry { from: from, to: to, amount: amount };
 
         guard balances[from] >= amount;
         append entries { entry; }
@@ -709,15 +709,47 @@ process Ledger {
 }
 ```
 
+At spawn, the runtime reserves the full arena (64MB of address space). The OS backs pages with physical memory only as they're touched, so a process that uses 2MB of a 64MB budget only consumes 2MB of physical RAM. Within the arena, a bump pointer hands out memory with zero overhead — no syscalls, no fragmentation, no size tracking per allocation.
+
+When the arena is full, it's not a crash — it's a guard failure. The AI writes the overflow strategy (flush to DB, spawn a new process, reject the request).
+
+When the process dies, the entire arena is freed in one operation. No per-object cleanup, no finalizers, no GC sweep.
+
 The verifier can prove:
-- Exact memory usage per process at compile time (state capacity + max stack size)
-- No memory leaks — state is freed when process dies, locals freed when handler returns
-- No OOM within a process — capacity is declared and checked
+- Exact maximum memory per process at compile time (arena budget + max stack size)
+- No memory leaks — arena freed when process dies, locals freed when handler returns
+- No OOM surprises mid-handler — budget is declared and enforced
 - No GC pauses — nothing to collect
+- No allocation failure after spawn — if the process started, it has its full budget
 
-When state hits capacity, it's not a crash — it's a guard failure. The AI writes the overflow strategy (flush to DB, spawn a new process, reject the request).
+The AI picks the budget based on data types and expected load. One number per process instead of a capacity annotation on every collection. If the budget is wrong, adjust one number.
 
-This is the model used in safety-critical systems (aerospace, medical devices) where pre-allocation is mandatory. Normally too tedious for humans. AI doesn't care about tedious.
+### Unbounded processes
+
+Some processes genuinely don't know how much memory they'll need — log aggregators, caches, stream processors. For these, declare `memory: unbounded`:
+
+```
+process LogBuffer [memory: unbounded] {
+    state {
+        lines: list<string>;
+    }
+
+    receive Append(line: string) -> void {
+        append lines { line; }
+    }
+}
+```
+
+An unbounded process grows until the OS kills it. The compiler emits a warning: "process LogBuffer has no memory bound — watcher must handle ProcessDied." The verifier enforces that any process that spawns an unbounded process also watches it.
+
+This is explicit. You're saying "I know this can OOM, and I've written the recovery." Bounded processes are the default and the recommendation. Unbounded is the escape hatch for when a budget genuinely can't be determined upfront.
+
+| Mode | Behavior | When to use |
+|---|---|---|
+| `[memory: 64MB]` | Pre-allocated arena, guard failure at limit | Most processes — known data, predictable load |
+| `[memory: unbounded]` | Grows until OS kills it, watcher must handle crash | Caches, buffers, aggregators with unpredictable size |
+
+This is the model used in safety-critical systems (aerospace, medical devices) and high-performance game engines where pre-allocation is mandatory. Normally too tedious for humans — picking a single budget per process is manageable even for them.
 
 ## What the language does NOT have
 
@@ -739,8 +771,8 @@ This is the model used in safety-critical systems (aerospace, medical devices) w
 - **Cross-process transactions** — if it needs to be atomic, it belongs in one process
 - **Built-in persistence** — processes manage their own durability
 - **Hot code reloading** — deploy new containers instead
-- **Garbage collection** — pre-allocated state, stack locals, nothing to collect
-- **Dynamic allocation** — all memory is declared upfront or stack-scoped
+- **Garbage collection** — per-process arena allocation, stack locals, nothing to collect
+- **Dynamic allocation** — per-process arena with declared budget, no general-purpose heap
 - **Closures / anonymous functions** — pass named function references instead, no captured state
 - **Passing receive handlers as function references** — wrap in a named function that does the send explicitly
 - **Recursion** — no function can call itself, directly, mutually, or through function pointers. Compiler detects call graph cycles. Use while loops instead.
@@ -814,7 +846,7 @@ Streaming, HTTP servers, database clients, protocol parsers — these are all li
 All foreign code runs inside a process. No exceptions. If the FFI call segfaults, the process dies, the watcher restarts it. The rest of the system is unaffected.
 
 ```
-process Crypto {
+process Crypto [memory: 4MB] {
     ffi "libsodium" {
         fn crypto_secretbox(msg: bytes, nonce: bytes, key: bytes) -> bytes;
         fn crypto_secretbox_open(cipher: bytes, nonce: bytes, key: bytes) -> bytes;
@@ -1004,7 +1036,7 @@ string                  // UTF-8
 // Raw data
 bytes                   // list<byte>
 
-// Collections (with capacity)
+// Collections
 list<T>, map<K, V>
 
 // Well-known types

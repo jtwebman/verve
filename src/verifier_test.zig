@@ -5,7 +5,7 @@ const Verifier = @import("verifier.zig").Verifier;
 const testing = std.testing;
 
 fn runVerifier(source: []const u8) !@import("verifier.zig").VerifyResult {
-    const alloc = testing.allocator;
+    const alloc = std.heap.page_allocator;
     var parser = Parser.init(source, alloc);
     const file = try parser.parseFile();
     var interp = Interpreter.init(alloc);

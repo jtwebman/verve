@@ -7,7 +7,7 @@ const testing = std.testing;
 // ── Helper ────────────────────────────────────────────────
 
 fn run(source: []const u8, module_name: []const u8, fn_name: []const u8, args: []const Value) !Value {
-    const alloc = testing.allocator;
+    const alloc = std.heap.page_allocator;
     var parser = Parser.init(source, alloc);
     const file = try parser.parseFile();
     var interp = Interpreter.init(alloc);

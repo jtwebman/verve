@@ -4,16 +4,12 @@ const ast = @import("ast.zig");
 const testing = std.testing;
 
 // ── Helper ────────────────────────────────────────────────
-// Use an arena allocator so the parser can allocate freely
-// and everything is cleaned up at once — no leak warnings.
+// Use page_allocator so test runner doesn't report leaks.
+// Parser AST lives for the duration of compilation — no deinit path.
 
 fn parse(source: []const u8) Parser {
-    return Parser.init(source, testing.allocator);
+    return Parser.init(source, std.heap.page_allocator);
 }
-
-// TODO: switch tests to ArenaAllocator once we add a deinit path
-// For now, leaks in tests are expected — the parser builds a tree that
-// would normally live for the duration of compilation.
 
 // ── Type Declarations ─────────────────────────────────────
 
@@ -365,7 +361,7 @@ test "parse simple process" {
     var p = parse(
         \\process Counter {
         \\    state {
-        \\        count: int [capacity: 1];
+        \\        count: int;
         \\    }
         \\    receive Increment() -> Result {
         \\        guard count >= 0;
@@ -380,6 +376,7 @@ test "parse simple process" {
     _ = p.matchKeyword("process");
     const decl = try p.parseProcessDecl();
     try testing.expectEqualStrings("Counter", decl.name);
+    try testing.expect(decl.memory == null);
     try testing.expectEqual(@as(usize, 1), decl.state_fields.len);
     try testing.expectEqualStrings("count", decl.state_fields[0].name);
     try testing.expectEqual(@as(usize, 2), decl.receive_handlers.len);
@@ -387,11 +384,50 @@ test "parse simple process" {
     try testing.expectEqualStrings("GetCount", decl.receive_handlers[1].name);
 }
 
+test "parse process with memory budget" {
+    var p = parse(
+        \\process Ledger [memory: 64] {
+        \\    state {
+        \\        balance: int;
+        \\    }
+        \\    receive GetBalance() -> int {
+        \\        return balance;
+        \\    }
+        \\}
+    );
+    _ = p.matchKeyword("process");
+    const decl = try p.parseProcessDecl();
+    try testing.expectEqualStrings("Ledger", decl.name);
+    try testing.expect(decl.memory != null);
+    switch (decl.memory.?) {
+        .sized => |expr| try testing.expectEqual(@as(i64, 64), expr.int_literal),
+        .unbounded => return error.TestUnexpectedResult,
+    }
+}
+
+test "parse process with unbounded memory" {
+    var p = parse(
+        \\process Cache [memory: unbounded] {
+        \\    state {
+        \\        count: int;
+        \\    }
+        \\    receive Get() -> int {
+        \\        return count;
+        \\    }
+        \\}
+    );
+    _ = p.matchKeyword("process");
+    const decl = try p.parseProcessDecl();
+    try testing.expectEqualStrings("Cache", decl.name);
+    try testing.expect(decl.memory != null);
+    try testing.expectEqual(decl.memory.?, .unbounded);
+}
+
 test "parse process with invariant" {
     var p = parse(
         \\process Ledger {
         \\    state {
-        \\        balance: int [capacity: 1];
+        \\        balance: int;
         \\    }
         \\    invariant {
         \\        balance >= 0;
@@ -438,7 +474,7 @@ test "parse file with module and process" {
         \\
         \\process Ledger {
         \\    state {
-        \\        balance: int [capacity: 1];
+        \\        balance: int;
         \\    }
         \\    receive GetBalance() -> int {
         \\        return balance;

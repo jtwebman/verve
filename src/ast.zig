@@ -27,8 +27,14 @@ pub const ModuleDecl = struct {
     span: Span,
 };
 
+pub const MemoryBudget = union(enum) {
+    sized: Expr, // [memory: 64MB], [memory: 1KB], etc.
+    unbounded: void, // [memory: unbounded]
+};
+
 pub const ProcessDecl = struct {
     name: []const u8,
+    memory: ?MemoryBudget,
     state_fields: []const StateField,
     receive_handlers: []const ReceiveDecl,
     invariants: []const Expr,
@@ -60,7 +66,6 @@ pub const Field = struct {
 pub const StateField = struct {
     name: []const u8,
     type_expr: TypeExpr,
-    capacity: ?Expr,
     span: Span,
 };
 

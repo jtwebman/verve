@@ -1,6 +1,6 @@
 process Counter {
 	state {
-		count: int [capacity: 1];
+		count: int;
 	}
 
 	receive Increment() -> int {

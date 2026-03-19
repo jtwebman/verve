@@ -1,6 +1,6 @@
 process Worker {
 	state {
-		value: int [capacity: 1];
+		value: int;
 	}
 
 	receive SetValue(v: int) -> int {

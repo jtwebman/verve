@@ -6,7 +6,7 @@ const testing = std.testing;
 // ── Helpers ───────────────────────────────────────────────
 
 fn checkSource(source: []const u8) !Checker {
-    const alloc = testing.allocator;
+    const alloc = std.heap.page_allocator;
     var parser = Parser.init(source, alloc);
     const file = try parser.parseFile();
     var checker = Checker.init(alloc);
@@ -65,7 +65,7 @@ test "valid: process with main function" {
     try expectNoErrors(
         \\process App {
         \\    state {
-        \\        running: bool [capacity: 1];
+        \\        running: bool;
         \\    }
         \\    receive main(args: list<string>) -> int {
         \\        return 0;
@@ -265,7 +265,7 @@ test "valid: transition in receive handler" {
     try expectNoErrors(
         \\process Counter {
         \\    state {
-        \\        count: int [capacity: 1];
+        \\        count: int;
         \\    }
         \\    receive Increment() -> int {
         \\        transition count { count + 1; }
@@ -487,7 +487,7 @@ test "valid: process state accessible in handler" {
     try expectNoErrors(
         \\process Counter {
         \\    state {
-        \\        count: int [capacity: 1];
+        \\        count: int;
         \\    }
         \\    receive GetCount() -> int {
         \\        return count;
@@ -519,7 +519,7 @@ test "valid: full program with module and process" {
         \\
         \\process Ledger {
         \\    state {
-        \\        balance: int [capacity: 1];
+        \\        balance: int;
         \\    }
         \\    receive Deposit(amount: int) -> int {
         \\        guard amount > 0;

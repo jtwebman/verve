@@ -5,7 +5,7 @@ const testing = std.testing;
 // ── Helper ────────────────────────────────────────────────
 
 fn expectParseError(source: []const u8, expected_substring: []const u8) !void {
-    var p = Parser.init(source, testing.allocator);
+    var p = Parser.init(source, std.heap.page_allocator);
     const result = p.parseFile();
     try testing.expect(result == error.ParseFailed);
     const msg = p.formatError();
@@ -17,7 +17,7 @@ fn expectParseError(source: []const u8, expected_substring: []const u8) !void {
 }
 
 fn expectExprError(source: []const u8, expected_substring: []const u8) !void {
-    var p = Parser.init(source, testing.allocator);
+    var p = Parser.init(source, std.heap.page_allocator);
     const result = p.parseExpr();
     try testing.expect(result == error.ParseFailed);
     const msg = p.formatError();
@@ -29,7 +29,7 @@ fn expectExprError(source: []const u8, expected_substring: []const u8) !void {
 }
 
 fn expectStmtError(source: []const u8, expected_substring: []const u8) !void {
-    var p = Parser.init(source, testing.allocator);
+    var p = Parser.init(source, std.heap.page_allocator);
     const result = p.parseStmt();
     try testing.expect(result == error.ParseFailed);
     const msg = p.formatError();
@@ -147,14 +147,14 @@ test "error: unknown declaration in process" {
     , "expected 'state', 'invariant', or 'receive' inside process");
 }
 
-test "error: process state missing capacity bracket" {
+test "error: process memory missing keyword" {
     try expectParseError(
-        \\process Ledger {
+        \\process Ledger [size: 64] {
         \\    state {
-        \\        balance: int [size: 1];
+        \\        balance: int;
         \\    }
         \\}
-    , "expected 'capacity'");
+    , "expected 'memory'");
 }
 
 // ── Expression errors ─────────────────────────────────────
@@ -293,7 +293,7 @@ test "error on line 3 reports line 3" {
         \\        return @bad;
         \\    }
         \\}
-    , testing.allocator);
+    , std.heap.page_allocator);
     _ = p.parseFile() catch {
         const msg = p.formatError();
         const found = std.mem.indexOf(u8, msg, "line 3") != null;
@@ -314,7 +314,7 @@ test "error on line 5 reports line 5" {
         \\    a: int;
         \\    b: ;
         \\}
-    , testing.allocator);
+    , std.heap.page_allocator);
     _ = p.parseFile() catch {
         const msg = p.formatError();
         const found = std.mem.indexOf(u8, msg, "line 5") != null;
