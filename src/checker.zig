@@ -169,8 +169,9 @@ pub const Checker = struct {
             try self.checkStmt(stmt);
         }
 
-        // Warn about obvious poison values
+        // Warn about obvious poison values and divergence
         try self.warnUnguardedDivision(func.body, func.guards);
+        try self.checkForDivergence(func.body);
     }
 
     // ── Struct checking ───────────────────────────────────────
@@ -409,6 +410,44 @@ pub const Checker = struct {
             }
         }
     }
+
+    // ── Divergence detection ───────────────────────────────────
+
+    fn checkForDivergence(self: *Checker, stmts: []const ast.Stmt) !void {
+        for (stmts) |stmt| {
+            switch (stmt) {
+                .while_stmt => |w| {
+                    // while true { ... } with no return/break is infinite
+                    if (w.condition == .bool_literal and w.condition.bool_literal) {
+                        if (!self.bodyHasReturn(w.body)) {
+                            try self.addError("potential infinite loop — 'while true' with no return statement", 0, 0);
+                        }
+                    }
+                },
+                else => {},
+            }
+        }
+    }
+
+    fn bodyHasReturn(self: *Checker, stmts: []const ast.Stmt) bool {
+        for (stmts) |stmt| {
+            switch (stmt) {
+                .return_stmt => return true,
+                .match_stmt => |m| {
+                    for (m.arms) |arm| {
+                        if (self.bodyHasReturn(arm.body)) return true;
+                    }
+                },
+                .while_stmt => |w| {
+                    if (self.bodyHasReturn(w.body)) return true;
+                },
+                else => {},
+            }
+        }
+        return false;
+    }
+
+    // ── Poison value warnings ─────────────────────────────────
 
     fn warnUnguardedDivision(self: *Checker, stmts: []const ast.Stmt, guards: []const ast.Expr) !void {
         // Check if any expression uses division without a guard checking divisor != 0

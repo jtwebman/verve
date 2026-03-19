@@ -540,6 +540,55 @@ test "valid: full program with module and process" {
     );
 }
 
+// ── Guard consistency ─────────────────────────────────────
+
+test "error: guard always false" {
+    try expectError(
+        \\module Main {
+        \\    fn main() -> int {
+        \\        guard false;
+        \\        return 0;
+        \\    }
+        \\}
+    , "guard is always false");
+}
+
+test "error: guard x > x is always false" {
+    try expectError(
+        \\module Main {
+        \\    fn check(x: int) -> int {
+        \\        guard x > x;
+        \\        return x;
+        \\    }
+        \\    fn main() -> int { return 0; }
+        \\}
+    , "compared to itself");
+}
+
+test "error: guard x != x is always false" {
+    try expectError(
+        \\module Main {
+        \\    fn check(x: int) -> int {
+        \\        guard x != x;
+        \\        return x;
+        \\    }
+        \\    fn main() -> int { return 0; }
+        \\}
+    , "compared to itself");
+}
+
+test "valid: guard x == x is fine" {
+    try expectNoErrors(
+        \\module Main {
+        \\    fn check(x: int) -> int {
+        \\        guard x == x;
+        \\        return x;
+        \\    }
+        \\    fn main() -> int { return 0; }
+        \\}
+    );
+}
+
 // ── Poison value warnings ─────────────────────────────────
 
 test "error: literal division by zero" {
@@ -588,6 +637,45 @@ test "error: tell on module" {
         \\    }
         \\}
     , "cannot use 'tell' with module 'Logger'");
+}
+
+// ── Divergence detection ──────────────────────────────────
+
+test "error: while true with no return" {
+    try expectError(
+        \\module Main {
+        \\    fn main() -> int {
+        \\        while true {
+        \\            println("forever");
+        \\        }
+        \\    }
+        \\}
+    , "potential infinite loop");
+}
+
+test "valid: while true with return inside" {
+    try expectNoErrors(
+        \\module Main {
+        \\    fn main() -> int {
+        \\        while true {
+        \\            return 0;
+        \\        }
+        \\    }
+        \\}
+    );
+}
+
+test "valid: while with condition variable" {
+    try expectNoErrors(
+        \\module Main {
+        \\    fn main() -> int {
+        \\        running: bool = true;
+        \\        while running {
+        \\            return 0;
+        \\        }
+        \\    }
+        \\}
+    );
 }
 
 // ── Recursion detection ───────────────────────────────────
