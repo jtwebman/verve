@@ -150,12 +150,15 @@ pub fn main() !void {
             return;
         };
 
-        if (vresult.examples_failed == 0 and vresult.examples_passed > 0) {
-            std.debug.print("VALID — {d} examples passed\n", .{vresult.examples_passed});
-        } else if (vresult.examples_passed == 0 and vresult.examples_failed == 0) {
-            std.debug.print("INCOMPLETE — no @example annotations found\n", .{});
+        const total_passed = vresult.examples_passed + vresult.properties_passed;
+        const total_failed = vresult.examples_failed + vresult.properties_failed;
+
+        if (total_failed == 0 and total_passed > 0) {
+            std.debug.print("VALID — {d} examples, {d} properties passed\n", .{ vresult.examples_passed, vresult.properties_passed });
+        } else if (total_passed == 0 and total_failed == 0) {
+            std.debug.print("INCOMPLETE — no @example or @property annotations found\n", .{});
         } else {
-            std.debug.print("INVALID — {d} passed, {d} failed\n", .{ vresult.examples_passed, vresult.examples_failed });
+            std.debug.print("INVALID — {d} passed, {d} failed\n", .{ total_passed, total_failed });
             for (vresult.failures.items) |failure| {
                 std.debug.print("  FAIL {s}: {s}\n", .{ failure.function, failure.example });
                 std.debug.print("    expected: {s}\n", .{failure.expected});

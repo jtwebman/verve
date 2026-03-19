@@ -171,6 +171,75 @@ test "VALID: example with string result" {
     try testing.expectEqual(@as(usize, 1), result.examples_passed);
 }
 
+// ── Properties ────────────────────────────────────────────
+
+test "VALID: property passes for all inputs" {
+    const result = try runVerifier(
+        \\module Math {
+        \\    /// @property fn(a, b) { a + b == b + a }
+        \\    fn add(a: int, b: int) -> int {
+        \\        return a + b;
+        \\    }
+        \\}
+        \\module Main {
+        \\    fn main() -> int { return 0; }
+        \\}
+    );
+    try testing.expectEqual(@as(usize, 1), result.properties_passed);
+    try testing.expectEqual(@as(usize, 0), result.properties_failed);
+}
+
+test "VALID: property with single param" {
+    const result = try runVerifier(
+        \\module Math {
+        \\    /// @property fn(x) { x * 0 == 0 }
+        \\    fn zero_mul(x: int) -> int {
+        \\        return x * 0;
+        \\    }
+        \\}
+        \\module Main {
+        \\    fn main() -> int { return 0; }
+        \\}
+    );
+    try testing.expectEqual(@as(usize, 1), result.properties_passed);
+}
+
+test "VALID: examples and properties together" {
+    const result = try runVerifier(
+        \\module Math {
+        \\    /// @example add(2, 3) == 5
+        \\    /// @property fn(a, b) { a + b == b + a }
+        \\    fn add(a: int, b: int) -> int {
+        \\        return a + b;
+        \\    }
+        \\}
+        \\module Main {
+        \\    fn main() -> int { return 0; }
+        \\}
+    );
+    try testing.expectEqual(@as(usize, 1), result.examples_passed);
+    try testing.expectEqual(@as(usize, 1), result.properties_passed);
+}
+
+test "INVALID: property fails" {
+    const result = try runVerifier(
+        \\module Math {
+        \\    /// @property fn(a, b) { a - b == b - a }
+        \\    fn sub(a: int, b: int) -> int {
+        \\        return a - b;
+        \\    }
+        \\}
+        \\module Main {
+        \\    fn main() -> int { return 0; }
+        \\}
+    );
+    // a - b != b - a (unless a == b)
+    try testing.expectEqual(@as(usize, 0), result.properties_passed);
+    try testing.expectEqual(@as(usize, 1), result.properties_failed);
+}
+
+// ── Edge cases ────────────────────────────────────────────
+
 test "VALID: example with zero" {
     const result = try runVerifier(
         \\module Test {

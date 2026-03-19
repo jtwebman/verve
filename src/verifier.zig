@@ -4,9 +4,13 @@ const Parser = @import("parser.zig").Parser;
 const Interpreter = @import("interpreter.zig").Interpreter;
 const Value = @import("value.zig").Value;
 
+pub const FUZZ_ITERATIONS: usize = 100;
+
 pub const VerifyResult = struct {
     examples_passed: usize,
     examples_failed: usize,
+    properties_passed: usize,
+    properties_failed: usize,
     failures: std.ArrayListUnmanaged(Failure),
 
     pub const Failure = struct {
@@ -32,6 +36,8 @@ pub const Verifier = struct {
         var result = VerifyResult{
             .examples_passed = 0,
             .examples_failed = 0,
+            .properties_passed = 0,
+            .properties_failed = 0,
             .failures = .{},
         };
 
@@ -56,10 +62,17 @@ pub const Verifier = struct {
 
     fn verifyFunction(self: *Verifier, func: ast.FnDecl, module_name: []const u8, result: *VerifyResult) !void {
         const doc = func.doc_comment orelse return;
-        const examples = try self.extractExamples(doc);
 
+        // Run @example tests
+        const examples = try self.extractExamples(doc);
         for (examples) |example| {
             try self.runExample(example, module_name, func.name, result);
+        }
+
+        // Run @property fuzz tests
+        const properties = try self.extractProperties(doc);
+        for (properties) |prop| {
+            try self.runProperty(prop, func, module_name, result);
         }
     }
 
@@ -69,6 +82,128 @@ pub const Verifier = struct {
         _ = try self.extractExamples(doc);
         // TODO: run examples for receive handlers (need to spawn process first)
         _ = result;
+    }
+
+    fn extractProperties(self: *Verifier, doc: []const u8) ![]const []const u8 {
+        var props: std.ArrayListUnmanaged([]const u8) = .{};
+        var lines = std.mem.splitScalar(u8, doc, '\n');
+        while (lines.next()) |line| {
+            const trimmed = std.mem.trimLeft(u8, line, &[_]u8{ ' ', '\t', '/' });
+            if (std.mem.startsWith(u8, trimmed, "@property ")) {
+                const prop_text = trimmed["@property ".len..];
+                try props.append(self.alloc, std.mem.trim(u8, prop_text, &[_]u8{ ' ', '\t' }));
+            }
+        }
+        return try props.toOwnedSlice(self.alloc);
+    }
+
+    fn runProperty(self: *Verifier, prop: []const u8, func: ast.FnDecl, module_name: []const u8, result: *VerifyResult) !void {
+        // Parse: "fn(a, b) { add(a, b) == add(b, a) }"
+        // Extract param names between ( and )
+        const paren_start = std.mem.indexOf(u8, prop, "(") orelse {
+            try result.failures.append(self.alloc, .{
+                .function = func.name,
+                .example = prop,
+                .expected = "true",
+                .got = "invalid @property format — expected 'fn(params) { expression }'",
+            });
+            result.properties_failed += 1;
+            return;
+        };
+        const paren_end = std.mem.indexOf(u8, prop, ")") orelse {
+            result.properties_failed += 1;
+            return;
+        };
+        const brace_start = std.mem.indexOf(u8, prop, "{") orelse {
+            result.properties_failed += 1;
+            return;
+        };
+        const brace_end = std.mem.lastIndexOf(u8, prop, "}") orelse {
+            result.properties_failed += 1;
+            return;
+        };
+
+        // Extract param names
+        const params_text = prop[paren_start + 1 .. paren_end];
+        var param_names: std.ArrayListUnmanaged([]const u8) = .{};
+        var params_iter = std.mem.splitScalar(u8, params_text, ',');
+        while (params_iter.next()) |param| {
+            const trimmed = std.mem.trim(u8, param, &[_]u8{ ' ', '\t' });
+            if (trimmed.len > 0) {
+                try param_names.append(self.alloc, trimmed);
+            }
+        }
+
+        // Extract body expression
+        const body_text = std.mem.trim(u8, prop[brace_start + 1 .. brace_end], &[_]u8{ ' ', '\t' });
+
+        // Parse body expression
+        var body_parser = Parser.init(body_text, self.alloc);
+        const body_expr = body_parser.parseExpr() catch {
+            try result.failures.append(self.alloc, .{
+                .function = func.name,
+                .example = prop,
+                .expected = "true",
+                .got = "failed to parse property body",
+            });
+            result.properties_failed += 1;
+            return;
+        };
+
+        // Fuzz: run with random inputs
+        var rng = std.Random.DefaultPrng.init(42); // deterministic seed for reproducibility
+        var random = rng.random();
+
+        var i: usize = 0;
+        while (i < FUZZ_ITERATIONS) : (i += 1) {
+            var scope = @import("interpreter.zig").Scope.init(self.alloc);
+
+            // Generate random int values for each param
+            for (param_names.items) |pname| {
+                const val = random.intRangeAtMost(i64, -1000, 1000);
+                try scope.set(pname, .{ .int = val });
+            }
+
+            // Also make the function callable by bare name
+            // by qualifying calls in the expression
+            const prop_result = self.interp.evalExpr(body_expr, &scope) catch {
+                // If evaluation fails, try qualifying function calls
+                result.properties_failed += 1;
+                try result.failures.append(self.alloc, .{
+                    .function = func.name,
+                    .example = prop,
+                    .expected = "true for all inputs",
+                    .got = "runtime error during property evaluation",
+                });
+                return;
+            };
+
+            if (prop_result != .bool or !prop_result.bool) {
+                // Build input description
+                var input_buf: [256]u8 = undefined;
+                var input_stream = std.io.fixedBufferStream(&input_buf);
+                const writer = input_stream.writer();
+                for (param_names.items, 0..) |pname, pi| {
+                    if (pi > 0) writer.writeAll(", ") catch {};
+                    const v: Value = scope.get(pname) orelse .{ .none = {} };
+                    writer.print("{s}=", .{pname}) catch {};
+                    v.format(writer) catch {};
+                }
+
+                try result.failures.append(self.alloc, .{
+                    .function = func.name,
+                    .example = prop,
+                    .expected = "true for all inputs",
+                    .got = try self.alloc.dupe(u8, input_stream.getWritten()),
+                });
+                result.properties_failed += 1;
+                return;
+            }
+        }
+
+        // All iterations passed
+        result.properties_passed += 1;
+        _ = module_name;
     }
 
     fn extractExamples(self: *Verifier, doc: []const u8) ![]const []const u8 {
