@@ -1,0 +1,32 @@
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Zig
+        uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: 0.15.2
+
+      - name: Build
+        run: zig build
+
+      - name: Run tests
+        run: zig build test
+
+      - name: Run examples
+        run: |
+          zig build run -- run examples/hello.vv
+          zig build run -- run examples/counter.vv
+          zig build run -- run examples/multi.vv
+          zig build run -- run examples/supervisor.vv
+          zig build run -- check examples/hello.vv
