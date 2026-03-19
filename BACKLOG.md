@@ -78,7 +78,7 @@
 - [ ] Type checking — compile-time generics (monomorphization)
 - [x] Type checking — match exhaustiveness for booleans (true/false, wildcard)
 - [x] Type checking — match exhaustiveness for enums (all variants covered, wildcard)
-- [ ] Type checking — send/tell only on process values
+- [x] Type checking — send/tell only on process values (tell-on-module caught)
 - [ ] Type checking — constrained types (range, precision, min/max)
 - [ ] Type checking — Result<T> and send wrapping
 - [ ] Type checking — function references match signatures
