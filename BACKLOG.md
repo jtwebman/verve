@@ -61,17 +61,24 @@
 
 ## Phase 2 — Type Checker
 
-- [ ] Type inference for local variables
-- [ ] Type checking — structs, unions, enums
-- [ ] Type checking — function signatures, return types, void
+- [x] Undefined variable detection
+- [x] Unknown type detection (struct fields, params, return types, generics)
+- [x] Guards must be boolean expressions
+- [x] Transitions only in receive handlers
+- [x] receive; only in processes
+- [x] Duplicate struct field detection
+- [x] Empty match detection
+- [x] While conditions must be boolean
+- [x] Entry point validation (exactly one main())
+- [x] Multiple errors reported in one pass
+- [x] Built-in types and functions recognized
+- [x] Sibling functions in scope
+- [ ] Full type inference for local variables
+- [ ] Type checking — function signatures, return types match
 - [ ] Type checking — compile-time generics (monomorphization)
-- [ ] Type checking — guards are boolean expressions only
-- [ ] Type checking — match exhaustiveness
-- [ ] Type checking — send/tell only on processes, not modules
-- [ ] Type checking — transitions only in receive handlers
-- [ ] Type checking — process state capacity declarations
+- [ ] Type checking — match exhaustiveness (all enum variants covered)
+- [ ] Type checking — send/tell only on process values
 - [ ] Type checking — constrained types (range, precision, min/max)
-- [ ] Type checking — built-in types (email, uri, uuid, etc.)
 - [ ] Type checking — Result<T> and send wrapping
 - [ ] Type checking — function references match signatures
 - [ ] Call graph cycle detection (no recursion)

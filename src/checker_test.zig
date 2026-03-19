@@ -405,6 +405,82 @@ test "valid: full program with module and process" {
     );
 }
 
+// ── Recursion detection ───────────────────────────────────
+
+test "valid: no recursion" {
+    try expectNoErrors(
+        \\module Main {
+        \\    fn add(a: int, b: int) -> int {
+        \\        return a + b;
+        \\    }
+        \\    fn main() -> int {
+        \\        return add(1, 2);
+        \\    }
+        \\}
+    );
+}
+
+test "error: direct recursion" {
+    try expectError(
+        \\module Main {
+        \\    fn countdown(n: int) -> int {
+        \\        return countdown(n);
+        \\    }
+        \\    fn main() -> int {
+        \\        return countdown(10);
+        \\    }
+        \\}
+    , "recursion detected");
+}
+
+test "error: mutual recursion" {
+    try expectError(
+        \\module Main {
+        \\    fn ping(n: int) -> int {
+        \\        return pong(n);
+        \\    }
+        \\    fn pong(n: int) -> int {
+        \\        return ping(n);
+        \\    }
+        \\    fn main() -> int {
+        \\        return ping(10);
+        \\    }
+        \\}
+    , "recursion detected");
+}
+
+test "error: cross-module recursion" {
+    try expectError(
+        \\module A {
+        \\    fn call_b() -> int {
+        \\        return B.call_a();
+        \\    }
+        \\}
+        \\module B {
+        \\    fn call_a() -> int {
+        \\        return A.call_b();
+        \\    }
+        \\}
+        \\module Main {
+        \\    fn main() -> int { return 0; }
+        \\}
+    , "recursion detected");
+}
+
+test "valid: A calls B calls C (no cycle)" {
+    try expectNoErrors(
+        \\module C {
+        \\    fn value() -> int { return 42; }
+        \\}
+        \\module B {
+        \\    fn get() -> int { return C.value(); }
+        \\}
+        \\module Main {
+        \\    fn main() -> int { return B.get(); }
+        \\}
+    );
+}
+
 // ── Multiple errors ───────────────────────────────────────
 
 test "reports multiple errors" {

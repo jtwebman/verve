@@ -53,6 +53,9 @@ pub const Checker = struct {
 
         // Check for entry point
         try self.checkEntryPoint();
+
+        // Check for recursion (call graph cycles)
+        try self.checkNoRecursion();
     }
 
     // ── Entry point ───────────────────────────────────────────
@@ -387,6 +390,160 @@ pub const Checker = struct {
             .generic => |g| g.name,
             else => "unknown",
         };
+    }
+
+    // ── Call graph cycle detection (no recursion) ──────────────
+
+    fn checkNoRecursion(self: *Checker) !void {
+        // Build call graph: function_key -> list of function_keys it calls
+        // Key format: "ModuleName.functionName"
+        var call_graph: std.StringHashMapUnmanaged(std.ArrayListUnmanaged([]const u8)) = .{};
+
+        // Collect calls from module functions
+        var mod_iter = self.modules.iterator();
+        while (mod_iter.next()) |entry| {
+            const mod_name = entry.key_ptr.*;
+            for (entry.value_ptr.functions) |func| {
+                const key = try std.fmt.allocPrint(self.alloc, "{s}.{s}", .{ mod_name, func.name });
+                var callees: std.ArrayListUnmanaged([]const u8) = .{};
+                try self.collectCalls(func.body, func.guards, mod_name, &callees);
+                try call_graph.put(self.alloc, key, callees);
+            }
+        }
+
+        // Collect calls from process receive handlers
+        var proc_iter = self.process_decls.iterator();
+        while (proc_iter.next()) |entry| {
+            const proc_name = entry.key_ptr.*;
+            for (entry.value_ptr.receive_handlers) |handler| {
+                const key = try std.fmt.allocPrint(self.alloc, "{s}.{s}", .{ proc_name, handler.name });
+                var callees: std.ArrayListUnmanaged([]const u8) = .{};
+                try self.collectCalls(handler.body, handler.guards, proc_name, &callees);
+                try call_graph.put(self.alloc, key, callees);
+            }
+        }
+
+        // Detect cycles using DFS
+        var visited: std.StringHashMapUnmanaged(u8) = .{}; // 0=unvisited, 1=in_progress, 2=done
+
+        var graph_iter = call_graph.iterator();
+        while (graph_iter.next()) |entry| {
+            const key = entry.key_ptr.*;
+            if ((visited.get(key) orelse 0) == 0) {
+                try self.detectCycleDFS(key, &call_graph, &visited);
+            }
+        }
+    }
+
+    fn detectCycleDFS(
+        self: *Checker,
+        node: []const u8,
+        graph: *std.StringHashMapUnmanaged(std.ArrayListUnmanaged([]const u8)),
+        visited: *std.StringHashMapUnmanaged(u8),
+    ) !void {
+        try visited.put(self.alloc, node, 1); // mark in progress
+
+        if (graph.get(node)) |callees| {
+            for (callees.items) |callee| {
+                const state = visited.get(callee) orelse 0;
+                if (state == 1) {
+                    // Cycle found!
+                    try self.addError(
+                        try std.fmt.allocPrint(self.alloc, "recursion detected: '{s}' calls '{s}' which creates a cycle — use a while loop instead", .{ node, callee }),
+                        0,
+                        0,
+                    );
+                } else if (state == 0) {
+                    try self.detectCycleDFS(callee, graph, visited);
+                }
+            }
+        }
+
+        try visited.put(self.alloc, node, 2); // mark done
+    }
+
+    fn collectCalls(self: *Checker, body: []const ast.Stmt, guards: []const ast.Expr, current_module: []const u8, callees: *std.ArrayListUnmanaged([]const u8)) !void {
+        for (guards) |guard| {
+            try self.collectCallsFromExpr(guard, current_module, callees);
+        }
+        for (body) |stmt| {
+            try self.collectCallsFromStmt(stmt, current_module, callees);
+        }
+    }
+
+    fn collectCallsFromStmt(self: *Checker, stmt: ast.Stmt, current_module: []const u8, callees: *std.ArrayListUnmanaged([]const u8)) !void {
+        switch (stmt) {
+            .assign => |a| try self.collectCallsFromExpr(a.value, current_module, callees),
+            .return_stmt => |r| {
+                if (r.value) |val| try self.collectCallsFromExpr(val, current_module, callees);
+            },
+            .while_stmt => |w| {
+                try self.collectCallsFromExpr(w.condition, current_module, callees);
+                for (w.body) |s| try self.collectCallsFromStmt(s, current_module, callees);
+            },
+            .match_stmt => |m| {
+                try self.collectCallsFromExpr(m.subject, current_module, callees);
+                for (m.arms) |arm| {
+                    for (arm.body) |s| try self.collectCallsFromStmt(s, current_module, callees);
+                }
+            },
+            .transition => |t| {
+                try self.collectCallsFromExpr(t.target, current_module, callees);
+                for (t.fields) |f| try self.collectCallsFromExpr(f.value, current_module, callees);
+            },
+            .append => |a| {
+                try self.collectCallsFromExpr(a.target, current_module, callees);
+                try self.collectCallsFromExpr(a.value, current_module, callees);
+            },
+            .tell_stmt => |t| {
+                for (t.args) |arg| try self.collectCallsFromExpr(arg, current_module, callees);
+            },
+            .expr_stmt => |e| try self.collectCallsFromExpr(e, current_module, callees),
+            .watch_stmt => |w| try self.collectCallsFromExpr(w.target, current_module, callees),
+            .receive_stmt, .send_stmt => {},
+        }
+    }
+
+    fn collectCallsFromExpr(self: *Checker, expr: ast.Expr, current_module: []const u8, callees: *std.ArrayListUnmanaged([]const u8)) !void {
+        switch (expr) {
+            .call => |c| {
+                // Module.function(args)
+                if (c.target.* == .field_access) {
+                    const fa = c.target.field_access;
+                    if (fa.target.* == .identifier) {
+                        const key = try std.fmt.allocPrint(self.alloc, "{s}.{s}", .{ fa.target.identifier, fa.field });
+                        try callees.append(self.alloc, key);
+                    }
+                }
+                // bare function call: func(args) — in same module
+                if (c.target.* == .identifier) {
+                    const name = c.target.identifier;
+                    // Skip builtins
+                    if (!std.mem.eql(u8, name, "print") and
+                        !std.mem.eql(u8, name, "println") and
+                        !std.mem.eql(u8, name, "list") and
+                        !std.mem.eql(u8, name, "spawn"))
+                    {
+                        const key = try std.fmt.allocPrint(self.alloc, "{s}.{s}", .{ current_module, name });
+                        try callees.append(self.alloc, key);
+                    }
+                }
+                // Check args too
+                try self.collectCallsFromExpr(c.target.*, current_module, callees);
+                for (c.args) |arg| try self.collectCallsFromExpr(arg, current_module, callees);
+            },
+            .binary_op => |op| {
+                try self.collectCallsFromExpr(op.left.*, current_module, callees);
+                try self.collectCallsFromExpr(op.right.*, current_module, callees);
+            },
+            .unary_op => |op| try self.collectCallsFromExpr(op.operand.*, current_module, callees),
+            .field_access => |fa| try self.collectCallsFromExpr(fa.target.*, current_module, callees),
+            .index_access => |ia| {
+                try self.collectCallsFromExpr(ia.target.*, current_module, callees);
+                try self.collectCallsFromExpr(ia.index.*, current_module, callees);
+            },
+            else => {},
+        }
     }
 
     // ── Error management ──────────────────────────────────────
