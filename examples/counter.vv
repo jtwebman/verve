@@ -1,0 +1,60 @@
+process Counter {
+    state {
+        count: int [capacity: 1];
+    }
+
+    receive Increment() -> int {
+        guard count >= 0;
+        transition count { count + 1; }
+        return count;
+    }
+
+    receive GetCount() -> int {
+        return count;
+    }
+
+    receive Add(n: int) -> int {
+        guard n > 0;
+        transition count { count + n; }
+        return count;
+    }
+}
+
+module Main {
+    fn main() -> int {
+        println("=== Verve Process Test ===");
+
+        // Spawn a counter process
+        counter = spawn Counter();
+        println("Spawned counter process");
+
+        // Send messages
+        match counter.Increment() {
+            :ok{val} => println("After increment: ", val);
+            :error{reason} => println("Error: ", reason);
+        }
+
+        match counter.Increment() {
+            :ok{val} => println("After increment: ", val);
+            :error{reason} => println("Error: ", reason);
+        }
+
+        match counter.Increment() {
+            :ok{val} => println("After increment: ", val);
+            :error{reason} => println("Error: ", reason);
+        }
+
+        match counter.Add(10) {
+            :ok{val} => println("After add 10: ", val);
+            :error{reason} => println("Error: ", reason);
+        }
+
+        match counter.GetCount() {
+            :ok{val} => println("Final count: ", val);
+            :error{reason} => println("Error: ", reason);
+        }
+
+        println("=== Done ===");
+        return 0;
+    }
+}

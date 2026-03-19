@@ -1,0 +1,47 @@
+process Worker {
+    state {
+        value: int [capacity: 1];
+    }
+
+    receive SetValue(v: int) -> int {
+        transition value { v; }
+        return value;
+    }
+
+    receive GetValue() -> int {
+        return value;
+    }
+}
+
+process App {
+    state {
+        running: bool;
+        worker: int;
+        messages_handled: int;
+    }
+
+    receive main() -> int {
+        // Spawn and watch a worker
+        worker = spawn Worker();
+        watch worker;
+
+        // Send some messages to the worker
+        match worker.SetValue(42) {
+            :ok{v} => println("Worker value set to: ", v);
+            :error{r} => println("Error setting value");
+        }
+
+        match worker.GetValue() {
+            :ok{v} => println("Worker value is: ", v);
+            :error{r} => println("Error getting value");
+        }
+
+        match worker.SetValue(100) {
+            :ok{v} => println("Worker value updated to: ", v);
+            :error{r} => println("Error");
+        }
+
+        println("Supervisor done");
+        return 0;
+    }
+}

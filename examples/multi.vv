@@ -1,0 +1,15 @@
+import "./math.vv";
+
+module Main {
+    fn main() -> int {
+        println("=== Multi-file Import Test ===");
+
+        // Use exported Math module from math.vv
+        println("3 + 4 = ", Math.add(3, 4));
+        println("6 * 7 = ", Math.multiply(6, 7));
+        println("10! = ", Math.factorial(10));
+
+        println("=== Done ===");
+        return 0;
+    }
+}
