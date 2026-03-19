@@ -95,6 +95,19 @@
 - [x] Guard consistency checks (always-false, self-comparison)
 - [x] DIVERGENT signal (while true with no return detected)
 
+## Under-engineered (address before or during Phase 4)
+
+High-impact gaps identified by AI self-review:
+
+- [ ] String operations in interpreter — split, contains, starts_with, ends_with, trim, replace (currently only concatenation works)
+- [ ] Map creation and operations in interpreter — create, put, get, keys, iteration (type exists but can't be used outside process state)
+- [ ] Runtime error context — line numbers and descriptive messages on interpreter errors (currently just "RuntimeError" with no location)
+- [ ] `break` statement in while loops — currently requires return or boolean flag to exit early
+- [ ] `continue` statement in while loops — currently forces match-on-boolean to skip iterations
+- [ ] Interpreter runtime error messages should match parser error quality (line, col, what went wrong)
+- [ ] Process state should support map and list types properly (not just int/string/bool defaults)
+- [ ] String interpolation or multi-arg println — `println("x = ", x)` works but something like `println("x = {x}")` would be cleaner
+
 ## Phase 4 — Native Compilation (x86_64)
 
 - [ ] Design Verve IR (target-agnostic, SSA-style)
