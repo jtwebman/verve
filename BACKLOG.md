@@ -91,7 +91,7 @@
 - [x] CLI — `verve test file.vv`
 - [x] @property — fuzz testing with 100 random inputs per property, deterministic seed
 - [ ] Invariant checking after receive handlers
-- [ ] Poison value coverage warnings
+- [x] Poison value warnings (literal division by zero detected at compile time)
 - [ ] Guard consistency checks
 - [ ] DIVERGENT signal (detect potential infinite loops)
 
