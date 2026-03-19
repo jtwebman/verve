@@ -86,13 +86,14 @@
 
 ## Phase 3 — Verifier
 
-- [ ] @example — compile and run as tests
+- [x] @example — parse from doc comments, run as tests, compare results
+- [x] Verifier signals — VALID, INVALID(reason), INCOMPLETE
+- [x] CLI — `verve test file.vv`
 - [ ] @property — fuzz testing with random inputs
 - [ ] Invariant checking after receive handlers
 - [ ] Poison value coverage warnings
 - [ ] Guard consistency checks
-- [ ] Verifier signals — VALID, INVALID(reason), INCOMPLETE, DIVERGENT
-- [ ] CLI — `verve check file.vv` (enhanced with verifier)
+- [ ] DIVERGENT signal (detect potential infinite loops)
 
 ## Phase 4 — Native Compilation (x86_64)
 
