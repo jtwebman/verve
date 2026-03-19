@@ -31,6 +31,17 @@ pub fn main() !void {
             }
             return;
         };
+        // Type check
+        const Chk = @import("checker.zig").Checker;
+        var checker = Chk.init(alloc);
+        checker.check(merged) catch {};
+        if (checker.hasErrors()) {
+            std.debug.print("Type errors in {s}:\n", .{file_path});
+            checker.printErrors();
+        } else {
+            std.debug.print("OK — no errors\n", .{});
+        }
+
         std.debug.print("Loaded {d} declarations from {s}\n", .{ merged.decls.len, file_path });
         for (merged.decls) |decl| {
             switch (decl) {

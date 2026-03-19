@@ -49,17 +49,15 @@
 
 ## Phase 1.5 — Formatter
 
-- [ ] AST pretty printer (canonical output from parsed AST)
-- [ ] Tabs for indentation, non-configurable
-- [ ] One space around binary operators
-- [ ] One space after commas
-- [ ] No trailing whitespace
-- [ ] One blank line between functions/handlers
-- [ ] No double blank lines
-- [ ] Opening brace on same line
+- [x] AST pretty printer (canonical output from parsed AST)
+- [x] Tabs for indentation, non-configurable
+- [x] One space around binary operators
+- [x] One space after commas
+- [x] One blank line between functions/handlers
+- [x] Opening brace on same line
+- [x] CLI — `verve fmt file.vv` (format in place)
+- [ ] CLI — `verve fmt --check file.vv` (fail if not formatted, for CI)
 - [ ] Max 120 chars per line, wrap params/args
-- [ ] CLI — `verve fmt file.vv` (format in place)
-- [ ] CLI — `verve fmt --check file.vv` (fail if not formatted)
 
 ## Phase 2 — Type Checker
 
