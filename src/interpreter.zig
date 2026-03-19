@@ -460,7 +460,19 @@ pub const Interpreter = struct {
 
             .call => |c| return try self.evalCall(c, scope),
 
-            .struct_literal => return .{ .void = {} },
+            .struct_literal => |sl| {
+                var field_names: std.ArrayListUnmanaged([]const u8) = .{};
+                var field_values: std.ArrayListUnmanaged(Value) = .{};
+                for (sl.fields) |field| {
+                    try field_names.append(self.alloc, field.name);
+                    try field_values.append(self.alloc, try self.evalExpr(field.value, scope));
+                }
+                return .{ .struct_val = .{
+                    .name = sl.name,
+                    .field_names = try field_names.toOwnedSlice(self.alloc),
+                    .field_values = try field_values.toOwnedSlice(self.alloc),
+                } };
+            },
             .match_expr => return .{ .void = {} },
         }
     }

@@ -510,6 +510,25 @@ pub const Parser = struct {
             const ident = try self.parseIdentifier();
             var expr: ast.Expr = .{ .identifier = ident };
 
+            // Struct literal: Name { field: value, ... }
+            // Only if identifier starts with uppercase
+            if (ident.len > 0 and std.ascii.isUpper(ident[0]) and self.peekChar('{')) {
+                try self.expectChar('{');
+                var fields: std.ArrayListUnmanaged(ast.StructLiteralField) = .{};
+                while (!self.peekChar('}')) {
+                    const fname = try self.parseIdentifier();
+                    try self.expectChar(':');
+                    const fval = try self.parseExpr();
+                    try fields.append(self.alloc, .{ .name = fname, .value = fval });
+                    if (self.peekChar(',')) try self.expectChar(',');
+                }
+                try self.expectChar('}');
+                return .{ .struct_literal = .{
+                    .name = ident,
+                    .fields = try fields.toOwnedSlice(self.alloc),
+                } };
+            }
+
             while (self.pos < self.source.len) {
                 if (self.peekChar('.')) {
                     try self.expectChar('.');

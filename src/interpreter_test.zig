@@ -509,6 +509,46 @@ test "list out of bounds returns poison" {
     try testing.expect(val.isPoison());
 }
 
+// ── Structs ───────────────────────────────────────────────
+
+test "create struct literal" {
+    const val = try run(
+        \\module Test {
+        \\    fn make() -> string {
+        \\        p = Point { x: 10, y: 20 };
+        \\        return p.x;
+        \\    }
+        \\}
+    , "Test", "make", &.{});
+    try testing.expectEqual(@as(i64, 10), val.int);
+}
+
+test "access struct field" {
+    const val = try run(
+        \\module Test {
+        \\    fn make() -> int {
+        \\        p = Point { x: 3, y: 4 };
+        \\        return p.x + p.y;
+        \\    }
+        \\}
+    , "Test", "make", &.{});
+    try testing.expectEqual(@as(i64, 7), val.int);
+}
+
+test "struct in list" {
+    const val = try run(
+        \\module Test {
+        \\    fn make() -> int {
+        \\        items = list();
+        \\        append items { Point { x: 1, y: 2 }; }
+        \\        append items { Point { x: 3, y: 4 }; }
+        \\        return items[0].x + items[1].y;
+        \\    }
+        \\}
+    , "Test", "make", &.{});
+    try testing.expectEqual(@as(i64, 5), val.int);
+}
+
 // ── Guards with functions ─────────────────────────────────
 
 test "guard with comparison function fails" {

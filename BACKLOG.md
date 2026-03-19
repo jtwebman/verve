@@ -40,12 +40,12 @@
 - [x] watch statement (registers watcher for ProcessDied)
 - [x] receive; statement (processes one message from mailbox)
 - [x] spawn keyword in parser
-- [ ] append statement execution
+- [x] append statement execution
+- [x] list and map value types in interpreter (mutable, with .len, index, append)
+- [x] Pass command line args to main() as list<string>
 - [ ] @example parsing and extraction
 - [ ] @property parsing and extraction
-- [ ] list and map value types in interpreter
 - [ ] Struct literal creation in interpreter
-- [ ] Pass command line args to main()
 
 ## Phase 1.5 — Formatter
 
