@@ -276,6 +276,78 @@ pub const LinuxX86Backend = struct {
                 }
             },
 
+            // ── Strings
+            .string_byte_at => |sb| {
+                self.loadReg(sb.str); // string ptr in rax
+                self.asm_.movReg(.rcx, .rax);
+                self.loadReg(sb.index); // index in rax
+                // Load byte: movzx rax, byte [rcx + rax]
+                self.asm_.addReg(.rcx, .rax); // rcx = str + index
+                // movzx rax, byte [rcx] — zero-extend byte to 64-bit
+                self.asm_.rexW(.rax, .rcx);
+                self.asm_.emit(0x0F);
+                self.asm_.emit(0xB6);
+                self.asm_.emit(0x01); // modrm: mod=00, reg=rax, rm=rcx
+                self.storeReg(sb.dest);
+            },
+            .string_len => |sl| {
+                // For strings stored as (ptr, len), we'd need the len.
+                // For now, this is a placeholder — string length needs to be tracked.
+                _ = sl;
+                self.asm_.movImm64(.rax, 0);
+            },
+            .string_eq => |se| {
+                // Compare two strings byte-by-byte
+                // First check lengths match
+                self.loadReg(se.lhs_len);
+                self.asm_.pushReg(.rax); // save lhs_len
+                self.loadReg(se.rhs_len);
+                self.asm_.movReg(.rcx, .rax); // rhs_len in rcx
+                self.asm_.popReg(.rax); // lhs_len in rax
+                self.asm_.cmpReg(.rax, .rcx);
+                // If lengths differ, result is false
+                self.asm_.movImm64(.rax, 0); // default false
+                const len_neq = self.asm_.jneRel32();
+                // Lengths match — compare bytes
+                self.loadReg(se.lhs);
+                self.asm_.pushReg(.rax); // save lhs ptr
+                self.loadReg(se.rhs);
+                self.asm_.movReg(.rsi, .rax); // rhs ptr in rsi
+                self.asm_.popReg(.rdi); // lhs ptr in rdi
+                self.loadReg(se.lhs_len);
+                self.asm_.movReg(.rcx, .rax); // len in rcx
+                // Loop: compare byte by byte
+                self.asm_.movImm64(.rax, 1); // assume equal
+                const loop_top = self.asm_.offset();
+                self.asm_.testReg(.rcx);
+                const loop_exit = self.asm_.jeRel32(); // if rcx==0, done (equal)
+                // Compare one byte
+                // movzx rdx, byte [rdi]
+                self.asm_.rex(true, .rdx, .rdi);
+                self.asm_.emit(0x0F);
+                self.asm_.emit(0xB6);
+                self.asm_.emit(0x17); // modrm: mod=00, reg=rdx, rm=rdi
+                // movzx r8, byte [rsi]
+                self.asm_.rex(true, .r8, .rsi);
+                self.asm_.emit(0x0F);
+                self.asm_.emit(0xB6);
+                self.asm_.emit(0x06); // modrm: mod=00, reg=r8(0), rm=rsi
+                self.asm_.cmpReg(.rdx, .r8);
+                self.asm_.movImm64(.rax, 0);
+                const not_eq = self.asm_.jneRel32();
+                self.asm_.movImm64(.rax, 1); // still equal
+                // Advance pointers
+                self.asm_.addImm32(.rdi, 1);
+                self.asm_.addImm32(.rsi, 1);
+                self.asm_.subImm32(.rcx, 1);
+                const back_patch = self.asm_.jmpRel32();
+                self.asm_.patchRel32At(back_patch, loop_top);
+                self.asm_.patchRel32(loop_exit);
+                self.asm_.patchRel32(not_eq);
+                self.asm_.patchRel32(len_neq);
+                self.storeReg(se.dest);
+            },
+
             // ── Lists
             .list_new => |ln| {
                 // Allocate list header: [capacity(8)][length(8)][items(capacity*8)]
@@ -506,6 +578,129 @@ pub const LinuxX86Backend = struct {
             self.storeReg(dest);
             return;
         }
+        // String classification builtins
+        if (std.mem.eql(u8, name, "string_is_alpha") or
+            std.mem.eql(u8, name, "string_is_digit") or
+            std.mem.eql(u8, name, "string_is_whitespace") or
+            std.mem.eql(u8, name, "string_is_alnum"))
+        {
+            if (args.len >= 1) {
+                // Load first byte of the string
+                self.loadReg(args[0]); // string ptr in rax
+                self.asm_.rex(true, .rax, .rax);
+                self.asm_.emit(0x0F);
+                self.asm_.emit(0xB6);
+                self.asm_.emit(0x00); // movzx rax, byte [rax]
+                // rax = first byte
+
+                if (std.mem.eql(u8, name, "string_is_digit")) {
+                    // b >= '0' && b <= '9' → b >= 48 && b <= 57
+                    self.asm_.movReg(.rcx, .rax);
+                    self.asm_.cmpImm32(.rcx, 48);
+                    self.asm_.setge(.rax);
+                    self.asm_.movzxByte(.rax, .rax);
+                    self.asm_.pushReg(.rax);
+                    self.asm_.cmpImm32(.rcx, 57);
+                    self.asm_.setle(.rax);
+                    self.asm_.movzxByte(.rax, .rax);
+                    self.asm_.popReg(.rcx);
+                    self.asm_.andReg(.rax, .rcx);
+                } else if (std.mem.eql(u8, name, "string_is_alpha")) {
+                    // (b >= 'A' && b <= 'Z') || (b >= 'a' && b <= 'z')
+                    self.asm_.movReg(.rcx, .rax);
+                    // upper: 65-90
+                    self.asm_.cmpImm32(.rcx, 65);
+                    self.asm_.setge(.rax);
+                    self.asm_.movzxByte(.rax, .rax);
+                    self.asm_.pushReg(.rax);
+                    self.asm_.cmpImm32(.rcx, 90);
+                    self.asm_.setle(.rax);
+                    self.asm_.movzxByte(.rax, .rax);
+                    self.asm_.popReg(.rdx);
+                    self.asm_.andReg(.rax, .rdx); // is_upper
+                    self.asm_.pushReg(.rax);
+                    // lower: 97-122
+                    self.asm_.cmpImm32(.rcx, 97);
+                    self.asm_.setge(.rax);
+                    self.asm_.movzxByte(.rax, .rax);
+                    self.asm_.pushReg(.rax);
+                    self.asm_.cmpImm32(.rcx, 122);
+                    self.asm_.setle(.rax);
+                    self.asm_.movzxByte(.rax, .rax);
+                    self.asm_.popReg(.rdx);
+                    self.asm_.andReg(.rax, .rdx); // is_lower
+                    self.asm_.popReg(.rdx); // is_upper
+                    self.asm_.orReg(.rax, .rdx); // is_upper || is_lower
+                } else if (std.mem.eql(u8, name, "string_is_whitespace")) {
+                    // b == 32 || b == 9 || b == 10 || b == 13
+                    self.asm_.movReg(.rcx, .rax);
+                    self.asm_.cmpImm32(.rcx, 32);
+                    self.asm_.sete(.rax);
+                    self.asm_.movzxByte(.rax, .rax);
+                    self.asm_.pushReg(.rax);
+                    self.asm_.cmpImm32(.rcx, 9);
+                    self.asm_.sete(.rax);
+                    self.asm_.movzxByte(.rax, .rax);
+                    self.asm_.popReg(.rdx);
+                    self.asm_.orReg(.rax, .rdx);
+                    self.asm_.pushReg(.rax);
+                    self.asm_.cmpImm32(.rcx, 10);
+                    self.asm_.sete(.rax);
+                    self.asm_.movzxByte(.rax, .rax);
+                    self.asm_.popReg(.rdx);
+                    self.asm_.orReg(.rax, .rdx);
+                    self.asm_.pushReg(.rax);
+                    self.asm_.cmpImm32(.rcx, 13);
+                    self.asm_.sete(.rax);
+                    self.asm_.movzxByte(.rax, .rax);
+                    self.asm_.popReg(.rdx);
+                    self.asm_.orReg(.rax, .rdx);
+                } else {
+                    // is_alnum = is_alpha || is_digit
+                    // For simplicity, check 48-57 || 65-90 || 97-122
+                    self.asm_.movReg(.rcx, .rax);
+                    // digit
+                    self.asm_.cmpImm32(.rcx, 48);
+                    self.asm_.setge(.rax);
+                    self.asm_.movzxByte(.rax, .rax);
+                    self.asm_.pushReg(.rax);
+                    self.asm_.cmpImm32(.rcx, 57);
+                    self.asm_.setle(.rax);
+                    self.asm_.movzxByte(.rax, .rax);
+                    self.asm_.popReg(.rdx);
+                    self.asm_.andReg(.rax, .rdx);
+                    self.asm_.pushReg(.rax); // is_digit on stack
+                    // upper
+                    self.asm_.cmpImm32(.rcx, 65);
+                    self.asm_.setge(.rax);
+                    self.asm_.movzxByte(.rax, .rax);
+                    self.asm_.pushReg(.rax);
+                    self.asm_.cmpImm32(.rcx, 90);
+                    self.asm_.setle(.rax);
+                    self.asm_.movzxByte(.rax, .rax);
+                    self.asm_.popReg(.rdx);
+                    self.asm_.andReg(.rax, .rdx);
+                    self.asm_.popReg(.rdx); // is_digit
+                    self.asm_.orReg(.rax, .rdx);
+                    self.asm_.pushReg(.rax); // is_digit || is_upper
+                    // lower
+                    self.asm_.cmpImm32(.rcx, 97);
+                    self.asm_.setge(.rax);
+                    self.asm_.movzxByte(.rax, .rax);
+                    self.asm_.pushReg(.rax);
+                    self.asm_.cmpImm32(.rcx, 122);
+                    self.asm_.setle(.rax);
+                    self.asm_.movzxByte(.rax, .rax);
+                    self.asm_.popReg(.rdx);
+                    self.asm_.andReg(.rax, .rdx);
+                    self.asm_.popReg(.rdx);
+                    self.asm_.orReg(.rax, .rdx);
+                }
+                self.storeReg(dest);
+                return;
+            }
+        }
+
         // Unknown builtin — no-op
         self.asm_.movImm64(.rax, 0);
         self.storeReg(dest);

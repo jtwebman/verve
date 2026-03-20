@@ -742,6 +742,116 @@ test "compile: list iterate with while" {
     try testing.expectEqual(@as(u8, 42), exit);
 }
 
+// ════════════════════════════════════════════════════════════
+// String operations
+// ════════════════════════════════════════════════════════════
+
+test "compile: String.byte_at" {
+    const exit = try compileAndRun(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        return String.byte_at("ABC", 0);
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 65), exit); // 'A' = 65
+}
+
+test "compile: String.byte_at index 1" {
+    const exit = try compileAndRun(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        return String.byte_at("ABC", 1);
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 66), exit); // 'B' = 66
+}
+
+test "compile: String.is_digit true" {
+    const exit = try compileAndRun(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        if String.is_digit("5") { return 1; }
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 1), exit);
+}
+
+test "compile: String.is_digit false" {
+    const exit = try compileAndRun(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        if String.is_digit("x") { return 1; }
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), exit);
+}
+
+test "compile: String.is_alpha true" {
+    const exit = try compileAndRun(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        if String.is_alpha("a") { return 1; }
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 1), exit);
+}
+
+test "compile: String.is_whitespace true" {
+    const exit = try compileAndRun(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        if String.is_whitespace(" ") { return 1; }
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 1), exit);
+}
+
+test "compile: string equality true" {
+    const exit = try compileAndRun(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        if "hello" == "hello" { return 1; }
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 1), exit);
+}
+
+test "compile: string equality false" {
+    const exit = try compileAndRun(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        if "hello" == "world" { return 1; }
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), exit);
+}
+
+test "compile: string inequality" {
+    const exit = try compileAndRun(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        if "abc" != "def" { return 1; }
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 1), exit);
+}
+
 test "compile: combined comparison and logic" {
     const exit = try compileAndRun(
         \\module App {

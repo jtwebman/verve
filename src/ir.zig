@@ -75,6 +75,14 @@ pub const Inst = union(enum) {
     /// Get list element by index
     list_get: struct { dest: Reg, list: Reg, index: Reg },
 
+    // ── String operations ────────────────────────────────
+    /// Get byte at index: dest = string[index] as i64
+    string_byte_at: struct { dest: Reg, str: Reg, index: Reg },
+    /// Get string byte length: dest = len(string)
+    string_len: struct { dest: Reg, str: Reg },
+    /// Compare two strings for equality: dest = (a == b)
+    string_eq: struct { dest: Reg, lhs: Reg, lhs_len: Reg, rhs: Reg, rhs_len: Reg },
+
     /// Call a platform builtin. The backend maps these to OS-specific operations.
     /// Examples: "exit", "write_stdout", "write_stderr"
     call_builtin: struct { dest: Reg, name: []const u8, args: []const Reg },

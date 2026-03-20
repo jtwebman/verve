@@ -16,6 +16,8 @@ pub const Lower = struct {
     struct_decls: std.StringHashMapUnmanaged(ast.StructDecl),
     // Variable name → struct type name (for field access resolution)
     var_types: std.StringHashMapUnmanaged([]const u8),
+    // Register → string length (for string operations)
+    string_lens: std.AutoHashMapUnmanaged(ir.Reg, ir.Reg),
 
     pub fn init(alloc: std.mem.Allocator) Lower {
         return .{
@@ -26,6 +28,7 @@ pub const Lower = struct {
             .current_module = "",
             .struct_decls = .{},
             .var_types = .{},
+            .string_lens = .{},
         };
     }
 
@@ -253,6 +256,10 @@ pub const Lower = struct {
             .string_literal => |v| {
                 const dest = func.newReg();
                 block.append(.{ .const_string = .{ .dest = dest, .value = v } });
+                // Track string length for later string ops
+                const len_reg = func.newReg();
+                block.append(.{ .const_int = .{ .dest = len_reg, .value = @intCast(v.len) } });
+                self.string_lens.put(self.alloc, dest, len_reg) catch {};
                 return dest;
             },
             .identifier => |name| {
@@ -261,6 +268,33 @@ pub const Lower = struct {
                 return dest;
             },
             .binary_op => |op| {
+                // Check for string comparison
+                if (op.op == .eq or op.op == .neq) {
+                    const is_str_l = (op.left.* == .string_literal);
+                    const is_str_r = (op.right.* == .string_literal);
+                    if (is_str_l or is_str_r) {
+                        const lhs = self.lowerExpr(op.left.*);
+                        const rhs = self.lowerExpr(op.right.*);
+                        const lhs_len = self.string_lens.get(lhs) orelse blk: {
+                            const lr = func.newReg();
+                            block.append(.{ .string_len = .{ .dest = lr, .str = lhs } });
+                            break :blk lr;
+                        };
+                        const rhs_len = self.string_lens.get(rhs) orelse blk: {
+                            const lr = func.newReg();
+                            block.append(.{ .string_len = .{ .dest = lr, .str = rhs } });
+                            break :blk lr;
+                        };
+                        const dest = func.newReg();
+                        block.append(.{ .string_eq = .{ .dest = dest, .lhs = lhs, .lhs_len = lhs_len, .rhs = rhs, .rhs_len = rhs_len } });
+                        if (op.op == .neq) {
+                            const neg = func.newReg();
+                            block.append(.{ .not_bool = .{ .dest = neg, .operand = dest } });
+                            return neg;
+                        }
+                        return dest;
+                    }
+                }
                 const lhs = self.lowerExpr(op.left.*);
                 const rhs = self.lowerExpr(op.right.*);
                 const dest = func.newReg();
@@ -305,10 +339,55 @@ pub const Lower = struct {
                 if (c.target.* == .field_access) {
                     const fa = c.target.field_access;
                     if (fa.target.* == .identifier) {
+                        const mod_name = fa.target.identifier;
+                        const fn_name = fa.field;
+
+                        // String built-in functions → IR instructions
+                        if (std.mem.eql(u8, mod_name, "String")) {
+                            if (std.mem.eql(u8, fn_name, "byte_at")) {
+                                if (args.len >= 2) {
+                                    block.append(.{ .string_byte_at = .{ .dest = dest, .str = args[0], .index = args[1] } });
+                                    return dest;
+                                }
+                            }
+                            if (std.mem.eql(u8, fn_name, "is_alpha")) {
+                                // byte_at(s, 0), then check if (b >= 65 && b <= 90) || (b >= 97 && b <= 122)
+                                // Simplified: emit as call_builtin, backend handles it
+                                block.append(.{ .call_builtin = .{ .dest = dest, .name = "string_is_alpha", .args = args } });
+                                return dest;
+                            }
+                            if (std.mem.eql(u8, fn_name, "is_digit")) {
+                                block.append(.{ .call_builtin = .{ .dest = dest, .name = "string_is_digit", .args = args } });
+                                return dest;
+                            }
+                            if (std.mem.eql(u8, fn_name, "is_whitespace")) {
+                                block.append(.{ .call_builtin = .{ .dest = dest, .name = "string_is_whitespace", .args = args } });
+                                return dest;
+                            }
+                            if (std.mem.eql(u8, fn_name, "is_alnum")) {
+                                block.append(.{ .call_builtin = .{ .dest = dest, .name = "string_is_alnum", .args = args } });
+                                return dest;
+                            }
+                            if (std.mem.eql(u8, fn_name, "slice")) {
+                                block.append(.{ .call_builtin = .{ .dest = dest, .name = "string_slice", .args = args } });
+                                return dest;
+                            }
+                            // Other String functions → generic call
+                            block.append(.{ .call_builtin = .{ .dest = dest, .name = fn_name, .args = args } });
+                            return dest;
+                        }
+
+                        // Set.has → builtin
+                        if (std.mem.eql(u8, mod_name, "Set")) {
+                            block.append(.{ .call_builtin = .{ .dest = dest, .name = "set_has", .args = args } });
+                            return dest;
+                        }
+
+                        // User-defined module.function call
                         block.append(.{ .call = .{
                             .dest = dest,
-                            .module = fa.target.identifier,
-                            .function = fa.field,
+                            .module = mod_name,
+                            .function = fn_name,
                             .args = args,
                         } });
                         return dest;
