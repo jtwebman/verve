@@ -22,6 +22,15 @@ pub const LinuxX86Backend = struct {
     jump_patches: std.ArrayListUnmanaged(JumpPatch),
     // Is this the entry point (main)?
     is_entry: bool,
+    // Function name → code offset for call patching
+    fn_offsets: std.StringHashMapUnmanaged(usize),
+    // Pending function call patches
+    fn_call_patches: std.ArrayListUnmanaged(FnCallPatch),
+
+    const FnCallPatch = struct {
+        patch_offset: usize,
+        target: []const u8, // "Module.function"
+    };
 
     const JumpPatch = struct {
         patch_offset: usize,
@@ -39,6 +48,8 @@ pub const LinuxX86Backend = struct {
             .block_offsets = .{},
             .jump_patches = .{},
             .is_entry = false,
+            .fn_offsets = .{},
+            .fn_call_patches = .{},
         };
     }
 
@@ -81,8 +92,27 @@ pub const LinuxX86Backend = struct {
     // ── Compile program ──────────────────────────────────────
 
     pub fn compileProgram(self: *LinuxX86Backend, program: ir.Program) void {
+        // Compile entry point first (must be at start of code)
         for (program.functions.items) |func| {
-            self.compileFunction(func, std.mem.eql(u8, func.name, "main"));
+            if (std.mem.eql(u8, func.name, "main")) {
+                const key = std.fmt.allocPrint(self.alloc, "{s}.{s}", .{ func.module, func.name }) catch "";
+                self.fn_offsets.put(self.alloc, key, self.asm_.offset()) catch {};
+                self.compileFunction(func, true);
+            }
+        }
+        // Then compile all other functions
+        for (program.functions.items) |func| {
+            if (!std.mem.eql(u8, func.name, "main")) {
+                const key = std.fmt.allocPrint(self.alloc, "{s}.{s}", .{ func.module, func.name }) catch "";
+                self.fn_offsets.put(self.alloc, key, self.asm_.offset()) catch {};
+                self.compileFunction(func, false);
+            }
+        }
+        // Patch all function calls
+        for (self.fn_call_patches.items) |patch| {
+            if (self.fn_offsets.get(patch.target)) |target_offset| {
+                self.asm_.patchRel32At(patch.patch_offset, target_offset);
+            }
         }
     }
 
@@ -100,6 +130,15 @@ pub const LinuxX86Backend = struct {
         self.asm_.movReg(.rbp, .rsp);
         self.asm_.subImm32(.rsp, 4096); // reserve 4KB for locals
 
+        // Store incoming arguments (System V ABI: rdi, rsi, rdx, rcx, r8, r9)
+        const arg_regs = [_]x86.Reg64{ .rdi, .rsi, .rdx, .rcx, .r8, .r9 };
+        for (func.params, 0..) |param, i| {
+            if (i < arg_regs.len) {
+                const offset = self.localSlot(param.name);
+                self.asm_.storeLocal32(offset, arg_regs[i]);
+            }
+        }
+
         // Compile each block
         for (func.blocks.items) |block| {
             // Record block start offset for jump patching
@@ -108,6 +147,18 @@ pub const LinuxX86Backend = struct {
             for (block.insts.items) |inst| {
                 self.compileInst(inst);
             }
+        }
+
+        // Default epilogue (if no explicit return was emitted)
+        if (!is_entry) {
+            self.asm_.movImm64(.rax, 0);
+            self.asm_.movReg(.rsp, .rbp);
+            self.asm_.popReg(.rbp);
+            self.asm_.ret();
+        } else {
+            // Entry: default exit(0)
+            self.asm_.movImm64(.rdi, 0);
+            self.emitSyscall(60);
         }
 
         // Patch all jumps
@@ -229,7 +280,27 @@ pub const LinuxX86Backend = struct {
                 self.compileBuiltin(c.dest, c.name, c.args);
             },
             .call => |c| {
-                _ = c; // TODO: user function calls
+                // System V AMD64 calling convention: rdi, rsi, rdx, rcx, r8, r9
+                const arg_regs = [_]x86.Reg64{ .rdi, .rsi, .rdx, .rcx, .r8, .r9 };
+
+                // Load args into calling convention registers
+                for (c.args, 0..) |arg_reg, i| {
+                    if (i < arg_regs.len) {
+                        self.loadReg(arg_reg);
+                        self.asm_.movReg(arg_regs[i], .rax);
+                    }
+                }
+
+                // Emit call (will be patched later)
+                const key = std.fmt.allocPrint(self.alloc, "{s}.{s}", .{ c.module, c.function }) catch "";
+                const patch = self.asm_.callRel32();
+                self.fn_call_patches.append(self.alloc, .{
+                    .patch_offset = patch,
+                    .target = key,
+                }) catch {};
+
+                // Result is in rax
+                self.storeReg(c.dest);
             },
         }
     }

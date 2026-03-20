@@ -8,9 +8,10 @@ const ir = @import("ir.zig");
 pub const Lower = struct {
     alloc: std.mem.Allocator,
     program: ir.Program,
-    // Current function state
+    // Current compilation state
     current_fn: ?*ir.Function,
     current_block: ?*ir.Block,
+    current_module: []const u8,
 
     pub fn init(alloc: std.mem.Allocator) Lower {
         return .{
@@ -18,6 +19,7 @@ pub const Lower = struct {
             .program = ir.Program.init(alloc),
             .current_fn = null,
             .current_block = null,
+            .current_module = "",
         };
     }
 
@@ -26,6 +28,7 @@ pub const Lower = struct {
         for (file.decls) |decl| {
             switch (decl) {
                 .module_decl => |m| {
+                    self.current_module = m.name;
                     for (m.functions) |func| {
                         try self.lowerFunction(m.name, func);
                         if (std.mem.eql(u8, func.name, "main")) {
@@ -272,10 +275,28 @@ pub const Lower = struct {
                 }
                 if (c.target.* == .identifier) {
                     const name = c.target.identifier;
-                    // Built-in functions become builtin calls
-                    block.append(.{ .call_builtin = .{
+                    // Check if it's a built-in function
+                    if (std.mem.eql(u8, name, "println") or
+                        std.mem.eql(u8, name, "print") or
+                        std.mem.eql(u8, name, "list") or
+                        std.mem.eql(u8, name, "map") or
+                        std.mem.eql(u8, name, "set") or
+                        std.mem.eql(u8, name, "stack") or
+                        std.mem.eql(u8, name, "queue") or
+                        std.mem.eql(u8, name, "spawn"))
+                    {
+                        block.append(.{ .call_builtin = .{
+                            .dest = dest,
+                            .name = name,
+                            .args = args,
+                        } });
+                        return dest;
+                    }
+                    // Bare function call — qualify with current module
+                    block.append(.{ .call = .{
                         .dest = dest,
-                        .name = name,
+                        .module = self.current_module,
+                        .function = name,
                         .args = args,
                     } });
                     return dest;
