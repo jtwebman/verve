@@ -208,6 +208,40 @@ pub fn main() !void {
             };
             std.debug.print("Formatted {s}\n", .{file_path});
         }
+    } else if (std.mem.eql(u8, command, "build")) {
+        const file_path = args.next() orelse {
+            std.debug.print("Error: no file specified\n", .{});
+            return;
+        };
+        var loader = Loader.init(alloc);
+        const merged = loader.loadFile(file_path) catch |err| {
+            switch (err) {
+                error.FileNotFound => std.debug.print("Error: file not found: {s}\n", .{file_path}),
+                error.ParseFailed => std.debug.print("Parse error in {s}\n", .{file_path}),
+                else => std.debug.print("Error: {}\n", .{err}),
+            }
+            return;
+        };
+
+        const Cg = @import("codegen.zig").Codegen;
+        var cg = Cg.init(alloc);
+        cg.compile(merged) catch |err| {
+            std.debug.print("Compilation error: {}\n", .{err});
+            return;
+        };
+
+        // Determine output path: replace .vv with nothing, or add .out
+        const out_path = if (std.mem.endsWith(u8, file_path, ".vv"))
+            std.fmt.allocPrint(alloc, "{s}", .{file_path[0 .. file_path.len - 3]}) catch "a.out"
+        else
+            std.fmt.allocPrint(alloc, "{s}.out", .{file_path}) catch "a.out";
+
+        cg.build(out_path) catch |err| {
+            std.debug.print("Build error: {}\n", .{err});
+            return;
+        };
+
+        std.debug.print("Built {s}\n", .{out_path});
     } else {
         printUsage();
     }
@@ -230,9 +264,10 @@ fn printUsage() void {
         \\verve - AI-first programming language
         \\
         \\Usage:
-        \\  verve run <file.vv>     Run a Verve program
+        \\  verve run <file.vv>     Run a Verve program (interpreter)
+        \\  verve build <file.vv>   Compile to native binary
         \\  verve check <file.vv>   Check a Verve program
-        \\  verve test <file.vv>    Run @example tests
+        \\  verve test <file.vv>    Run @example and test blocks
         \\  verve fmt <file.vv>     Format a Verve file in place
         \\
     , .{});
