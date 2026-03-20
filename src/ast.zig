@@ -21,9 +21,11 @@ pub const Decl = union(enum) {
 
 pub const ModuleDecl = struct {
     name: []const u8,
+    constants: []const Assign,
     functions: []const FnDecl,
     imports: []const Import,
     exported: bool,
+    doc_comment: ?[]const u8,
     span: Span,
 };
 
@@ -39,6 +41,7 @@ pub const ProcessDecl = struct {
     receive_handlers: []const ReceiveDecl,
     invariants: []const Expr,
     exported: bool,
+    doc_comment: ?[]const u8,
     span: Span,
 };
 
@@ -148,10 +151,13 @@ pub const Stmt = union(enum) {
     transition: Transition,
     append: Append,
     match_stmt: MatchStmt,
+    if_stmt: IfStmt,
     while_stmt: WhileStmt,
     send_stmt: SendStmt,
     tell_stmt: TellStmt,
     return_stmt: ReturnStmt,
+    break_stmt: Span,
+    continue_stmt: Span,
     receive_stmt: Span, // receive; — block and process one message
     watch_stmt: WatchStmt,
     expr_stmt: Expr,
@@ -208,6 +214,13 @@ pub const TagPattern = struct {
     bindings: []const []const u8,
 };
 
+pub const IfStmt = struct {
+    condition: Expr,
+    body: []const Stmt,
+    else_body: ?[]const Stmt,
+    span: Span,
+};
+
 pub const WhileStmt = struct {
     condition: Expr,
     body: []const Stmt,
@@ -248,6 +261,7 @@ pub const Expr = union(enum) {
     unary_op: UnaryOp,
     call: Call,
     struct_literal: StructLiteral,
+    string_interp: StringInterp,
     match_expr: *const MatchStmt,
     none_literal: void,
     void_literal: void,
@@ -299,6 +313,15 @@ pub const Call = struct {
 pub const StructLiteral = struct {
     name: []const u8,
     fields: []const StructLiteralField,
+};
+
+pub const StringInterp = struct {
+    parts: []const StringInterpPart,
+};
+
+pub const StringInterpPart = union(enum) {
+    literal: []const u8,
+    expr: Expr,
 };
 
 pub const StructLiteralField = struct {

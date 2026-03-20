@@ -87,14 +87,43 @@ pub const Checker = struct {
     // ── Module checking ───────────────────────────────────────
 
     fn checkModule(self: *Checker, m: ast.ModuleDecl) !void {
+        // Exported modules must have doc comments
+        if (m.exported and m.doc_comment == null) {
+            try self.addError(
+                try std.fmt.allocPrint(self.alloc, "exported module '{s}' is missing a /// doc comment", .{m.name}),
+                0,
+                0,
+            );
+        }
+
+        // Register module-level constants
+        for (m.constants) |c| {
+            if (c.type_expr) |te| {
+                try self.checkTypeExists(te);
+            }
+        }
+
         for (m.functions) |func| {
-            try self.checkFnDecl(func, m.name, false);
+            // Add module constants to scope for each function check
+            for (m.constants) |c| {
+                try self.current_scope.put(self.alloc, c.name, if (c.type_expr) |te| self.typeExprName(te) else "unknown");
+            }
+            try self.checkFnDecl(func, m.name, m.exported);
         }
     }
 
     // ── Process checking ──────────────────────────────────────
 
     fn checkProcess(self: *Checker, p: ast.ProcessDecl) !void {
+        // Exported processes must have doc comments
+        if (p.exported and p.doc_comment == null) {
+            try self.addError(
+                try std.fmt.allocPrint(self.alloc, "exported process '{s}' is missing a /// doc comment", .{p.name}),
+                0,
+                0,
+            );
+        }
+
         // Check state fields have valid types
         for (p.state_fields) |field| {
             try self.checkTypeExists(field.type_expr);
@@ -102,11 +131,20 @@ pub const Checker = struct {
 
         // Check receive handlers
         for (p.receive_handlers) |handler| {
-            try self.checkReceiveDecl(handler, p);
+            try self.checkReceiveDecl(handler, p, p.exported);
         }
     }
 
-    fn checkReceiveDecl(self: *Checker, handler: ast.ReceiveDecl, p: ast.ProcessDecl) !void {
+    fn checkReceiveDecl(self: *Checker, handler: ast.ReceiveDecl, p: ast.ProcessDecl, is_exported: bool) !void {
+        // Exported receive handlers must have doc comments
+        if (is_exported and handler.doc_comment == null and !std.mem.eql(u8, handler.name, "main")) {
+            try self.addError(
+                try std.fmt.allocPrint(self.alloc, "exported handler '{s}.{s}' is missing a /// doc comment", .{ p.name, handler.name }),
+                0,
+                0,
+            );
+        }
+
         self.in_receive_handler = true;
         defer self.in_receive_handler = false;
 
@@ -137,8 +175,15 @@ pub const Checker = struct {
 
     // ── Function checking ─────────────────────────────────────
 
-    fn checkFnDecl(self: *Checker, func: ast.FnDecl, module_name: []const u8, is_process: bool) !void {
-        _ = is_process;
+    fn checkFnDecl(self: *Checker, func: ast.FnDecl, module_name: []const u8, is_exported: bool) !void {
+        // Exported functions must have doc comments
+        if (is_exported and func.doc_comment == null and !std.mem.eql(u8, func.name, "main")) {
+            try self.addError(
+                try std.fmt.allocPrint(self.alloc, "exported function '{s}.{s}' is missing a /// doc comment", .{ module_name, func.name }),
+                0,
+                0,
+            );
+        }
 
         self.current_scope = .{};
 
@@ -218,6 +263,13 @@ pub const Checker = struct {
                     try self.checkExpr(val);
                 }
             },
+            .if_stmt => |i| {
+                try self.checkExprIsBoolean(i.condition);
+                for (i.body) |s| try self.checkStmt(s);
+                if (i.else_body) |eb| {
+                    for (eb) |s| try self.checkStmt(s);
+                }
+            },
             .while_stmt => |w| {
                 try self.checkExprIsBoolean(w.condition);
                 for (w.body) |s| try self.checkStmt(s);
@@ -289,6 +341,7 @@ pub const Checker = struct {
             .expr_stmt => |e| {
                 try self.checkExpr(e);
             },
+            .break_stmt, .continue_stmt => {},
             .receive_stmt => {
                 if (!self.in_receive_handler) {
                     try self.addError("receive; can only be used inside a process", 0, 0);
@@ -306,12 +359,24 @@ pub const Checker = struct {
     fn checkExpr(self: *Checker, expr: ast.Expr) !void {
         switch (expr) {
             .int_literal, .float_literal, .string_literal, .bool_literal => {},
+            .string_interp => |si| {
+                for (si.parts) |part| {
+                    switch (part) {
+                        .expr => |e| try self.checkExpr(e),
+                        .literal => {},
+                    }
+                }
+            },
             .tag, .none_literal, .void_literal => {},
             .identifier => |name| {
                 // Check built-in functions
                 if (std.mem.eql(u8, name, "print") or
                     std.mem.eql(u8, name, "println") or
                     std.mem.eql(u8, name, "list") or
+                    std.mem.eql(u8, name, "map") or
+                    std.mem.eql(u8, name, "set") or
+                    std.mem.eql(u8, name, "stack") or
+                    std.mem.eql(u8, name, "queue") or
                     std.mem.eql(u8, name, "spawn"))
                 {
                     return;
@@ -337,6 +402,15 @@ pub const Checker = struct {
                     const name = fa.target.identifier;
                     if (self.modules.get(name) != null) return;
                     if (self.process_decls.get(name) != null) return;
+                    // Built-in modules
+                    if (std.mem.eql(u8, name, "String") or
+                        std.mem.eql(u8, name, "Map") or
+                        std.mem.eql(u8, name, "Set") or
+                        std.mem.eql(u8, name, "Stack") or
+                        std.mem.eql(u8, name, "Queue") or
+                        std.mem.eql(u8, name, "Stdio") or
+                        std.mem.eql(u8, name, "File") or
+                        std.mem.eql(u8, name, "Stream")) return;
                 }
                 try self.checkExpr(fa.target.*);
             },
@@ -433,6 +507,7 @@ pub const Checker = struct {
         for (stmts) |stmt| {
             switch (stmt) {
                 .return_stmt => return true,
+                .break_stmt => return true,
                 .match_stmt => |m| {
                     for (m.arms) |arm| {
                         if (self.bodyHasReturn(arm.body)) return true;
@@ -494,6 +569,7 @@ pub const Checker = struct {
                     "float32", "float64", "decimal",  "string",       "bool",
                     "byte",    "bytes",   "void",    "uuid",         "email",
                     "uri",     "phone",   "utc_datetime", "duration", "Result",
+                    "stream",
                 };
                 for (builtins) |b| {
                     if (std.mem.eql(u8, name, b)) return;
@@ -512,7 +588,7 @@ pub const Checker = struct {
             },
             .generic => |g| {
                 // Check base type and args
-                const known_generics = [_][]const u8{ "list", "map", "process", "Result" };
+                const known_generics = [_][]const u8{ "list", "map", "set", "stack", "queue", "process", "Result" };
                 var found = false;
                 for (known_generics) |kg| {
                     if (std.mem.eql(u8, g.name, kg)) { found = true; break; }
@@ -695,6 +771,13 @@ pub const Checker = struct {
             .return_stmt => |r| {
                 if (r.value) |val| try self.collectCallsFromExpr(val, current_module, callees);
             },
+            .if_stmt => |i| {
+                try self.collectCallsFromExpr(i.condition, current_module, callees);
+                for (i.body) |s| try self.collectCallsFromStmt(s, current_module, callees);
+                if (i.else_body) |eb| {
+                    for (eb) |s| try self.collectCallsFromStmt(s, current_module, callees);
+                }
+            },
             .while_stmt => |w| {
                 try self.collectCallsFromExpr(w.condition, current_module, callees);
                 for (w.body) |s| try self.collectCallsFromStmt(s, current_module, callees);
@@ -718,7 +801,7 @@ pub const Checker = struct {
             },
             .expr_stmt => |e| try self.collectCallsFromExpr(e, current_module, callees),
             .watch_stmt => |w| try self.collectCallsFromExpr(w.target, current_module, callees),
-            .receive_stmt, .send_stmt => {},
+            .break_stmt, .continue_stmt, .receive_stmt, .send_stmt => {},
         }
     }
 
@@ -740,6 +823,10 @@ pub const Checker = struct {
                     if (!std.mem.eql(u8, name, "print") and
                         !std.mem.eql(u8, name, "println") and
                         !std.mem.eql(u8, name, "list") and
+                        !std.mem.eql(u8, name, "map") and
+                        !std.mem.eql(u8, name, "set") and
+                        !std.mem.eql(u8, name, "stack") and
+                        !std.mem.eql(u8, name, "queue") and
                         !std.mem.eql(u8, name, "spawn"))
                     {
                         const key = try std.fmt.allocPrint(self.alloc, "{s}.{s}", .{ current_module, name });
@@ -755,6 +842,14 @@ pub const Checker = struct {
                 try self.collectCallsFromExpr(op.right.*, current_module, callees);
             },
             .unary_op => |op| try self.collectCallsFromExpr(op.operand.*, current_module, callees),
+            .string_interp => |si| {
+                for (si.parts) |part| {
+                    switch (part) {
+                        .expr => |e| try self.collectCallsFromExpr(e, current_module, callees),
+                        .literal => {},
+                    }
+                }
+            },
             .field_access => |fa| try self.collectCallsFromExpr(fa.target.*, current_module, callees),
             .index_access => |ia| {
                 try self.collectCallsFromExpr(ia.target.*, current_module, callees);

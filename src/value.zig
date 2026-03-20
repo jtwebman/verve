@@ -11,6 +11,10 @@ pub const Value = union(enum) {
     void: void,
     list: *MutableList,
     map: *MutableMap,
+    set: *MutableSet,
+    stack: *MutableStack,
+    queue: *MutableQueue,
+    stream: *Stream,
     struct_val: StructVal,
     function_ref: FunctionRef,
     process_id: u64,
@@ -30,12 +34,14 @@ pub const Value = union(enum) {
     pub const MutableList = struct {
         items: std.ArrayListUnmanaged(Value),
         alloc: std.mem.Allocator,
+        frozen: bool,
 
         pub fn init(alloc: std.mem.Allocator) MutableList {
-            return .{ .items = .{}, .alloc = alloc };
+            return .{ .items = .{}, .alloc = alloc, .frozen = false };
         }
 
         pub fn append(self: *MutableList, val: Value) !void {
+            if (self.frozen) return error.OutOfMemory; // frozen collection
             try self.items.append(self.alloc, val);
         }
 
@@ -53,12 +59,14 @@ pub const Value = union(enum) {
         keys: std.ArrayListUnmanaged(Value),
         values: std.ArrayListUnmanaged(Value),
         alloc: std.mem.Allocator,
+        frozen: bool,
 
         pub fn init(alloc: std.mem.Allocator) MutableMap {
-            return .{ .keys = .{}, .values = .{}, .alloc = alloc };
+            return .{ .keys = .{}, .values = .{}, .alloc = alloc, .frozen = false };
         }
 
         pub fn put(self: *MutableMap, key: Value, val: Value) !void {
+            if (self.frozen) return error.OutOfMemory; // frozen collection
             // Check for existing key
             for (self.keys.items, 0..) |k, i| {
                 if (Value.eql(k, key)) {
@@ -79,6 +87,148 @@ pub const Value = union(enum) {
 
         pub fn len(self: *const MutableMap) usize {
             return self.keys.items.len;
+        }
+    };
+
+    pub const MutableStack = struct {
+        items: std.ArrayListUnmanaged(Value),
+        alloc: std.mem.Allocator,
+        frozen: bool,
+
+        pub fn init(alloc: std.mem.Allocator) MutableStack {
+            return .{ .items = .{}, .alloc = alloc, .frozen = false };
+        }
+
+        pub fn push(self: *MutableStack, val: Value) !void {
+            if (self.frozen) return error.OutOfMemory;
+            try self.items.append(self.alloc, val);
+        }
+
+        pub fn pop(self: *MutableStack) ?Value {
+            if (self.frozen) return null;
+            if (self.items.items.len == 0) return null;
+            return self.items.pop();
+        }
+
+        pub fn peek(self: *const MutableStack) ?Value {
+            if (self.items.items.len == 0) return null;
+            return self.items.items[self.items.items.len - 1];
+        }
+
+        pub fn len(self: *const MutableStack) usize {
+            return self.items.items.len;
+        }
+    };
+
+    pub const MutableQueue = struct {
+        items: std.ArrayListUnmanaged(Value),
+        alloc: std.mem.Allocator,
+        frozen: bool,
+
+        pub fn init(alloc: std.mem.Allocator) MutableQueue {
+            return .{ .items = .{}, .alloc = alloc, .frozen = false };
+        }
+
+        pub fn push(self: *MutableQueue, val: Value) !void {
+            if (self.frozen) return error.OutOfMemory;
+            try self.items.append(self.alloc, val);
+        }
+
+        pub fn pop(self: *MutableQueue) ?Value {
+            if (self.frozen) return null;
+            if (self.items.items.len == 0) return null;
+            const val = self.items.items[0];
+            _ = self.items.orderedRemove(0);
+            return val;
+        }
+
+        pub fn peek(self: *const MutableQueue) ?Value {
+            if (self.items.items.len == 0) return null;
+            return self.items.items[0];
+        }
+
+        pub fn len(self: *const MutableQueue) usize {
+            return self.items.items.len;
+        }
+    };
+
+    pub const MutableSet = struct {
+        items: std.ArrayListUnmanaged(Value),
+        alloc: std.mem.Allocator,
+        frozen: bool,
+
+        pub fn init(alloc: std.mem.Allocator) MutableSet {
+            return .{ .items = .{}, .alloc = alloc, .frozen = false };
+        }
+
+        pub fn add(self: *MutableSet, val: Value) !void {
+            if (self.frozen) return error.OutOfMemory; // frozen collection
+            // Check for duplicates
+            for (self.items.items) |existing| {
+                if (Value.eql(existing, val)) return;
+            }
+            try self.items.append(self.alloc, val);
+        }
+
+        pub fn has(self: *const MutableSet, val: Value) bool {
+            for (self.items.items) |existing| {
+                if (Value.eql(existing, val)) return true;
+            }
+            return false;
+        }
+
+        pub fn remove(self: *MutableSet, val: Value) void {
+            if (self.frozen) return; // frozen collection
+            for (self.items.items, 0..) |existing, i| {
+                if (Value.eql(existing, val)) {
+                    _ = self.items.orderedRemove(i);
+                    return;
+                }
+            }
+        }
+
+        pub fn len(self: *const MutableSet) usize {
+            return self.items.items.len;
+        }
+    };
+
+    pub const Stream = struct {
+        kind: Kind,
+        closed: bool,
+
+        pub const Kind = union(enum) {
+            stdout: void,
+            stderr: void,
+            stdin: void,
+            file_read: struct {
+                content: []const u8,
+                pos: usize,
+            },
+            file_write: struct {
+                path: []const u8,
+                buf: std.ArrayListUnmanaged(u8),
+                alloc: std.mem.Allocator,
+            },
+        };
+
+        pub fn initStdout() Stream {
+            return .{ .kind = .{ .stdout = {} }, .closed = false };
+        }
+
+        pub fn initStderr() Stream {
+            return .{ .kind = .{ .stderr = {} }, .closed = false };
+        }
+
+        pub fn initStdin() Stream {
+            return .{ .kind = .{ .stdin = {} }, .closed = false };
+        }
+
+        pub fn initFileRead(content: []const u8) Stream {
+            return .{ .kind = .{ .file_read = .{ .content = content, .pos = 0 } }, .closed = false };
+        }
+
+        pub fn initFileWrite(path: []const u8, alloc: std.mem.Allocator) Stream {
+            return .{ .kind = .{ .file_write = .{ .path = path, .buf = .{}, .alloc = alloc } }, .closed = false };
         }
     };
 
@@ -170,7 +320,50 @@ pub const Value = union(enum) {
                 }
                 try writer.writeAll("}");
             },
-            .map => try writer.writeAll("map{...}"),
+            .map => |v| {
+                try writer.writeAll("map{");
+                for (v.keys.items, 0..) |key, i| {
+                    if (i > 0) try writer.writeAll(", ");
+                    try key.format(writer);
+                    try writer.writeAll(": ");
+                    try v.values.items[i].format(writer);
+                }
+                try writer.writeAll("}");
+            },
+            .set => |v| {
+                try writer.writeAll("set{");
+                for (v.items.items, 0..) |item, i| {
+                    if (i > 0) try writer.writeAll(", ");
+                    try item.format(writer);
+                }
+                try writer.writeAll("}");
+            },
+            .stack => |v| {
+                try writer.writeAll("stack[");
+                for (v.items.items, 0..) |item, i| {
+                    if (i > 0) try writer.writeAll(", ");
+                    try item.format(writer);
+                }
+                try writer.writeAll("]");
+            },
+            .queue => |v| {
+                try writer.writeAll("queue[");
+                for (v.items.items, 0..) |item, i| {
+                    if (i > 0) try writer.writeAll(", ");
+                    try item.format(writer);
+                }
+                try writer.writeAll("]");
+            },
+            .stream => |v| {
+                const kind_name = switch (v.kind) {
+                    .stdout => "stdout",
+                    .stderr => "stderr",
+                    .stdin => "stdin",
+                    .file_read => "file(r)",
+                    .file_write => "file(w)",
+                };
+                try writer.print("stream<{s}>", .{kind_name});
+            },
             .function_ref => |v| try writer.print("{s}.{s}", .{ v.module_name, v.fn_name }),
             .process_id => |v| try writer.print("process<{d}>", .{v}),
         }

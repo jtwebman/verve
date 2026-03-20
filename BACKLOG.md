@@ -99,14 +99,31 @@
 
 High-impact gaps identified by AI self-review:
 
-- [ ] String operations in interpreter — split, contains, starts_with, ends_with, trim, replace (currently only concatenation works)
-- [ ] Map creation and operations in interpreter — create, put, get, keys, iteration (type exists but can't be used outside process state)
-- [ ] Runtime error context — line numbers and descriptive messages on interpreter errors (currently just "RuntimeError" with no location)
-- [ ] `break` statement in while loops — currently requires return or boolean flag to exit early
-- [ ] `continue` statement in while loops — currently forces match-on-boolean to skip iterations
-- [ ] Interpreter runtime error messages should match parser error quality (line, col, what went wrong)
-- [ ] Process state should support map and list types properly (not just int/string/bool defaults)
-- [ ] String interpolation or multi-arg println — `println("x = ", x)` works but something like `println("x = {x}")` would be cleaner
+- [x] String operations in interpreter — split, contains, starts_with, ends_with, trim, replace, slice
+- [x] Map creation and operations in interpreter — map(), Map.put, Map.get, Map.keys, Map.has, index access
+- [x] Set creation and operations in interpreter — set(), Set.add, Set.has, Set.remove, Set.values
+- [x] Runtime error context — line numbers and descriptive messages on interpreter errors (RuntimeErrorInfo with line/col/message)
+- [x] `break` statement in while loops
+- [x] `continue` statement in while loops
+- [x] Interpreter runtime error messages should match parser error quality (line, col, what went wrong)
+- [x] Process state should support map, list, and set types properly (auto-initialized on spawn)
+- [x] String interpolation — `"hello {name}, x = {x + 1}"` syntax with auto-conversion to string
+- [x] Stream-based IO — `stream` value type, Stdio module (out/err/in), File module (open), Stream module (write/write_line/read_line/read_all/close)
+- [x] String character access — byte_at, char_at, char_len, chars, is_alpha, is_digit, is_whitespace, is_alnum
+- [x] String indexing — `s[i]` returns single-byte string
+- [x] `if/else` statements with `else if` chaining
+- [x] `&&` and `||` logical operators with correct precedence
+- [x] String interpolation changed to `${expr}` — plain `{` and `$` are just characters
+- [x] String pattern matching in match arms
+- [x] Module-level constants — frozen after initialization, collections deeply immutable
+- [x] Collection initializers — `list(1, 2, 3)`, `set("a", "b")`, `map("k", v)`
+- [x] `stack<T>` — LIFO data structure with push/pop/peek
+- [x] `queue<T>` — FIFO data structure with push/pop/peek
+- [x] Doc comment enforcement — required on exported modules, processes, and functions
+- [x] Self-hosting tokenizer — parser.vv tokenizes Verve source in Verve (3700+ tokens on itself)
+- [ ] Collection copy — `List.copy`, `Map.copy`, etc. (shallow copy, returns mutable)
+- [ ] Real test blocks — `test "name" { ... }` in addition to @example
+- [ ] `verve doc` CLI — generate reference docs from doc comments
 
 ## Phase 4 — Native Compilation (x86_64)
 
@@ -133,11 +150,11 @@ High-impact gaps identified by AI self-review:
 
 - [ ] IO process — Tcp
 - [ ] IO process — Udp
-- [ ] IO process — File
+- [x] IO — File (open, read, write via streams)
 - [ ] IO process — Timer
-- [ ] IO process — Stdio
+- [x] IO — Stdio (out, err, in via streams)
 - [ ] IO process — Signal
-- [ ] module String
+- [x] module String (partial — len, contains, starts_with, ends_with, trim, replace, split, slice, byte_at, char_at, char_len, chars, is_alpha, is_digit, is_whitespace, is_alnum)
 - [ ] module Bytes
 - [ ] module Math
 - [ ] module Time

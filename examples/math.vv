@@ -1,12 +1,16 @@
+/// Basic integer math operations.
 export module Math {
+	/// Add two integers and return the sum.
 	fn add(a: int, b: int) -> int {
 		return a + b;
 	}
 
+	/// Multiply two integers and return the product.
 	fn multiply(a: int, b: int) -> int {
 		return a * b;
 	}
 
+	/// Compute the factorial of n using iteration.
 	fn factorial(n: int) -> int {
 		result: int = 1;
 		i: int = 1;

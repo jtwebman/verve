@@ -1,0 +1,615 @@
+/// A Verve tokenizer and parser written in Verve.
+/// Demonstrates self-hosting capability.
+
+struct Token {
+	kind: string;
+	value: string;
+	pos: int;
+}
+
+struct AstNode {
+	kind: string;
+	name: string;
+	value: string;
+	children: list<AstNode>;
+}
+
+struct ParseResult {
+	pos: int;
+	node: AstNode;
+}
+
+/// Tokenizer — breaks source text into tokens.
+module Tokenizer {
+	keywords: set<string> = set(
+		"module", "process", "fn", "receive", "return",
+		"while", "if", "else", "match", "break", "continue",
+		"true", "false", "guard", "state", "transition",
+		"export", "import", "struct", "type",
+		"spawn", "send", "tell", "watch", "append", "none"
+	);
+
+	/// Check if a byte is a single-char token and return its kind.
+	fn single_char_kind(b: int) -> string {
+		match b {
+			40 => return "lparen";
+			41 => return "rparen";
+			59 => return "semi";
+			58 => return "colon";
+			44 => return "comma";
+			60 => return "lt";
+			62 => return "gt";
+			61 => return "eq";
+			43 => return "op";
+			42 => return "op";
+			37 => return "op";
+			33 => return "bang";
+			_ => return "none";
+		}
+	}
+
+	/// Tokenize source into a list of tokens.
+	fn tokenize(source: string) -> list<Token> {
+		tokens: list<Token> = list();
+		pos: int = 0;
+		len: int = source.len;
+
+		while pos < len {
+			b: int = String.byte_at(source, pos);
+
+			// Skip whitespace
+			if b == 32 { pos = pos + 1; continue; }
+			if b == 9 { pos = pos + 1; continue; }
+			if b == 10 { pos = pos + 1; continue; }
+			if b == 13 { pos = pos + 1; continue; }
+
+			// Comments
+			if b == 47 {
+				if pos + 1 < len {
+					if String.byte_at(source, pos + 1) == 47 {
+						is_doc: bool = false;
+						if pos + 2 < len {
+							if String.byte_at(source, pos + 2) == 47 {
+								is_doc = true;
+							}
+						}
+						start: int = pos;
+						while pos < len {
+							if String.byte_at(source, pos) == 10 { break; }
+							pos = pos + 1;
+						}
+						if is_doc {
+							append tokens { Token { kind: "doc", value: String.slice(source, start, pos), pos: start }; }
+						}
+						continue;
+					}
+				}
+				append tokens { Token { kind: "op", value: "/", pos: pos }; }
+				pos = pos + 1;
+				continue;
+			}
+
+			// Braces
+			if b == 123 {
+				append tokens { Token { kind: "lbrace", value: "{", pos: pos }; }
+				pos = pos + 1;
+				continue;
+			}
+			if b == 125 {
+				append tokens { Token { kind: "rbrace", value: "}", pos: pos }; }
+				pos = pos + 1;
+				continue;
+			}
+
+			// Arrow: ->
+			if b == 45 {
+				if pos + 1 < len {
+					if String.byte_at(source, pos + 1) == 62 {
+						append tokens { Token { kind: "arrow", value: "->", pos: pos }; }
+						pos = pos + 2;
+						continue;
+					}
+				}
+				append tokens { Token { kind: "op", value: "-", pos: pos }; }
+				pos = pos + 1;
+				continue;
+			}
+
+			// => (fat arrow for match)
+			if b == 61 {
+				if pos + 1 < len {
+					if String.byte_at(source, pos + 1) == 62 {
+						append tokens { Token { kind: "fatarrow", value: "=>", pos: pos }; }
+						pos = pos + 2;
+						continue;
+					}
+					if String.byte_at(source, pos + 1) == 61 {
+						append tokens { Token { kind: "op", value: "==", pos: pos }; }
+						pos = pos + 2;
+						continue;
+					}
+				}
+				append tokens { Token { kind: "eq", value: "=", pos: pos }; }
+				pos = pos + 1;
+				continue;
+			}
+
+			// <=, >=, !=
+			if b == 60 {
+				if pos + 1 < len {
+					if String.byte_at(source, pos + 1) == 61 {
+						append tokens { Token { kind: "op", value: "<=", pos: pos }; }
+						pos = pos + 2;
+						continue;
+					}
+				}
+				append tokens { Token { kind: "lt", value: "<", pos: pos }; }
+				pos = pos + 1;
+				continue;
+			}
+			if b == 62 {
+				if pos + 1 < len {
+					if String.byte_at(source, pos + 1) == 61 {
+						append tokens { Token { kind: "op", value: ">=", pos: pos }; }
+						pos = pos + 2;
+						continue;
+					}
+				}
+				append tokens { Token { kind: "gt", value: ">", pos: pos }; }
+				pos = pos + 1;
+				continue;
+			}
+			if b == 33 {
+				if pos + 1 < len {
+					if String.byte_at(source, pos + 1) == 61 {
+						append tokens { Token { kind: "op", value: "!=", pos: pos }; }
+						pos = pos + 2;
+						continue;
+					}
+				}
+				append tokens { Token { kind: "bang", value: "!", pos: pos }; }
+				pos = pos + 1;
+				continue;
+			}
+
+			// Single-character tokens (excluding already handled above)
+			kind: string = single_char_kind(b);
+			if kind != "none" {
+				append tokens { Token { kind: kind, value: String.slice(source, pos, pos + 1), pos: pos }; }
+				pos = pos + 1;
+				continue;
+			}
+
+			// String literals
+			if b == 34 {
+				start: int = pos;
+				pos = pos + 1;
+				while pos < len {
+					sb: int = String.byte_at(source, pos);
+					if sb == 92 { pos = pos + 2; continue; }
+					if sb == 34 { break; }
+					pos = pos + 1;
+				}
+				pos = pos + 1;
+				append tokens { Token { kind: "string", value: String.slice(source, start, pos), pos: start }; }
+				continue;
+			}
+
+			// Tag literal: :name
+			if b == 58 {
+				if pos + 1 < len {
+					if String.is_alpha(source[pos + 1]) {
+						start: int = pos;
+						pos = pos + 1;
+						while pos < len {
+							if String.is_alnum(source[pos]) {
+								pos = pos + 1;
+							} else if source[pos] == "_" {
+								pos = pos + 1;
+							} else {
+								break;
+							}
+						}
+						append tokens { Token { kind: "tag", value: String.slice(source, start, pos), pos: start }; }
+						continue;
+					}
+				}
+				append tokens { Token { kind: "colon", value: ":", pos: pos }; }
+				pos = pos + 1;
+				continue;
+			}
+
+			// Numbers
+			if String.is_digit(source[pos]) {
+				start: int = pos;
+				while pos < len {
+					if !String.is_digit(source[pos]) { break; }
+					pos = pos + 1;
+				}
+				append tokens { Token { kind: "int", value: String.slice(source, start, pos), pos: start }; }
+				continue;
+			}
+
+			// Identifiers and keywords
+			if String.is_alpha(source[pos]) {
+				start: int = pos;
+				while pos < len {
+					ch: string = source[pos];
+					if String.is_alnum(ch) {
+						pos = pos + 1;
+					} else if ch == "_" {
+						pos = pos + 1;
+					} else {
+						break;
+					}
+				}
+				word: string = String.slice(source, start, pos);
+				if Set.has(keywords, word) {
+					append tokens { Token { kind: "kw", value: word, pos: start }; }
+				} else {
+					append tokens { Token { kind: "ident", value: word, pos: start }; }
+				}
+				continue;
+			}
+
+			// Unknown — skip
+			pos = pos + 1;
+		}
+
+		return tokens;
+	}
+}
+
+/// Parser — takes a token list and produces an AST.
+/// Uses functional style: each parse function takes (tokens, pos) and returns ParseResult.
+module Parser {
+	/// Create an AST node.
+	fn node(kind: string, name: string, value: string) -> AstNode {
+		return AstNode { kind: kind, name: name, value: value, children: list() };
+	}
+
+	/// Create an AST node with children.
+	fn node_with(kind: string, name: string, value: string, kids: list<AstNode>) -> AstNode {
+		return AstNode { kind: kind, name: name, value: value, children: kids };
+	}
+
+	/// Get the current token, or an EOF token if past end.
+	fn current(tokens: list<Token>, pos: int) -> Token {
+		if pos >= tokens.len {
+			return Token { kind: "eof", value: "", pos: 0 };
+		}
+		return tokens[pos];
+	}
+
+	/// Expect a specific token kind, return new position.
+	fn expect_kind(tokens: list<Token>, pos: int, kind: string) -> int {
+		tok: Token = current(tokens, pos);
+		if tok.kind != kind {
+			println("Parse error at pos ", tok.pos, ": expected ", kind, " but got ", tok.kind, " '", tok.value, "'");
+			return pos;
+		}
+		return pos + 1;
+	}
+
+	/// Expect a keyword with a specific value.
+	fn expect_kw(tokens: list<Token>, pos: int, word: string) -> int {
+		tok: Token = current(tokens, pos);
+		if tok.kind != "kw" {
+			println("Parse error at pos ", tok.pos, ": expected keyword '", word, "' but got ", tok.kind);
+			return pos;
+		}
+		if tok.value != word {
+			println("Parse error at pos ", tok.pos, ": expected '", word, "' but got '", tok.value, "'");
+			return pos;
+		}
+		return pos + 1;
+	}
+
+	/// Check if current token matches a kind.
+	fn is_kind(tokens: list<Token>, pos: int, kind: string) -> bool {
+		return current(tokens, pos).kind == kind;
+	}
+
+	/// Check if current token is a keyword with specific value.
+	fn is_kw(tokens: list<Token>, pos: int, word: string) -> bool {
+		tok: Token = current(tokens, pos);
+		if tok.kind != "kw" { return false; }
+		return tok.value == word;
+	}
+
+	// ── Top-level parsing ────────────────────────────────────
+
+	/// Parse a complete file into a list of top-level declarations.
+	fn parse_file(tokens: list<Token>) -> list<AstNode> {
+		decls: list<AstNode> = list();
+		pos: int = 0;
+
+		while pos < tokens.len {
+			tok: Token = current(tokens, pos);
+
+			// Skip doc comments at top level (attach to next decl)
+			if tok.kind == "doc" {
+				pos = pos + 1;
+				continue;
+			}
+
+			// export keyword
+			is_exported: bool = false;
+			if is_kw(tokens, pos, "export") {
+				is_exported = true;
+				pos = pos + 1;
+			}
+
+			if is_kw(tokens, pos, "module") {
+				pos = pos + 1;
+				result: ParseResult = parse_module(tokens, pos);
+				r: AstNode = result.node;
+				if is_exported {
+					r = node_with("module_exported", r.name, r.value, r.children);
+				}
+				append decls { r; }
+				pos = result.pos;
+			} else if is_kw(tokens, pos, "struct") {
+				pos = pos + 1;
+				name: string = current(tokens, pos).value;
+				pos = pos + 1;
+				pos = expect_kind(tokens, pos, "lbrace");
+				fields: list<AstNode> = list();
+				while !is_kind(tokens, pos, "rbrace") {
+					fname: string = current(tokens, pos).value;
+					pos = pos + 1;
+					pos = expect_kind(tokens, pos, "colon");
+					tname: string = current(tokens, pos).value;
+					pos = pos + 1;
+					pos = expect_kind(tokens, pos, "semi");
+					append fields { node("field", fname, tname); }
+				}
+				pos = expect_kind(tokens, pos, "rbrace");
+				append decls { node_with("struct", name, "", fields); }
+			} else if is_kw(tokens, pos, "import") {
+				pos = pos + 1;
+				path: string = current(tokens, pos).value;
+				pos = pos + 1;
+				pos = expect_kind(tokens, pos, "semi");
+				append decls { node("import", path, ""); }
+			} else {
+				println("Unexpected token: ", tok.kind, " '", tok.value, "'");
+				pos = pos + 1;
+			}
+		}
+
+		return decls;
+	}
+
+	/// Parse a module body: constants and functions.
+	fn parse_module(tokens: list<Token>, start_pos: int) -> ParseResult {
+		pos: int = start_pos;
+		name: string = current(tokens, pos).value;
+		pos = pos + 1;
+		pos = expect_kind(tokens, pos, "lbrace");
+
+		members: list<AstNode> = list();
+
+		while !is_kind(tokens, pos, "rbrace") {
+			// Skip doc comments
+			if is_kind(tokens, pos, "doc") {
+				pos = pos + 1;
+				continue;
+			}
+
+			if is_kw(tokens, pos, "fn") {
+				pos = pos + 1;
+				result: ParseResult = parse_function(tokens, pos);
+				append members { result.node; }
+				pos = result.pos;
+			} else if is_kw(tokens, pos, "use") {
+				pos = pos + 1;
+				mod_name: string = current(tokens, pos).value;
+				pos = pos + 1;
+				pos = expect_kind(tokens, pos, "lbrace");
+				// Skip import symbols for now
+				while !is_kind(tokens, pos, "rbrace") {
+					pos = pos + 1;
+				}
+				pos = expect_kind(tokens, pos, "rbrace");
+				pos = expect_kind(tokens, pos, "semi");
+				append members { node("use", mod_name, ""); }
+			} else if is_kind(tokens, pos, "ident") {
+				// Module-level constant: name: type = value;
+				cname: string = current(tokens, pos).value;
+				pos = pos + 1;
+				pos = expect_kind(tokens, pos, "colon");
+				tname: string = current(tokens, pos).value;
+				pos = pos + 1;
+				// Skip generic params like <string>
+				if is_kind(tokens, pos, "lt") {
+					while !is_kind(tokens, pos, "gt") {
+						pos = pos + 1;
+					}
+					pos = pos + 1;
+				}
+				pos = expect_kind(tokens, pos, "eq");
+				// Skip the value expression until ;
+				depth: int = 0;
+				while pos < tokens.len {
+					if is_kind(tokens, pos, "semi") {
+						if depth == 0 { break; }
+					}
+					if is_kind(tokens, pos, "lparen") { depth = depth + 1; }
+					if is_kind(tokens, pos, "rparen") { depth = depth - 1; }
+					pos = pos + 1;
+				}
+				pos = expect_kind(tokens, pos, "semi");
+				append members { node("const", cname, tname); }
+			} else {
+				println("Unexpected in module: ", current(tokens, pos).kind, " '", current(tokens, pos).value, "'");
+				pos = pos + 1;
+			}
+		}
+		pos = expect_kind(tokens, pos, "rbrace");
+
+		return ParseResult { pos: pos, node: node_with("module", name, "", members) };
+	}
+
+	/// Parse a function declaration.
+	fn parse_function(tokens: list<Token>, start_pos: int) -> ParseResult {
+		pos: int = start_pos;
+		name: string = current(tokens, pos).value;
+		pos = pos + 1;
+
+		// Parse parameters
+		pos = expect_kind(tokens, pos, "lparen");
+		params: list<AstNode> = list();
+		while !is_kind(tokens, pos, "rparen") {
+			pname: string = current(tokens, pos).value;
+			pos = pos + 1;
+			pos = expect_kind(tokens, pos, "colon");
+			ptype: string = current(tokens, pos).value;
+			pos = pos + 1;
+			// Skip generic type params
+			if is_kind(tokens, pos, "lt") {
+				while !is_kind(tokens, pos, "gt") {
+					pos = pos + 1;
+				}
+				pos = pos + 1;
+			}
+			append params { node("param", pname, ptype); }
+			if is_kind(tokens, pos, "comma") {
+				pos = pos + 1;
+			}
+		}
+		pos = expect_kind(tokens, pos, "rparen");
+
+		// Parse return type
+		pos = expect_kind(tokens, pos, "arrow");
+		ret_type: string = current(tokens, pos).value;
+		pos = pos + 1;
+		// Skip generic return type params
+		if is_kind(tokens, pos, "lt") {
+			while !is_kind(tokens, pos, "gt") {
+				pos = pos + 1;
+			}
+			pos = pos + 1;
+		}
+
+		// Parse body (skip for now — just balance braces)
+		pos = expect_kind(tokens, pos, "lbrace");
+		depth: int = 1;
+		body_tokens: int = 0;
+		while depth > 0 {
+			if is_kind(tokens, pos, "lbrace") { depth = depth + 1; }
+			if is_kind(tokens, pos, "rbrace") { depth = depth - 1; }
+			if depth > 0 {
+				body_tokens = body_tokens + 1;
+				pos = pos + 1;
+			}
+		}
+		pos = expect_kind(tokens, pos, "rbrace");
+
+		fn_node: AstNode = node("fn", name, ret_type);
+		// Attach params as children
+		i: int = 0;
+		while i < params.len {
+			append fn_node.children { params[i]; }
+			i = i + 1;
+		}
+
+		return ParseResult { pos: pos, node: fn_node };
+	}
+}
+
+/// Pretty-print an AST.
+module Printer {
+	/// Print an AST node with indentation.
+	fn print_node(n: AstNode, depth: int) -> void {
+		indent: string = "";
+		d: int = 0;
+		while d < depth {
+			indent = indent + "  ";
+			d = d + 1;
+		}
+
+		if n.kind == "module" {
+			println(indent, "module ", n.name);
+		} else if n.kind == "module_exported" {
+			println(indent, "export module ", n.name);
+		} else if n.kind == "fn" {
+			print(indent, "fn ", n.name, "(");
+			pi: int = 0;
+			while pi < n.children.len {
+				p: AstNode = n.children[pi];
+				if pi > 0 { print(", "); }
+				print(p.name, ": ", p.value);
+				pi = pi + 1;
+			}
+			println(") -> ", n.value);
+		} else if n.kind == "const" {
+			println(indent, n.name, ": ", n.value);
+		} else if n.kind == "use" {
+			println(indent, "use ", n.name);
+		} else if n.kind == "struct" {
+			println(indent, "struct ", n.name);
+		} else if n.kind == "field" {
+			println(indent, n.name, ": ", n.value);
+		} else if n.kind == "import" {
+			println(indent, "import ", n.name);
+		} else if n.kind == "param" {
+			println(indent, n.name, ": ", n.value);
+		} else {
+			println(indent, n.kind, " ", n.name);
+		}
+
+		// Print children with increased indent
+		ci: int = 0;
+		while ci < n.children.len {
+			child: AstNode = n.children[ci];
+			// Don't re-print params (already printed inline for fn)
+			if n.kind != "fn" {
+				Printer.print_node(child, depth + 1);
+			}
+			ci = ci + 1;
+		}
+	}
+}
+
+/// Entry point.
+module App {
+	fn main(args: list<string>) -> int {
+		if args.len < 1 {
+			println("Usage: verve run parser.vv <file.vv>");
+			return 1;
+		}
+
+		path: string = args[0];
+		result: Result<stream> = File.open(path, "r");
+
+		match result {
+			:ok{f} => {
+				source: string = Stream.read_all(f);
+				Stream.close(f);
+
+				// Tokenize
+				tokens: list<Token> = Tokenizer.tokenize(source);
+				println("Tokenized: ", tokens.len, " tokens");
+
+				// Parse
+				decls: list<AstNode> = Parser.parse_file(tokens);
+				println("Parsed: ", decls.len, " declarations");
+				println("");
+
+				// Print AST
+				i: int = 0;
+				while i < decls.len {
+					Printer.print_node(decls[i], 0);
+					i = i + 1;
+				}
+
+				return 0;
+			}
+			:error{reason} => {
+				println("Error: could not open ", path);
+				return 1;
+			}
+		}
+	}
+}

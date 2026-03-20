@@ -165,6 +165,7 @@ pub const Parser = struct {
         "tell",      "spawn",     "watch",     "connect",
         "transition","append",    "use",       "invariant",
         "enum",      "union",     "import",    "export",
+        "break",     "continue", "if",        "else",
     };
 
     fn isReserved(word: []const u8) bool {
@@ -231,6 +232,81 @@ pub const Parser = struct {
         const value = self.source[start..self.pos];
         try self.expectChar('"');
         return value;
+    }
+
+    fn parseStringOrInterp(self: *Parser) Error!ast.Expr {
+        self.skipWhitespaceAndComments();
+        if (self.pos >= self.source.len or self.source[self.pos] != '"') {
+            return self.fail("expected '\"'", .{});
+        }
+        // Scan to check for ${ inside the string (not escaped by \)
+        var scan = self.pos + 1;
+        var has_interp = false;
+        while (scan < self.source.len and self.source[scan] != '"') {
+            if (self.source[scan] == '\\') {
+                scan += 2;
+                continue;
+            }
+            if (self.source[scan] == '$' and scan + 1 < self.source.len and self.source[scan + 1] == '{') {
+                has_interp = true;
+                break;
+            }
+            scan += 1;
+        }
+        if (!has_interp) {
+            return .{ .string_literal = try self.parseStringLiteral() };
+        }
+        // Parse interpolated string: ${ triggers interpolation
+        self.pos += 1; // skip opening "
+        var parts: std.ArrayListUnmanaged(ast.StringInterpPart) = .{};
+        while (self.pos < self.source.len and self.source[self.pos] != '"') {
+            if (self.source[self.pos] == '\\') {
+                // Escape: \${ produces literal ${, other escapes pass through
+                if (self.pos + 1 < self.source.len and self.source[self.pos + 1] == '$') {
+                    // \$ — literal $
+                    const lit_start = self.pos + 1; // skip the backslash
+                    self.pos += 2;
+                    // Continue collecting literal chars
+                    while (self.pos < self.source.len and self.source[self.pos] != '"') {
+                        if (self.source[self.pos] == '$' and self.pos + 1 < self.source.len and self.source[self.pos + 1] == '{') break;
+                        if (self.source[self.pos] == '\\') break;
+                        self.pos += 1;
+                    }
+                    try parts.append(self.alloc, .{ .literal = self.source[lit_start..self.pos] });
+                } else {
+                    // Other escape sequence — include as-is
+                    const esc_start = self.pos;
+                    self.pos += 2;
+                    while (self.pos < self.source.len and self.source[self.pos] != '"') {
+                        if (self.source[self.pos] == '$' and self.pos + 1 < self.source.len and self.source[self.pos + 1] == '{') break;
+                        if (self.source[self.pos] == '\\') break;
+                        self.pos += 1;
+                    }
+                    try parts.append(self.alloc, .{ .literal = self.source[esc_start..self.pos] });
+                }
+            } else if (self.source[self.pos] == '$' and self.pos + 1 < self.source.len and self.source[self.pos + 1] == '{') {
+                self.pos += 2; // skip ${
+                const expr = try self.parseExpr();
+                if (self.pos >= self.source.len or self.source[self.pos] != '}') {
+                    return self.fail("expected '}}' to close interpolation", .{});
+                }
+                self.pos += 1; // skip }
+                try parts.append(self.alloc, .{ .expr = expr });
+            } else {
+                // Literal text — consume until " or ${ or backslash
+                const lit_start = self.pos;
+                while (self.pos < self.source.len and self.source[self.pos] != '"' and self.source[self.pos] != '\\') {
+                    if (self.source[self.pos] == '$' and self.pos + 1 < self.source.len and self.source[self.pos + 1] == '{') break;
+                    self.pos += 1;
+                }
+                try parts.append(self.alloc, .{ .literal = self.source[lit_start..self.pos] });
+            }
+        }
+        if (self.pos >= self.source.len) {
+            return self.fail("unterminated interpolated string", .{});
+        }
+        self.pos += 1; // skip closing "
+        return .{ .string_interp = .{ .parts = try parts.toOwnedSlice(self.alloc) } };
     }
 
     fn parseTag(self: *Parser) Error![]const u8 {
@@ -373,7 +449,45 @@ pub const Parser = struct {
     // ── Expressions ───────────────────────────────────────────
 
     pub fn parseExpr(self: *Parser) Error!ast.Expr {
-        return try self.parseComparison();
+        return try self.parseOr();
+    }
+
+    fn parseOr(self: *Parser) Error!ast.Expr {
+        var left = try self.parseAnd();
+        while (true) {
+            self.skipWhitespaceAndComments();
+            if (self.pos + 1 < self.source.len and
+                self.source[self.pos] == '|' and self.source[self.pos + 1] == '|')
+            {
+                self.pos += 2;
+                const right = try self.parseAnd();
+                const lp = try self.alloc.create(ast.Expr);
+                lp.* = left;
+                const rp = try self.alloc.create(ast.Expr);
+                rp.* = right;
+                left = .{ .binary_op = .{ .op = .@"or", .left = lp, .right = rp } };
+            } else break;
+        }
+        return left;
+    }
+
+    fn parseAnd(self: *Parser) Error!ast.Expr {
+        var left = try self.parseComparison();
+        while (true) {
+            self.skipWhitespaceAndComments();
+            if (self.pos + 1 < self.source.len and
+                self.source[self.pos] == '&' and self.source[self.pos + 1] == '&')
+            {
+                self.pos += 2;
+                const right = try self.parseComparison();
+                const lp = try self.alloc.create(ast.Expr);
+                lp.* = left;
+                const rp = try self.alloc.create(ast.Expr);
+                rp.* = right;
+                left = .{ .binary_op = .{ .op = .@"and", .left = lp, .right = rp } };
+            } else break;
+        }
+        return left;
     }
 
     fn parseComparison(self: *Parser) Error!ast.Expr {
@@ -462,7 +576,7 @@ pub const Parser = struct {
 
         const c = self.source[self.pos];
 
-        if (c == '"') return .{ .string_literal = try self.parseStringLiteral() };
+        if (c == '"') return try self.parseStringOrInterp();
         if (c == ':') return .{ .tag = try self.parseTag() };
 
         if (std.ascii.isDigit(c)) {
@@ -585,6 +699,7 @@ pub const Parser = struct {
 
     pub fn parseStmt(self: *Parser) Error!ast.Stmt {
         self.skipWhitespaceAndComments();
+        const start = self.pos;
 
         // Catch extra semicolons
         if (self.pos < self.source.len and self.source[self.pos] == ';') {
@@ -594,11 +709,26 @@ pub const Parser = struct {
         if (self.matchKeyword("return")) {
             if (self.peekChar(';')) {
                 try self.expectChar(';');
-                return .{ .return_stmt = .{ .value = null, .span = .{ .start = 0, .end = 0 } } };
+                return .{ .return_stmt = .{ .value = null, .span = .{ .start = start, .end = self.pos } } };
             }
             const val = try self.parseExpr();
             try self.expectChar(';');
-            return .{ .return_stmt = .{ .value = val, .span = .{ .start = 0, .end = 0 } } };
+            return .{ .return_stmt = .{ .value = val, .span = .{ .start = start, .end = self.pos } } };
+        }
+
+        if (self.matchKeyword("break")) {
+            try self.expectChar(';');
+            return .{ .break_stmt = .{ .start = start, .end = self.pos } };
+        }
+
+        if (self.matchKeyword("continue")) {
+            try self.expectChar(';');
+            return .{ .continue_stmt = .{ .start = start, .end = self.pos } };
+        }
+
+        if (self.peekKeyword("if")) {
+            _ = self.matchKeyword("if");
+            return try self.parseIfStmt();
         }
 
         if (self.peekKeyword("while")) {
@@ -616,13 +746,13 @@ pub const Parser = struct {
 
         if (self.matchKeyword("receive")) {
             try self.expectChar(';');
-            return .{ .receive_stmt = .{ .start = 0, .end = 0 } };
+            return .{ .receive_stmt = .{ .start = start, .end = self.pos } };
         }
 
         if (self.matchKeyword("watch")) {
             const target = try self.parseExpr();
             try self.expectChar(';');
-            return .{ .watch_stmt = .{ .target = target, .span = .{ .start = 0, .end = 0 } } };
+            return .{ .watch_stmt = .{ .target = target, .span = .{ .start = start, .end = self.pos } } };
         }
 
         if (self.matchKeyword("transition")) {
@@ -651,7 +781,7 @@ pub const Parser = struct {
                         .name = expr.identifier,
                         .type_expr = type_expr,
                         .value = value,
-                        .span = .{ .start = 0, .end = 0 },
+                        .span = .{ .start = start, .end = self.pos },
                     } };
                 }
             }
@@ -672,7 +802,7 @@ pub const Parser = struct {
                     .name = name,
                     .type_expr = null,
                     .value = value,
-                    .span = .{ .start = 0, .end = 0 },
+                    .span = .{ .start = start, .end = self.pos },
                 } };
             }
         }
@@ -681,7 +811,8 @@ pub const Parser = struct {
         return .{ .expr_stmt = expr };
     }
 
-    fn parseWhileStmt(self: *Parser) Error!ast.Stmt {
+    fn parseIfStmt(self: *Parser) Error!ast.Stmt {
+        const start = self.pos;
         const condition = try self.parseExpr();
         try self.expectChar('{');
         var body: std.ArrayListUnmanaged(ast.Stmt) = .{};
@@ -689,7 +820,44 @@ pub const Parser = struct {
             try body.append(self.alloc, try self.parseStmt());
         }
         try self.expectChar('}');
-        return .{ .while_stmt = .{ .condition = condition, .body = try body.toOwnedSlice(self.alloc), .span = .{ .start = 0, .end = 0 } } };
+
+        var else_body: ?[]const ast.Stmt = null;
+        if (self.matchKeyword("else")) {
+            if (self.peekKeyword("if")) {
+                // else if — parse as single if_stmt in else body
+                _ = self.matchKeyword("if");
+                var else_stmts: std.ArrayListUnmanaged(ast.Stmt) = .{};
+                try else_stmts.append(self.alloc, try self.parseIfStmt());
+                else_body = try else_stmts.toOwnedSlice(self.alloc);
+            } else {
+                try self.expectChar('{');
+                var eb: std.ArrayListUnmanaged(ast.Stmt) = .{};
+                while (!self.peekChar('}')) {
+                    try eb.append(self.alloc, try self.parseStmt());
+                }
+                try self.expectChar('}');
+                else_body = try eb.toOwnedSlice(self.alloc);
+            }
+        }
+
+        return .{ .if_stmt = .{
+            .condition = condition,
+            .body = try body.toOwnedSlice(self.alloc),
+            .else_body = else_body,
+            .span = .{ .start = start, .end = self.pos },
+        } };
+    }
+
+    fn parseWhileStmt(self: *Parser) Error!ast.Stmt {
+        const start = self.pos;
+        const condition = try self.parseExpr();
+        try self.expectChar('{');
+        var body: std.ArrayListUnmanaged(ast.Stmt) = .{};
+        while (!self.peekChar('}')) {
+            try body.append(self.alloc, try self.parseStmt());
+        }
+        try self.expectChar('}');
+        return .{ .while_stmt = .{ .condition = condition, .body = try body.toOwnedSlice(self.alloc), .span = .{ .start = start, .end = self.pos } } };
     }
 
     fn parseMatchStmt(self: *Parser) Error!ast.Stmt {
@@ -899,6 +1067,7 @@ pub const Parser = struct {
         try self.expectChar('{');
 
         var imports: std.ArrayListUnmanaged(ast.Import) = .{};
+        var constants: std.ArrayListUnmanaged(ast.Assign) = .{};
         var functions: std.ArrayListUnmanaged(ast.FnDecl) = .{};
 
         while (!self.peekChar('}')) {
@@ -908,16 +1077,36 @@ pub const Parser = struct {
             } else if (self.matchKeyword("fn")) {
                 try functions.append(self.alloc, try self.parseFnDecl(doc));
             } else {
-                return self.fail("expected 'use' or 'fn' inside module '{s}' but found '{s}'", .{ name, self.peekSnippet() });
+                // Try to parse a constant declaration: name: type = value;
+                const saved = self.pos;
+                const maybe_ident = self.parseIdentifier() catch null;
+                if (maybe_ident != null and self.peekChar(':')) {
+                    try self.expectChar(':');
+                    const type_expr = try self.parseTypeExpr();
+                    try self.expectChar('=');
+                    const value = try self.parseExpr();
+                    try self.expectChar(';');
+                    try constants.append(self.alloc, .{
+                        .name = maybe_ident.?,
+                        .type_expr = type_expr,
+                        .value = value,
+                        .span = .{ .start = saved, .end = self.pos },
+                    });
+                } else {
+                    self.pos = saved;
+                    return self.fail("expected 'use', 'fn', or constant declaration inside module '{s}' but found '{s}'", .{ name, self.peekSnippet() });
+                }
             }
         }
         try self.expectChar('}');
 
         return .{
             .name = name,
+            .constants = try constants.toOwnedSlice(self.alloc),
             .functions = try functions.toOwnedSlice(self.alloc),
             .imports = try imports.toOwnedSlice(self.alloc),
             .exported = false,
+            .doc_comment = null,
             .span = .{ .start = 0, .end = 0 },
         };
     }
@@ -983,6 +1172,7 @@ pub const Parser = struct {
             .receive_handlers = try receive_handlers.toOwnedSlice(self.alloc),
             .invariants = try invariants.toOwnedSlice(self.alloc),
             .exported = false,
+            .doc_comment = null,
             .span = .{ .start = 0, .end = 0 },
         };
     }
@@ -1065,16 +1255,21 @@ pub const Parser = struct {
                 continue;
             }
 
+            // Parse doc comment before declaration
+            const doc = try self.parseDocComment();
+
             // Check for export keyword
             const exported = self.matchKeyword("export");
 
             if (self.matchKeyword("module")) {
                 var mod = try self.parseModuleDecl();
                 mod.exported = exported;
+                mod.doc_comment = doc;
                 try decls.append(self.alloc, .{ .module_decl = mod });
             } else if (self.matchKeyword("process")) {
                 var proc = try self.parseProcessDecl();
                 proc.exported = exported;
+                proc.doc_comment = doc;
                 try decls.append(self.alloc, .{ .process_decl = proc });
             } else if (self.matchKeyword("struct")) {
                 var s = try self.parseStructDecl();

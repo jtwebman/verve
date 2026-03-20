@@ -85,6 +85,8 @@ pub fn main() !void {
             std.debug.print("Load error: {}\n", .{err});
             return;
         };
+        // Store source for runtime error reporting
+        interp.source = std.fs.cwd().readFileAlloc(alloc, file_path, 1024 * 1024) catch null;
 
         const entry = interp.findMain() orelse {
             std.debug.print("Error: no entry point found. Add fn main(args: list<string>) -> int to a process or module.\n", .{});
@@ -102,12 +104,12 @@ pub fn main() !void {
         const result = blk: {
             if (entry.is_process) {
                 break :blk interp.runProcessMain(entry.module, &args_val) catch |err| {
-                    std.debug.print("Runtime error: {}\n", .{err});
+                    printRuntimeError(&interp, err);
                     return;
                 };
             } else {
                 break :blk interp.callFunction(entry.module, entry.name, &args_val) catch |err| {
-                    std.debug.print("Runtime error: {}\n", .{err});
+                    printRuntimeError(&interp, err);
                     return;
                 };
             }
@@ -208,6 +210,18 @@ pub fn main() !void {
         }
     } else {
         printUsage();
+    }
+}
+
+fn printRuntimeError(interp: *Interpreter, err: anyerror) void {
+    if (interp.runtime_error) |re| {
+        if (re.line > 0) {
+            std.debug.print("Runtime error at line {d}, col {d}: {s}\n", .{ re.line, re.col, re.message });
+        } else {
+            std.debug.print("Runtime error: {s}\n", .{re.message});
+        }
+    } else {
+        std.debug.print("Runtime error: {}\n", .{err});
     }
 }
 

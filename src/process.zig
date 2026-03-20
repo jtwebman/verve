@@ -111,6 +111,24 @@ pub const Scheduler = struct {
                     if (std.mem.eql(u8, type_name, "string")) break :blk .{ .string = "" };
                     break :blk .{ .none = {} };
                 },
+                .generic => |g| blk: {
+                    if (std.mem.eql(u8, g.name, "list")) {
+                        const ml = self.alloc.create(Value.MutableList) catch break :blk .{ .none = {} };
+                        ml.* = Value.MutableList.init(self.alloc);
+                        break :blk .{ .list = ml };
+                    }
+                    if (std.mem.eql(u8, g.name, "map")) {
+                        const mm = self.alloc.create(Value.MutableMap) catch break :blk .{ .none = {} };
+                        mm.* = Value.MutableMap.init(self.alloc);
+                        break :blk .{ .map = mm };
+                    }
+                    if (std.mem.eql(u8, g.name, "set")) {
+                        const ms = self.alloc.create(Value.MutableSet) catch break :blk .{ .none = {} };
+                        ms.* = Value.MutableSet.init(self.alloc);
+                        break :blk .{ .set = ms };
+                    }
+                    break :blk .{ .none = {} };
+                },
                 else => .{ .none = {} },
             };
             try proc.setState(field.name, default_val);

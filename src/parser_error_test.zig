@@ -127,14 +127,14 @@ test "error: unknown declaration in module" {
         \\module Test {
         \\    var x = 5;
         \\}
-    , "expected 'use' or 'fn' inside module");
+    , "expected 'use', 'fn', or constant declaration inside module");
 }
 
 test "error: module missing closing brace" {
     try expectParseError(
         \\module Test {
         \\    fn add() -> int { return 1; }
-    , "expected 'use' or 'fn' inside module 'Test' but found '<end of file>'");
+    , "expected 'use', 'fn', or constant declaration inside module 'Test' but found '<end of file>'");
 }
 
 // ── Process errors ────────────────────────────────────────
@@ -281,7 +281,29 @@ test "error: semicolon after function brace" {
         \\module Test {
         \\    fn add() -> int { return 1; };
         \\}
-    , "expected 'use' or 'fn' inside module");
+    , "expected 'use', 'fn', or constant declaration inside module");
+}
+
+// ── Logical operator errors ──────────────────────────────
+
+test "error: missing right side of &&" {
+    try expectParseError(
+        \\module Test {
+        \\    fn check() -> bool {
+        \\        return true &&;
+        \\    }
+        \\}
+    , "unexpected character ';'");
+}
+
+test "error: missing right side of ||" {
+    try expectParseError(
+        \\module Test {
+        \\    fn check() -> bool {
+        \\        return true ||;
+        \\    }
+        \\}
+    , "unexpected character ';'");
 }
 
 // ── Line number accuracy ──────────────────────────────────

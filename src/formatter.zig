@@ -78,11 +78,33 @@ pub const Formatter = struct {
     }
 
     fn formatModuleDecl(self: *Formatter, m: ast.ModuleDecl) !void {
+        if (m.doc_comment) |doc| {
+            var lines = std.mem.splitScalar(u8, std.mem.trimRight(u8, doc, &[_]u8{ '\n', ' ', '\t' }), '\n');
+            while (lines.next()) |line| {
+                try self.write(std.mem.trimLeft(u8, line, &[_]u8{ ' ', '\t' }));
+                try self.write("\n");
+            }
+        }
         if (m.exported) try self.write("export ");
         try self.write("module ");
         try self.write(m.name);
         try self.write(" {\n");
         self.indent += 1;
+
+        for (m.constants) |c| {
+            try self.writeIndent();
+            try self.write(c.name);
+            if (c.type_expr) |te| {
+                try self.write(": ");
+                try self.formatTypeExpr(te);
+            }
+            try self.write(" = ");
+            try self.formatExpr(c.value);
+            try self.write(";\n");
+        }
+        if (m.constants.len > 0 and (m.imports.len > 0 or m.functions.len > 0)) {
+            try self.write("\n");
+        }
 
         for (m.imports) |imp| {
             try self.writeIndent();
@@ -109,6 +131,13 @@ pub const Formatter = struct {
     }
 
     fn formatProcessDecl(self: *Formatter, p: ast.ProcessDecl) !void {
+        if (p.doc_comment) |doc| {
+            var lines = std.mem.splitScalar(u8, std.mem.trimRight(u8, doc, &[_]u8{ '\n', ' ', '\t' }), '\n');
+            while (lines.next()) |line| {
+                try self.write(std.mem.trimLeft(u8, line, &[_]u8{ ' ', '\t' }));
+                try self.write("\n");
+            }
+        }
         if (p.exported) try self.write("export ");
         try self.write("process ");
         try self.write(p.name);
@@ -380,6 +409,50 @@ pub const Formatter = struct {
                     try self.write("return;\n");
                 }
             },
+            .if_stmt => |i| {
+                try self.writeIndent();
+                try self.write("if ");
+                try self.formatExpr(i.condition);
+                try self.write(" {\n");
+                self.indent += 1;
+                for (i.body) |s| try self.formatStmt(s);
+                self.indent -= 1;
+                if (i.else_body) |eb| {
+                    // Check if else body is a single if_stmt (else if chain)
+                    if (eb.len == 1 and eb[0] == .if_stmt) {
+                        try self.writeIndent();
+                        try self.write("} else ");
+                        // Format the if without indent (it will add its own)
+                        const inner = eb[0].if_stmt;
+                        try self.write("if ");
+                        try self.formatExpr(inner.condition);
+                        try self.write(" {\n");
+                        self.indent += 1;
+                        for (inner.body) |s| try self.formatStmt(s);
+                        self.indent -= 1;
+                        if (inner.else_body) |ieb| {
+                            try self.writeIndent();
+                            try self.write("} else {\n");
+                            self.indent += 1;
+                            for (ieb) |s| try self.formatStmt(s);
+                            self.indent -= 1;
+                        }
+                        try self.writeIndent();
+                        try self.write("}\n");
+                    } else {
+                        try self.writeIndent();
+                        try self.write("} else {\n");
+                        self.indent += 1;
+                        for (eb) |s| try self.formatStmt(s);
+                        self.indent -= 1;
+                        try self.writeIndent();
+                        try self.write("}\n");
+                    }
+                } else {
+                    try self.writeIndent();
+                    try self.write("}\n");
+                }
+            },
             .while_stmt => |w| {
                 try self.writeIndent();
                 try self.write("while ");
@@ -451,6 +524,14 @@ pub const Formatter = struct {
                     try self.formatExpr(arg);
                 }
                 try self.write(");\n");
+            },
+            .break_stmt => {
+                try self.writeIndent();
+                try self.write("break;\n");
+            },
+            .continue_stmt => {
+                try self.writeIndent();
+                try self.write("continue;\n");
             },
             .receive_stmt => {
                 try self.writeIndent();
@@ -533,6 +614,20 @@ pub const Formatter = struct {
             .string_literal => |v| {
                 try self.write("\"");
                 try self.write(v);
+                try self.write("\"");
+            },
+            .string_interp => |si| {
+                try self.write("\"");
+                for (si.parts) |part| {
+                    switch (part) {
+                        .literal => |lit| try self.write(lit),
+                        .expr => |e| {
+                            try self.write("${");
+                            try self.formatExpr(e);
+                            try self.write("}");
+                        },
+                    }
+                }
                 try self.write("\"");
             },
             .bool_literal => |v| try self.write(if (v) "true" else "false"),
