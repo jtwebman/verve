@@ -53,6 +53,8 @@ pub const Inst = union(enum) {
     jump: struct { target: BlockId },
     branch: struct { cond: Reg, then_block: BlockId, else_block: BlockId },
     ret: struct { value: ?Reg },
+    break_loop: void,
+    continue_loop: void,
 
     // ── Calls ───────────────────────────────────────────
     /// Call a user-defined function.

@@ -852,6 +852,80 @@ test "compile: string inequality" {
     try testing.expectEqual(@as(u8, 1), exit);
 }
 
+// ════════════════════════════════════════════════════════════
+// Break/continue
+// ════════════════════════════════════════════════════════════
+
+test "compile: break exits loop" {
+    const exit = try compileAndRun(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        i: int = 0;
+        \\        while true {
+        \\            if i == 5 { break; }
+        \\            i = i + 1;
+        \\        }
+        \\        return i;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 5), exit);
+}
+
+test "compile: continue skips to next iteration" {
+    const exit = try compileAndRun(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        sum: int = 0;
+        \\        i: int = 0;
+        \\        while i < 10 {
+        \\            i = i + 1;
+        \\            if i % 2 == 0 { continue; }
+        \\            sum = sum + i;
+        \\        }
+        \\        return sum;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 25), exit); // 1+3+5+7+9 = 25
+}
+
+// ════════════════════════════════════════════════════════════
+// Match
+// ════════════════════════════════════════════════════════════
+
+test "compile: match on int" {
+    const exit = try compileAndRun(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        x: int = 2;
+        \\        match x {
+        \\            1 => return 10;
+        \\            2 => return 20;
+        \\            3 => return 30;
+        \\            _ => return 0;
+        \\        }
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 20), exit);
+}
+
+test "compile: match wildcard" {
+    const exit = try compileAndRun(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        x: int = 99;
+        \\        match x {
+        \\            1 => return 10;
+        \\            _ => return 42;
+        \\        }
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 42), exit);
+}
+
 test "compile: combined comparison and logic" {
     const exit = try compileAndRun(
         \\module App {

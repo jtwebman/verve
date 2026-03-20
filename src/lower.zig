@@ -12,6 +12,9 @@ pub const Lower = struct {
     current_fn: ?*ir.Function,
     current_block: ?*ir.Block,
     current_module: []const u8,
+    // Loop context for break/continue
+    loop_cond_block: ?ir.BlockId,
+    loop_exit_block: ?ir.BlockId,
     // Struct declarations for field lookup
     struct_decls: std.StringHashMapUnmanaged(ast.StructDecl),
     // Variable name → struct type name (for field access resolution)
@@ -29,6 +32,8 @@ pub const Lower = struct {
             .struct_decls = .{},
             .var_types = .{},
             .string_lens = .{},
+            .loop_cond_block = null,
+            .loop_exit_block = null,
         };
     }
 
@@ -209,19 +214,82 @@ pub const Lower = struct {
                     .else_block = exit_block.id,
                 } });
 
-                // Body
+                // Body — set loop context for break/continue
+                const saved_cond = self.loop_cond_block;
+                const saved_exit = self.loop_exit_block;
+                self.loop_cond_block = cond_block.id;
+                self.loop_exit_block = exit_block.id;
+
                 self.current_block = body_block;
                 for (w.body) |s| self.lowerStmt(s);
                 if (self.current_block) |cb| {
                     cb.append(.{ .jump = .{ .target = cond_block.id } });
                 }
 
+                self.loop_cond_block = saved_cond;
+                self.loop_exit_block = saved_exit;
                 self.current_block = exit_block;
+            },
+            .break_stmt => {
+                if (self.loop_exit_block) |exit_id| {
+                    block.append(.{ .jump = .{ .target = exit_id } });
+                }
+            },
+            .continue_stmt => {
+                if (self.loop_cond_block) |cond_id| {
+                    block.append(.{ .jump = .{ .target = cond_id } });
+                }
             },
             .append => |a| {
                 const list_reg = self.lowerExpr(a.target);
                 const val_reg = self.lowerExpr(a.value);
                 block.append(.{ .list_append = .{ .list = list_reg, .value = val_reg } });
+            },
+            .match_stmt => |m| {
+                const subject_reg = self.lowerExpr(m.subject);
+                const merge_block = func.newBlock();
+
+                for (m.arms) |arm| {
+                    switch (arm.pattern) {
+                        .wildcard => {
+                            // Default arm — just execute body
+                            for (arm.body) |s| self.lowerStmt(s);
+                            if (self.current_block) |cb| {
+                                cb.append(.{ .jump = .{ .target = merge_block.id } });
+                            }
+                        },
+                        .literal => |lit| {
+                            const pat_reg = self.lowerExpr(lit);
+                            const cmp_reg = func.newReg();
+                            // Compare subject with pattern
+                            if (self.current_block) |cb| {
+                                cb.append(.{ .eq_i64 = .{ .dest = cmp_reg, .lhs = subject_reg, .rhs = pat_reg } });
+                            }
+                            const arm_block = func.newBlock();
+                            const next_block = func.newBlock();
+                            if (self.current_block) |cb| {
+                                cb.append(.{ .branch = .{ .cond = cmp_reg, .then_block = arm_block.id, .else_block = next_block.id } });
+                            }
+                            self.current_block = arm_block;
+                            for (arm.body) |s| self.lowerStmt(s);
+                            if (self.current_block) |cb| {
+                                cb.append(.{ .jump = .{ .target = merge_block.id } });
+                            }
+                            self.current_block = next_block;
+                        },
+                        .tag => {
+                            // Tag matching — skip for now
+                            if (self.current_block) |cb| {
+                                cb.append(.{ .jump = .{ .target = merge_block.id } });
+                            }
+                        },
+                    }
+                }
+                // Fall through to merge
+                if (self.current_block) |cb| {
+                    cb.append(.{ .jump = .{ .target = merge_block.id } });
+                }
+                self.current_block = merge_block;
             },
             .expr_stmt => |e| {
                 _ = self.lowerExpr(e);

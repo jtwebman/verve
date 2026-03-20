@@ -31,6 +31,9 @@ pub const LinuxX86Backend = struct {
     fn_offsets: std.StringHashMapUnmanaged(usize),
     fn_call_patches: std.ArrayListUnmanaged(FnCallPatch),
     heap_ptr_offset: ?i32,
+    // Break/continue: patches that need to be resolved when exiting a while loop
+    break_patches: std.ArrayListUnmanaged(usize),
+    continue_target: ?usize, // code offset of loop condition
 
     pub fn init(alloc: std.mem.Allocator) LinuxX86Backend {
         return .{
@@ -47,6 +50,8 @@ pub const LinuxX86Backend = struct {
             .fn_call_patches = .{},
             .rodata_patches = .{},
             .heap_ptr_offset = null,
+            .break_patches = .{},
+            .continue_target = null,
         };
     }
 
@@ -429,6 +434,9 @@ pub const LinuxX86Backend = struct {
                 self.asm_.loadIndirect(.rax, .rax, @intCast(sl.field_index * 8));
                 self.storeReg(sl.dest);
             },
+
+            // ── Break/continue (lowered to jumps, these shouldn't appear)
+            .break_loop, .continue_loop => {},
 
             // ── Calls
             .call_builtin => |c| {
