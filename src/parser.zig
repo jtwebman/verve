@@ -166,6 +166,7 @@ pub const Parser = struct {
         "transition","append",    "use",       "invariant",
         "enum",      "union",     "import",    "export",
         "break",     "continue", "if",        "else",
+        "assert",    "test",
     };
 
     fn isReserved(word: []const u8) bool {
@@ -565,6 +566,17 @@ pub const Parser = struct {
             op.* = operand;
             return .{ .unary_op = .{ .op = .not, .operand = op } };
         }
+        if (self.pos < self.source.len and self.source[self.pos] == '-') {
+            // Check it's not -> (arrow)
+            if (self.pos + 1 < self.source.len and self.source[self.pos + 1] == '>') {
+                return try self.parsePrimary();
+            }
+            self.pos += 1;
+            const operand = try self.parsePrimary();
+            const op = try self.alloc.create(ast.Expr);
+            op.* = operand;
+            return .{ .unary_op = .{ .op = .sub, .operand = op } };
+        }
         return try self.parsePrimary();
     }
 
@@ -726,6 +738,21 @@ pub const Parser = struct {
             return .{ .continue_stmt = .{ .start = start, .end = self.pos } };
         }
 
+        if (self.matchKeyword("assert")) {
+            const condition = try self.parseExpr();
+            var message: ?[]const u8 = null;
+            if (self.peekChar(',')) {
+                try self.expectChar(',');
+                message = try self.parseStringLiteral();
+            }
+            try self.expectChar(';');
+            return .{ .assert_stmt = .{
+                .condition = condition,
+                .message = message,
+                .span = .{ .start = start, .end = self.pos },
+            } };
+        }
+
         if (self.peekKeyword("if")) {
             _ = self.matchKeyword("if");
             return try self.parseIfStmt();
@@ -809,6 +836,21 @@ pub const Parser = struct {
 
         try self.expectChar(';');
         return .{ .expr_stmt = expr };
+    }
+
+    fn parseTestDecl(self: *Parser) Error!ast.TestDecl {
+        const name = try self.parseStringLiteral();
+        try self.expectChar('{');
+        var body: std.ArrayListUnmanaged(ast.Stmt) = .{};
+        while (!self.peekChar('}')) {
+            try body.append(self.alloc, try self.parseStmt());
+        }
+        try self.expectChar('}');
+        return .{
+            .name = name,
+            .body = try body.toOwnedSlice(self.alloc),
+            .span = .{ .start = 0, .end = 0 },
+        };
     }
 
     fn parseIfStmt(self: *Parser) Error!ast.Stmt {
@@ -1069,11 +1111,14 @@ pub const Parser = struct {
         var imports: std.ArrayListUnmanaged(ast.Import) = .{};
         var constants: std.ArrayListUnmanaged(ast.Assign) = .{};
         var functions: std.ArrayListUnmanaged(ast.FnDecl) = .{};
+        var tests: std.ArrayListUnmanaged(ast.TestDecl) = .{};
 
         while (!self.peekChar('}')) {
             const doc = try self.parseDocComment();
             if (self.matchKeyword("use")) {
                 try imports.append(self.alloc, try self.parseImport());
+            } else if (self.matchKeyword("test")) {
+                try tests.append(self.alloc, try self.parseTestDecl());
             } else if (self.matchKeyword("fn")) {
                 try functions.append(self.alloc, try self.parseFnDecl(doc));
             } else {
@@ -1104,6 +1149,7 @@ pub const Parser = struct {
             .name = name,
             .constants = try constants.toOwnedSlice(self.alloc),
             .functions = try functions.toOwnedSlice(self.alloc),
+            .tests = try tests.toOwnedSlice(self.alloc),
             .imports = try imports.toOwnedSlice(self.alloc),
             .exported = false,
             .doc_comment = null,

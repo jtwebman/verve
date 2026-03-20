@@ -126,6 +126,19 @@ pub const Formatter = struct {
             try self.formatFnDecl(func);
         }
 
+        for (m.tests, 0..) |t, i| {
+            if (i > 0 or m.functions.len > 0) try self.write("\n");
+            try self.writeIndent();
+            try self.write("test \"");
+            try self.write(t.name);
+            try self.write("\" {\n");
+            self.indent += 1;
+            for (t.body) |s| try self.formatStmt(s);
+            self.indent -= 1;
+            try self.writeIndent();
+            try self.write("}\n");
+        }
+
         self.indent -= 1;
         try self.write("}\n");
     }
@@ -532,6 +545,17 @@ pub const Formatter = struct {
             .continue_stmt => {
                 try self.writeIndent();
                 try self.write("continue;\n");
+            },
+            .assert_stmt => |a| {
+                try self.writeIndent();
+                try self.write("assert ");
+                try self.formatExpr(a.condition);
+                if (a.message) |msg| {
+                    try self.write(", \"");
+                    try self.write(msg);
+                    try self.write("\"");
+                }
+                try self.write(";\n");
             },
             .receive_stmt => {
                 try self.writeIndent();

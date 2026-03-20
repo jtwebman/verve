@@ -26,6 +26,7 @@ pub const Interpreter = struct {
         ReturnValue,
         BreakSignal,
         ContinueSignal,
+        AssertionFailed,
         UndefinedVariable,
         UndefinedFunction,
         UndefinedModule,
@@ -283,7 +284,7 @@ pub const Interpreter = struct {
 
     // ── Execute statements ────────────────────────────────────
 
-    fn execBlock(self: *Interpreter, stmts: []const ast.Stmt, scope: *Scope) Error!Result {
+    pub fn execBlock(self: *Interpreter, stmts: []const ast.Stmt, scope: *Scope) Error!Result {
         var last_value: Value = .{ .void = {} };
 
         for (stmts) |stmt| {
@@ -408,6 +409,18 @@ pub const Interpreter = struct {
                         // If no message, receive; is a no-op in single-threaded interpreter
                         // In real runtime, this would block
                     }
+                }
+                return .{ .value = .{ .void = {} }, .returned = false };
+            },
+            .assert_stmt => |a| {
+                const cond = try self.evalExpr(a.condition, scope);
+                if (!cond.isTruthy()) {
+                    if (a.message) |msg| {
+                        self.setRuntimeError("assertion failed: {s}", .{msg}, a.span);
+                    } else {
+                        self.setRuntimeError("assertion failed", .{}, a.span);
+                    }
+                    return error.AssertionFailed;
                 }
                 return .{ .value = .{ .void = {} }, .returned = false };
             },

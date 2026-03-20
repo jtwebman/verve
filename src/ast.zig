@@ -23,9 +23,16 @@ pub const ModuleDecl = struct {
     name: []const u8,
     constants: []const Assign,
     functions: []const FnDecl,
+    tests: []const TestDecl,
     imports: []const Import,
     exported: bool,
     doc_comment: ?[]const u8,
+    span: Span,
+};
+
+pub const TestDecl = struct {
+    name: []const u8,
+    body: []const Stmt,
     span: Span,
 };
 
@@ -160,6 +167,7 @@ pub const Stmt = union(enum) {
     continue_stmt: Span,
     receive_stmt: Span, // receive; — block and process one message
     watch_stmt: WatchStmt,
+    assert_stmt: AssertStmt,
     expr_stmt: Expr,
 };
 
@@ -239,6 +247,12 @@ pub const TellStmt = struct {
     target: Expr,
     handler: []const u8,
     args: []const Expr,
+    span: Span,
+};
+
+pub const AssertStmt = struct {
+    condition: Expr,
+    message: ?[]const u8,
     span: Span,
 };
 

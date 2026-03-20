@@ -25,6 +25,29 @@ module Math {
 			false => return 0 - x;
 		}
 	}
+
+	test "add returns correct sum" {
+		assert add(1, 2) == 3;
+		assert add(-1, 1) == 0;
+		assert add(0, 0) == 0;
+	}
+
+	test "multiply returns correct product" {
+		assert multiply(6, 7) == 42;
+		assert multiply(0, 999) == 0;
+		assert multiply(-3, 2) == -6;
+	}
+
+	test "abs handles negative" {
+		assert abs(-5) == 5;
+		assert abs(5) == 5;
+		assert abs(0) == 0;
+	}
+
+	test "assert with message" {
+		result: int = add(10, 20);
+		assert result == 30, "10 + 20 should equal 30";
+	}
 }
 
 module Main {

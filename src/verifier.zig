@@ -11,6 +11,8 @@ pub const VerifyResult = struct {
     examples_failed: usize,
     properties_passed: usize,
     properties_failed: usize,
+    tests_passed: usize,
+    tests_failed: usize,
     failures: std.ArrayListUnmanaged(Failure),
 
     pub const Failure = struct {
@@ -38,6 +40,8 @@ pub const Verifier = struct {
             .examples_failed = 0,
             .properties_passed = 0,
             .properties_failed = 0,
+            .tests_passed = 0,
+            .tests_failed = 0,
             .failures = .{},
         };
 
@@ -46,6 +50,9 @@ pub const Verifier = struct {
                 .module_decl => |m| {
                     for (m.functions) |func| {
                         try self.verifyFunction(func, m.name, &result);
+                    }
+                    for (m.tests) |t| {
+                        try self.runTestBlock(t, m.name, &result);
                     }
                 },
                 .process_decl => |p| {
@@ -82,6 +89,44 @@ pub const Verifier = struct {
         _ = try self.extractExamples(doc);
         // TODO: run examples for receive handlers (need to spawn process first)
         _ = result;
+    }
+
+    fn runTestBlock(self: *Verifier, t: ast.TestDecl, module_name: []const u8, result: *VerifyResult) !void {
+        const saved_module = self.interp.current_module;
+        self.interp.current_module = module_name;
+        defer self.interp.current_module = saved_module;
+
+        var scope = @import("interpreter.zig").Scope.init(self.alloc);
+
+        const exec_result = self.interp.execBlock(t.body, &scope) catch |err| {
+            switch (err) {
+                error.AssertionFailed => {
+                    const msg = if (self.interp.runtime_error) |re| re.message else "assertion failed";
+                    try result.failures.append(self.alloc, .{
+                        .function = t.name,
+                        .example = "test block",
+                        .expected = "all assertions pass",
+                        .got = msg,
+                    });
+                    result.tests_failed += 1;
+                    // Clear runtime error for next test
+                    self.interp.runtime_error = null;
+                    return;
+                },
+                else => {
+                    try result.failures.append(self.alloc, .{
+                        .function = t.name,
+                        .example = "test block",
+                        .expected = "no errors",
+                        .got = "runtime error",
+                    });
+                    result.tests_failed += 1;
+                    return;
+                },
+            }
+        };
+        _ = exec_result;
+        result.tests_passed += 1;
     }
 
     fn extractProperties(self: *Verifier, doc: []const u8) ![]const []const u8 {

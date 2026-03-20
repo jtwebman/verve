@@ -152,13 +152,13 @@ pub fn main() !void {
             return;
         };
 
-        const total_passed = vresult.examples_passed + vresult.properties_passed;
-        const total_failed = vresult.examples_failed + vresult.properties_failed;
+        const total_passed = vresult.examples_passed + vresult.properties_passed + vresult.tests_passed;
+        const total_failed = vresult.examples_failed + vresult.properties_failed + vresult.tests_failed;
 
         if (total_failed == 0 and total_passed > 0) {
-            std.debug.print("VALID — {d} examples, {d} properties passed\n", .{ vresult.examples_passed, vresult.properties_passed });
+            std.debug.print("VALID — {d} examples, {d} properties, {d} tests passed\n", .{ vresult.examples_passed, vresult.properties_passed, vresult.tests_passed });
         } else if (total_passed == 0 and total_failed == 0) {
-            std.debug.print("INCOMPLETE — no @example or @property annotations found\n", .{});
+            std.debug.print("INCOMPLETE — no @example, @property, or test blocks found\n", .{});
         } else {
             std.debug.print("INVALID — {d} passed, {d} failed\n", .{ total_passed, total_failed });
             for (vresult.failures.items) |failure| {

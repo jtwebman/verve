@@ -92,6 +92,7 @@ pub const Loader = struct {
 
         var parser = Parser.init(source, self.alloc);
         const file = parser.parseFile() catch {
+            std.debug.print("  {s}: {s}\n", .{ file_path, parser.formatError() });
             return error.ParseFailed;
         };
 

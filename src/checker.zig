@@ -341,6 +341,9 @@ pub const Checker = struct {
             .expr_stmt => |e| {
                 try self.checkExpr(e);
             },
+            .assert_stmt => |a| {
+                try self.checkExprIsBoolean(a.condition);
+            },
             .break_stmt, .continue_stmt => {},
             .receive_stmt => {
                 if (!self.in_receive_handler) {
@@ -801,6 +804,7 @@ pub const Checker = struct {
             },
             .expr_stmt => |e| try self.collectCallsFromExpr(e, current_module, callees),
             .watch_stmt => |w| try self.collectCallsFromExpr(w.target, current_module, callees),
+            .assert_stmt => |a| try self.collectCallsFromExpr(a.condition, current_module, callees),
             .break_stmt, .continue_stmt, .receive_stmt, .send_stmt => {},
         }
     }
