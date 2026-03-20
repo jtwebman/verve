@@ -231,10 +231,10 @@ pub fn main() !void {
             return;
         };
 
-        // Compile IR to native binary (Linux x86_64 backend)
-        const Backend = @import("codegen.zig").LinuxX86Backend;
-        var backend = Backend.init(alloc);
-        backend.compileProgram(program);
+        // Compile IR via Zig backend
+        const ZigBackend = @import("zig_backend.zig").ZigBackend;
+        var backend = ZigBackend.init(alloc);
+        backend.emit(program);
 
         // Determine output path
         const out_path = if (std.mem.endsWith(u8, file_path, ".vv"))
@@ -242,7 +242,7 @@ pub fn main() !void {
         else
             std.fmt.allocPrint(alloc, "{s}.out", .{file_path}) catch "a.out";
 
-        backend.build(out_path) catch |err| {
+        backend.build(out_path, "/home/jt/.local/zig/zig") catch |err| {
             std.debug.print("Build error: {}\n", .{err});
             return;
         };
