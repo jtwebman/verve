@@ -22,6 +22,8 @@ pub const LinuxX86Backend = struct {
     jump_patches: std.ArrayListUnmanaged(JumpPatch),
     // Is this the entry point (main)?
     is_entry: bool,
+    // Rodata address patches: code offsets where rodata offsets need to be fixed up
+    rodata_patches: std.ArrayListUnmanaged(usize),
     // Function name → code offset for call patching
     fn_offsets: std.StringHashMapUnmanaged(usize),
     // Pending function call patches
@@ -50,6 +52,7 @@ pub const LinuxX86Backend = struct {
             .is_entry = false,
             .fn_offsets = .{},
             .fn_call_patches = .{},
+            .rodata_patches = .{},
         };
     }
 
@@ -184,8 +187,7 @@ pub const LinuxX86Backend = struct {
             },
             .const_string => |c| {
                 const offset = self.addString(c.value);
-                // Store rodata offset — patched to absolute address in build()
-                self.asm_.movImm64(.rax, @intCast(offset));
+                self.emitRodataAddr(.rax, offset);
                 self.storeReg(c.dest);
             },
             .const_float => |c| {
@@ -358,11 +360,41 @@ pub const LinuxX86Backend = struct {
     // ── Platform builtins (Linux syscalls) ────────────────────
 
     fn compileBuiltin(self: *LinuxX86Backend, dest: ir.Reg, name: []const u8, args: []const ir.Reg) void {
-        _ = dest;
-        _ = name;
-        _ = args;
-        _ = self;
-        // TODO: implement builtins like println → write syscall
+        if (std.mem.eql(u8, name, "println") or std.mem.eql(u8, name, "print")) {
+            const newline = std.mem.eql(u8, name, "println");
+            // Args come as (addr, len) pairs for string args
+            var i: usize = 0;
+            while (i + 1 < args.len) {
+                // addr in args[i], len in args[i+1]
+                self.loadReg(args[i]); // string rodata offset → rax
+                self.asm_.movReg(.rsi, .rax); // buf
+                self.loadReg(args[i + 1]); // length → rax
+                self.asm_.movReg(.rdx, .rax); // len
+                self.asm_.movImm64(.rdi, 1); // fd = stdout
+                self.emitSyscall(1); // sys_write
+                i += 2;
+            }
+            if (newline) {
+                const nl_offset = self.addString("\n");
+                self.emitRodataAddr(.rsi, nl_offset);
+                self.asm_.movImm64(.rdx, 1);
+                self.asm_.movImm64(.rdi, 1);
+                self.emitSyscall(1);
+            }
+            self.asm_.movImm64(.rax, 0);
+            self.storeReg(dest);
+            return;
+        }
+        // Unknown builtin — no-op
+        self.asm_.movImm64(.rax, 0);
+        self.storeReg(dest);
+    }
+
+    /// Emit movImm64 with a rodata offset that will be patched to absolute address.
+    fn emitRodataAddr(self: *LinuxX86Backend, dst: x86.Reg64, rodata_offset: u32) void {
+        self.asm_.movImm64(dst, @intCast(rodata_offset));
+        // Record the offset of the immediate value for patching
+        self.rodata_patches.append(self.alloc, self.asm_.offset() - 8) catch {};
     }
 
     fn emitSyscall(self: *LinuxX86Backend, number: i64) void {
@@ -373,6 +405,16 @@ pub const LinuxX86Backend = struct {
     // ── Build final binary ───────────────────────────────────
 
     pub fn build(self: *LinuxX86Backend, output_path: []const u8) !void {
+        // Patch rodata addresses using tracked patch locations
+        if (self.rodata.items.len > 0) {
+            const layout = elf.computeLayout(self.asm_.code.items.len, self.rodata.items.len);
+            for (self.rodata_patches.items) |patch_offset| {
+                const val: u64 = @bitCast(self.asm_.code.items[patch_offset..][0..8].*);
+                const new_val = val + layout.rodata_vaddr;
+                const new_bytes: [8]u8 = @bitCast(new_val);
+                @memcpy(self.asm_.code.items[patch_offset..][0..8], &new_bytes);
+            }
+        }
         try elf.emit(self.alloc, self.asm_.code.items, self.rodata.items, output_path);
     }
 };

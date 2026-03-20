@@ -537,6 +537,51 @@ test "compile: function used in loop" {
     try testing.expectEqual(@as(u8, 30), exit); // 1+4+9+16 = 30
 }
 
+// ════════════════════════════════════════════════════════════
+// String output (println)
+// ════════════════════════════════════════════════════════════
+
+test "compile: println string literal" {
+    const result = try compileAndCapture(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        println("Hello from Verve!");
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), result.exit);
+    try testing.expectEqualStrings("Hello from Verve!\n", result.stdout);
+}
+
+test "compile: multiple println calls" {
+    const result = try compileAndCapture(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        println("line 1");
+        \\        println("line 2");
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), result.exit);
+    try testing.expectEqualStrings("line 1\nline 2\n", result.stdout);
+}
+
+test "compile: print without newline" {
+    const result = try compileAndCapture(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        print("hello ");
+        \\        print("world");
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), result.exit);
+    try testing.expectEqualStrings("hello world", result.stdout);
+}
+
 test "compile: combined comparison and logic" {
     const exit = try compileAndRun(
         \\module App {

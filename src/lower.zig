@@ -275,10 +275,34 @@ pub const Lower = struct {
                 }
                 if (c.target.* == .identifier) {
                     const name = c.target.identifier;
-                    // Check if it's a built-in function
-                    if (std.mem.eql(u8, name, "println") or
-                        std.mem.eql(u8, name, "print") or
-                        std.mem.eql(u8, name, "list") or
+                    // println/print: for each string arg, pass (addr, len) pair
+                    if (std.mem.eql(u8, name, "println") or std.mem.eql(u8, name, "print")) {
+                        // Build arg list with (addr, len) pairs for strings
+                        var builtin_args = std.ArrayListUnmanaged(ir.Reg){};
+                        for (c.args) |arg| {
+                            if (arg == .string_literal) {
+                                const str_reg = self.lowerExpr(arg);
+                                const len_reg = func.newReg();
+                                block.append(.{ .const_int = .{ .dest = len_reg, .value = @intCast(arg.string_literal.len) } });
+                                builtin_args.append(self.alloc, str_reg) catch {};
+                                builtin_args.append(self.alloc, len_reg) catch {};
+                            } else if (arg == .int_literal) {
+                                // For int args, we'd need to convert to string at runtime
+                                // For now just pass the int value
+                                builtin_args.append(self.alloc, self.lowerExpr(arg)) catch {};
+                            } else {
+                                builtin_args.append(self.alloc, self.lowerExpr(arg)) catch {};
+                            }
+                        }
+                        block.append(.{ .call_builtin = .{
+                            .dest = dest,
+                            .name = name,
+                            .args = builtin_args.toOwnedSlice(self.alloc) catch &.{},
+                        } });
+                        return dest;
+                    }
+                    // Other builtins
+                    if (std.mem.eql(u8, name, "list") or
                         std.mem.eql(u8, name, "map") or
                         std.mem.eql(u8, name, "set") or
                         std.mem.eql(u8, name, "stack") or
