@@ -926,6 +926,36 @@ test "compile: match wildcard" {
     try testing.expectEqual(@as(u8, 42), exit);
 }
 
+// ════════════════════════════════════════════════════════════
+// Set operations
+// ════════════════════════════════════════════════════════════
+
+test "compile: set has int found" {
+    const exit = try compileAndRun(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        s: set<int> = set(10, 20, 30);
+        \\        if Set.has(s, 20) { return 1; }
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 1), exit);
+}
+
+test "compile: set has int not found" {
+    const exit = try compileAndRun(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        s: set<int> = set(10, 20, 30);
+        \\        if Set.has(s, 99) { return 1; }
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), exit);
+}
+
 test "compile: combined comparison and logic" {
     const exit = try compileAndRun(
         \\module App {

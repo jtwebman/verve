@@ -709,6 +709,92 @@ pub const LinuxX86Backend = struct {
             }
         }
 
+        // Set.has → linear scan using dedicated stack slots for temporaries
+        if (std.mem.eql(u8, name, "set_has")) {
+            if (args.len >= 2) {
+                // Allocate temp stack slots
+                const tmp_base = self.next_stack_offset;
+                self.next_stack_offset -= 8; // tmp[0] = set ptr
+                const tmp_len = self.next_stack_offset;
+                self.next_stack_offset -= 8; // tmp[1] = length
+                const tmp_idx = self.next_stack_offset;
+                self.next_stack_offset -= 8; // tmp[2] = index
+                const tmp_target = self.next_stack_offset;
+                self.next_stack_offset -= 8; // tmp[3] = target value
+
+                // Store set ptr and target value
+                self.loadReg(args[0]);
+                self.asm_.storeLocal32(tmp_base, .rax);
+                self.asm_.loadIndirect(.rcx, .rax, 8); // length
+                self.asm_.storeLocal32(tmp_len, .rcx);
+                self.loadReg(args[1]);
+                self.asm_.storeLocal32(tmp_target, .rax);
+                self.asm_.movImm64(.rax, 0);
+                self.asm_.storeLocal32(tmp_idx, .rax); // index = 0
+
+                // Result = 0 (not found)
+                self.asm_.movImm64(.rax, 0);
+                self.storeReg(dest);
+
+                // Loop
+                const loop_top = self.asm_.offset();
+                self.asm_.loadLocal32(.rax, tmp_idx);
+                self.asm_.loadLocal32(.rcx, tmp_len);
+                self.asm_.cmpReg(.rax, .rcx);
+                const done_patch = self.asm_.jgeRel32();
+
+                // Load element: base + 16 + index*8
+                self.asm_.loadLocal32(.rcx, tmp_idx);
+                self.asm_.movImm64(.rdx, 8);
+                self.asm_.imulReg(.rcx, .rdx);
+                self.asm_.addImm32(.rcx, 16);
+                self.asm_.loadLocal32(.rax, tmp_base);
+                self.asm_.addReg(.rax, .rcx);
+                self.asm_.loadIndirect(.rax, .rax, 0); // element
+
+                // Compare with target
+                self.asm_.loadLocal32(.rcx, tmp_target);
+                self.asm_.cmpReg(.rax, .rcx);
+                const not_eq = self.asm_.jneRel32();
+
+                // Found! result = 1, jump to end
+                self.asm_.movImm64(.rax, 1);
+                self.storeReg(dest);
+                const found_patch = self.asm_.jmpRel32(); // will patch to end
+
+                // Not equal — increment index, loop back
+                self.asm_.patchRel32(not_eq);
+                self.asm_.loadLocal32(.rax, tmp_idx);
+                self.asm_.addImm32(.rax, 1);
+                self.asm_.storeLocal32(tmp_idx, .rax);
+                const back_patch = self.asm_.jmpRel32();
+                self.asm_.patchRel32At(back_patch, loop_top);
+
+                // End: both done_patch and found_patch land here
+                self.asm_.patchRel32(done_patch);
+                self.asm_.patchRel32(found_patch);
+                return;
+            }
+        }
+
+        // String.slice → copy substring to new heap allocation
+        if (std.mem.eql(u8, name, "string_slice")) {
+            if (args.len >= 3) {
+                // args: str_ptr, start_index, end_index
+                // Result: new string ptr pointing to str_ptr + start
+                // Length = end - start
+                self.loadReg(args[0]); // str ptr
+                self.asm_.pushReg(.rax);
+                self.loadReg(args[1]); // start
+                self.asm_.popReg(.rcx); // str ptr in rcx
+                self.asm_.addReg(.rax, .rcx); // rax = str + start = new ptr
+                self.storeReg(dest);
+                // Also need to track length for later use
+                // For now, the caller knows the length from end-start
+                return;
+            }
+        }
+
         // Unknown builtin — no-op
         self.asm_.movImm64(.rax, 0);
         self.storeReg(dest);

@@ -495,6 +495,17 @@ pub const Lower = struct {
                         block.append(.{ .list_new = .{ .dest = list_dest } });
                         return list_dest;
                     }
+                    // set() creates a new set (same layout as list for now)
+                    if (std.mem.eql(u8, name, "set")) {
+                        const set_dest = func.newReg();
+                        block.append(.{ .list_new = .{ .dest = set_dest } });
+                        // Append any initial values
+                        for (c.args) |arg_expr| {
+                            const val_reg = self.lowerExpr(arg_expr);
+                            block.append(.{ .list_append = .{ .list = set_dest, .value = val_reg } });
+                        }
+                        return set_dest;
+                    }
                     // Other builtins
                     if (
                         std.mem.eql(u8, name, "map") or

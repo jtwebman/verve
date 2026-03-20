@@ -366,6 +366,14 @@ pub const Asm = struct {
         return patch_offset;
     }
 
+    /// jge rel32 — jump if greater or equal (signed), returns offset to patch
+    pub fn jgeRel32(self: *Asm) usize {
+        self.emit2(0x0F, 0x8D);
+        const patch_offset = self.code.items.len;
+        self.emitI32(0);
+        return patch_offset;
+    }
+
     /// Patch a rel32 at the given offset to jump to a specific target
     pub fn patchRel32At(self: *Asm, patch_offset: usize, target: usize) void {
         const rel: i32 = @intCast(@as(i64, @intCast(target)) - @as(i64, @intCast(patch_offset + 4)));
