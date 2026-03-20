@@ -582,6 +582,100 @@ test "compile: print without newline" {
     try testing.expectEqualStrings("hello world", result.stdout);
 }
 
+// ════════════════════════════════════════════════════════════
+// Structs
+// ════════════════════════════════════════════════════════════
+
+test "compile: struct create and field access" {
+    const exit = try compileAndRun(
+        \\struct Point {
+        \\    x: int;
+        \\    y: int;
+        \\}
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        p: Point = Point { x: 10, y: 32 };
+        \\        return p.x + p.y;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 42), exit);
+}
+
+test "compile: struct three fields" {
+    const exit = try compileAndRun(
+        \\struct Token {
+        \\    kind: int;
+        \\    value: int;
+        \\    pos: int;
+        \\}
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        tok: Token = Token { kind: 10, value: 20, pos: 12 };
+        \\        return tok.kind + tok.value + tok.pos;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 42), exit);
+}
+
+test "compile: struct field used in condition" {
+    const exit = try compileAndRun(
+        \\struct Item {
+        \\    value: int;
+        \\    active: int;
+        \\}
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        item: Item = Item { value: 42, active: 1 };
+        \\        if item.active == 1 {
+        \\            return item.value;
+        \\        }
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 42), exit);
+}
+
+test "compile: struct passed to function" {
+    const exit = try compileAndRun(
+        \\struct Point {
+        \\    x: int;
+        \\    y: int;
+        \\}
+        \\module App {
+        \\    fn sum_point(p: Point) -> int {
+        \\        return p.x + p.y;
+        \\    }
+        \\    fn main(args: list<string>) -> int {
+        \\        p: Point = Point { x: 35, y: 7 };
+        \\        return sum_point(p);
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 42), exit);
+}
+
+test "compile: multiple structs" {
+    const exit = try compileAndRun(
+        \\struct A {
+        \\    x: int;
+        \\}
+        \\struct B {
+        \\    y: int;
+        \\}
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        a: A = A { x: 20 };
+        \\        b: B = B { y: 22 };
+        \\        return a.x + b.y;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 42), exit);
+}
+
 test "compile: combined comparison and logic" {
     const exit = try compileAndRun(
         \\module App {

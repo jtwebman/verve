@@ -455,6 +455,40 @@ pub const Asm = struct {
         self.emitI32(offset_val);
     }
 
+    /// lea dst, [rbp + disp32] — get address of stack slot
+    pub fn leaLocal32(self: *Asm, dst: Reg64, offset_val: i32) void {
+        self.rexW(dst, .rbp);
+        self.emit(0x8D);
+        self.emit(0x85 | (@as(u8, dst.low3()) << 3)); // modrm: mod=10 [rbp+disp32]
+        self.emitI32(offset_val);
+    }
+
+    /// mov [base + disp32], src — store through pointer with offset
+    pub fn storeIndirect(self: *Asm, base: Reg64, disp: i32, src: Reg64) void {
+        self.rexW(src, base);
+        self.emit(0x89);
+        if (disp == 0 and base.low3() != 5) {
+            // mod=00, no displacement (except rbp which always needs disp)
+            self.emit(@as(u8, src.low3()) << 3 | @as(u8, base.low3()));
+        } else {
+            // mod=10, disp32
+            self.emit(0x80 | (@as(u8, src.low3()) << 3) | @as(u8, base.low3()));
+            self.emitI32(disp);
+        }
+    }
+
+    /// mov dst, [base + disp32] — load through pointer with offset
+    pub fn loadIndirect(self: *Asm, dst: Reg64, base: Reg64, disp: i32) void {
+        self.rexW(dst, base);
+        self.emit(0x8B);
+        if (disp == 0 and base.low3() != 5) {
+            self.emit(@as(u8, dst.low3()) << 3 | @as(u8, base.low3()));
+        } else {
+            self.emit(0x80 | (@as(u8, dst.low3()) << 3) | @as(u8, base.low3()));
+            self.emitI32(disp);
+        }
+    }
+
     /// lea reg, [rip + disp32] — load effective address (for string constants)
     pub fn leaRipRel(self: *Asm, dst: Reg64) usize {
         self.rexW(dst, .rbp);

@@ -57,6 +57,14 @@ pub const Inst = union(enum) {
     // ── Calls ───────────────────────────────────────────
     /// Call a user-defined function.
     call: struct { dest: Reg, module: []const u8, function: []const u8, args: []const Reg },
+    // ── Structs ──────────────────────────────────────────
+    /// Allocate N 8-byte stack slots, store base address in dest.
+    struct_alloc: struct { dest: Reg, num_fields: u32 },
+    /// Store value into struct field: mem[base + index*8] = src
+    struct_store: struct { base: Reg, field_index: u32, src: Reg },
+    /// Load value from struct field: dest = mem[base + index*8]
+    struct_load: struct { dest: Reg, base: Reg, field_index: u32 },
+
     /// Call a platform builtin. The backend maps these to OS-specific operations.
     /// Examples: "exit", "write_stdout", "write_stderr"
     call_builtin: struct { dest: Reg, name: []const u8, args: []const Reg },

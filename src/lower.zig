@@ -12,6 +12,10 @@ pub const Lower = struct {
     current_fn: ?*ir.Function,
     current_block: ?*ir.Block,
     current_module: []const u8,
+    // Struct declarations for field lookup
+    struct_decls: std.StringHashMapUnmanaged(ast.StructDecl),
+    // Variable name → struct type name (for field access resolution)
+    var_types: std.StringHashMapUnmanaged([]const u8),
 
     pub fn init(alloc: std.mem.Allocator) Lower {
         return .{
@@ -20,11 +24,23 @@ pub const Lower = struct {
             .current_fn = null,
             .current_block = null,
             .current_module = "",
+            .struct_decls = .{},
+            .var_types = .{},
         };
     }
 
     /// Lower an entire file to IR.
     pub fn lowerFile(self: *Lower, file: ast.File) !ir.Program {
+        // Collect struct declarations first
+        for (file.decls) |decl| {
+            switch (decl) {
+                .struct_decl => |s| {
+                    try self.struct_decls.put(self.alloc, s.name, s);
+                },
+                else => {},
+            }
+        }
+
         for (file.decls) |decl| {
             switch (decl) {
                 .module_decl => |m| {
@@ -66,10 +82,19 @@ pub const Lower = struct {
         const entry = f.newBlock();
         self.current_block = entry;
 
-        // Store params as locals
+        // Store params as locals and track struct types
         for (func.params) |p| {
             const reg = f.newReg();
             entry.append(.{ .load_local = .{ .dest = reg, .name = p.name } });
+            // Track struct-typed parameters
+            switch (p.type_expr) {
+                .simple => |type_name| {
+                    if (self.struct_decls.get(type_name) != null) {
+                        self.var_types.put(self.alloc, p.name, type_name) catch {};
+                    }
+                },
+                else => {},
+            }
         }
 
         // Lower body
@@ -123,6 +148,17 @@ pub const Lower = struct {
             .assign => |a| {
                 const reg = self.lowerExpr(a.value);
                 block.append(.{ .store_local = .{ .name = a.name, .src = reg } });
+                // Track struct type for field access
+                if (a.type_expr) |te| {
+                    switch (te) {
+                        .simple => |type_name| {
+                            if (self.struct_decls.get(type_name) != null) {
+                                self.var_types.put(self.alloc, a.name, type_name) catch {};
+                            }
+                        },
+                        else => {},
+                    }
+                }
             },
             .if_stmt => |i| {
                 const cond_reg = self.lowerExpr(i.condition);
@@ -327,8 +363,74 @@ pub const Lower = struct {
                 }
                 return dest;
             },
+            .struct_literal => |sl| {
+                // Look up struct declaration for field order
+                const decl = self.struct_decls.get(sl.name);
+                const num_fields: u32 = if (decl) |d| @intCast(d.fields.len) else @intCast(sl.fields.len);
+
+                // Allocate struct slots
+                const base = func.newReg();
+                block.append(.{ .struct_alloc = .{ .dest = base, .num_fields = num_fields } });
+
+                // Store fields in declaration order
+                if (decl) |d| {
+                    for (d.fields, 0..) |df, fi| {
+                        // Find matching literal field
+                        for (sl.fields) |lf| {
+                            if (std.mem.eql(u8, lf.name, df.name)) {
+                                const val_reg = self.lowerExpr(lf.value);
+                                block.append(.{ .struct_store = .{
+                                    .base = base,
+                                    .field_index = @intCast(fi),
+                                    .src = val_reg,
+                                } });
+                                break;
+                            }
+                        }
+                    }
+                } else {
+                    // No decl found — store in literal order
+                    for (sl.fields, 0..) |lf, fi| {
+                        const val_reg = self.lowerExpr(lf.value);
+                        block.append(.{ .struct_store = .{
+                            .base = base,
+                            .field_index = @intCast(fi),
+                            .src = val_reg,
+                        } });
+                    }
+                }
+                return base;
+            },
+            .field_access => |fa| {
+                // Check if this is a value.field (struct access)
+                if (fa.target.* == .identifier) {
+                    const target_name = fa.target.identifier;
+                    // Check if it's a variable with a known struct type
+                    if (self.var_types.get(target_name)) |type_name| {
+                        if (self.struct_decls.get(type_name)) |sd| {
+                            // Find field index
+                            for (sd.fields, 0..) |f, fi| {
+                                if (std.mem.eql(u8, f.name, fa.field)) {
+                                    const base_reg = self.lowerExpr(fa.target.*);
+                                    const dest = func.newReg();
+                                    block.append(.{ .struct_load = .{
+                                        .dest = dest,
+                                        .base = base_reg,
+                                        .field_index = @intCast(fi),
+                                    } });
+                                    return dest;
+                                }
+                            }
+                        }
+                    }
+                }
+                // Not a struct field — could be .len or module access
+                // Fall through to const 0 for now
+                const dest = func.newReg();
+                block.append(.{ .const_int = .{ .dest = dest, .value = 0 } });
+                return dest;
+            },
             else => {
-                // Unsupported expression — return 0
                 const dest = func.newReg();
                 block.append(.{ .const_int = .{ .dest = dest, .value = 0 } });
                 return dest;

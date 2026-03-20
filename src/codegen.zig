@@ -277,6 +277,26 @@ pub const LinuxX86Backend = struct {
                 }
             },
 
+            // ── Structs
+            .struct_alloc => |sa| {
+                // Reserve N*8 bytes on the stack, get base address
+                const base_offset = self.next_stack_offset;
+                self.next_stack_offset -= @as(i32, @intCast(sa.num_fields)) * 8;
+                self.asm_.leaLocal32(.rax, base_offset);
+                self.storeReg(sa.dest);
+            },
+            .struct_store => |ss| {
+                self.loadReg(ss.src);
+                self.asm_.movReg(.rcx, .rax); // value in rcx
+                self.loadReg(ss.base); // base addr in rax
+                self.asm_.storeIndirect(.rax, @intCast(ss.field_index * 8), .rcx);
+            },
+            .struct_load => |sl| {
+                self.loadReg(sl.base); // base addr in rax
+                self.asm_.loadIndirect(.rax, .rax, @intCast(sl.field_index * 8));
+                self.storeReg(sl.dest);
+            },
+
             // ── Calls
             .call_builtin => |c| {
                 self.compileBuiltin(c.dest, c.name, c.args);
