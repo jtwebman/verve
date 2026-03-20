@@ -223,20 +223,26 @@ pub fn main() !void {
             return;
         };
 
-        const Cg = @import("codegen.zig").Codegen;
-        var cg = Cg.init(alloc);
-        cg.compile(merged) catch |err| {
-            std.debug.print("Compilation error: {}\n", .{err});
+        // Lower AST to IR
+        const Lwr = @import("lower.zig").Lower;
+        var lower = Lwr.init(alloc);
+        const program = lower.lowerFile(merged) catch |err| {
+            std.debug.print("Lowering error: {}\n", .{err});
             return;
         };
 
-        // Determine output path: replace .vv with nothing, or add .out
+        // Compile IR to native binary (Linux x86_64 backend)
+        const Backend = @import("codegen.zig").LinuxX86Backend;
+        var backend = Backend.init(alloc);
+        backend.compileProgram(program);
+
+        // Determine output path
         const out_path = if (std.mem.endsWith(u8, file_path, ".vv"))
             std.fmt.allocPrint(alloc, "{s}", .{file_path[0 .. file_path.len - 3]}) catch "a.out"
         else
             std.fmt.allocPrint(alloc, "{s}.out", .{file_path}) catch "a.out";
 
-        cg.build(out_path) catch |err| {
+        backend.build(out_path) catch |err| {
             std.debug.print("Build error: {}\n", .{err});
             return;
         };

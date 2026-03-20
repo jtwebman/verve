@@ -1,304 +1,307 @@
 const std = @import("std");
-const ast = @import("ast.zig");
+const ir = @import("ir.zig");
 const x86 = @import("x86.zig");
 const elf = @import("elf.zig");
 
-/// Compiles Verve AST directly to x86_64 machine code.
-/// No dependencies in output. Uses Linux syscalls.
+/// Linux x86_64 backend.
+/// Consumes target-independent IR, emits x86_64 machine code + ELF binary.
+/// Maps IR builtins to Linux syscalls.
 
-pub const Codegen = struct {
+pub const LinuxX86Backend = struct {
     alloc: std.mem.Allocator,
     asm_: x86.Asm,
     rodata: std.ArrayListUnmanaged(u8),
-    // Local variables: name → stack offset (negative from rbp)
-    locals: std.StringHashMapUnmanaged(i8),
-    next_local: i8,
+    // Virtual register → stack offset mapping
+    reg_offsets: std.AutoHashMapUnmanaged(ir.Reg, i32),
+    // Local variable name → stack offset
+    local_offsets: std.StringHashMapUnmanaged(i32),
+    next_stack_offset: i32,
+    // Block ID → code offset for patching jumps
+    block_offsets: std.AutoHashMapUnmanaged(ir.BlockId, usize),
+    // Pending jump patches: (code_offset_of_rel32, target_block_id)
+    jump_patches: std.ArrayListUnmanaged(JumpPatch),
+    // Is this the entry point (main)?
+    is_entry: bool,
 
-    pub fn init(alloc: std.mem.Allocator) Codegen {
+    const JumpPatch = struct {
+        patch_offset: usize,
+        target_block: ir.BlockId,
+    };
+
+    pub fn init(alloc: std.mem.Allocator) LinuxX86Backend {
         return .{
             .alloc = alloc,
             .asm_ = x86.Asm.init(alloc),
             .rodata = .{},
-            .locals = .{},
-            .next_local = -8,
+            .reg_offsets = .{},
+            .local_offsets = .{},
+            .next_stack_offset = -8,
+            .block_offsets = .{},
+            .jump_patches = .{},
+            .is_entry = false,
         };
     }
 
-    /// Add a string to rodata, return its offset.
-    fn addString(self: *Codegen, s: []const u8) u32 {
+    fn addString(self: *LinuxX86Backend, s: []const u8) u32 {
         const offset: u32 = @intCast(self.rodata.items.len);
         self.rodata.appendSlice(self.alloc, s) catch {};
         return offset;
     }
 
-    /// Allocate a stack slot for a local variable.
-    fn allocLocal(self: *Codegen, name: []const u8) i8 {
-        if (self.locals.get(name)) |offset| return offset;
-        const offset = self.next_local;
-        self.locals.put(self.alloc, name, offset) catch {};
-        self.next_local -= 8;
+    /// Get or allocate a stack slot for a virtual register.
+    fn regSlot(self: *LinuxX86Backend, reg: ir.Reg) i32 {
+        if (self.reg_offsets.get(reg)) |offset| return offset;
+        const offset = self.next_stack_offset;
+        self.reg_offsets.put(self.alloc, reg, offset) catch {};
+        self.next_stack_offset -= 8;
         return offset;
     }
 
-    // ── Top-level compilation ────────────────────────────────
+    /// Get or allocate a stack slot for a named local variable.
+    fn localSlot(self: *LinuxX86Backend, name: []const u8) i32 {
+        if (self.local_offsets.get(name)) |offset| return offset;
+        const offset = self.next_stack_offset;
+        self.local_offsets.put(self.alloc, name, offset) catch {};
+        self.next_stack_offset -= 8;
+        return offset;
+    }
 
-    /// Compile a parsed file. Finds main() and emits it as the entry point.
-    pub fn compile(self: *Codegen, file: ast.File) !void {
-        for (file.decls) |decl| {
-            switch (decl) {
-                .module_decl => |m| {
-                    for (m.functions) |func| {
-                        if (std.mem.eql(u8, func.name, "main")) {
-                            try self.compileMain(func);
-                            return;
-                        }
-                    }
-                },
-                .process_decl => |p| {
-                    for (p.receive_handlers) |handler| {
-                        if (std.mem.eql(u8, handler.name, "main")) {
-                            try self.compileMainHandler(handler);
-                            return;
-                        }
-                    }
-                },
-                else => {},
-            }
+    /// Store rax into the stack slot for a virtual register.
+    fn storeReg(self: *LinuxX86Backend, reg: ir.Reg) void {
+        const offset = self.regSlot(reg);
+        self.asm_.storeLocal32(offset, .rax);
+    }
+
+    /// Load a virtual register from its stack slot into rax.
+    fn loadReg(self: *LinuxX86Backend, reg: ir.Reg) void {
+        const offset = self.regSlot(reg);
+        self.asm_.loadLocal32(.rax, offset);
+    }
+
+    // ── Compile program ──────────────────────────────────────
+
+    pub fn compileProgram(self: *LinuxX86Backend, program: ir.Program) void {
+        for (program.functions.items) |func| {
+            self.compileFunction(func, std.mem.eql(u8, func.name, "main"));
         }
     }
 
-    fn compileMain(self: *Codegen, func: ast.FnDecl) !void {
-        self.locals = .{};
-        self.next_local = -8;
+    fn compileFunction(self: *LinuxX86Backend, func: ir.Function, is_entry: bool) void {
+        // Reset per-function state
+        self.reg_offsets = .{};
+        self.local_offsets = .{};
+        self.next_stack_offset = -8;
+        self.block_offsets = .{};
+        self.jump_patches = .{};
+        self.is_entry = is_entry;
 
         // Prologue
         self.asm_.pushReg(.rbp);
         self.asm_.movReg(.rbp, .rsp);
-        self.asm_.subRspImm8(128); // reserve stack space
+        self.asm_.subImm32(.rsp, 4096); // reserve 4KB for locals
 
-        // Bind parameters (main gets args in rdi)
-        for (func.params, 0..) |param, i| {
-            const param_regs = [_]x86.Reg64{ .rdi, .rsi, .rdx, .rcx, .r8, .r9 };
-            if (i < param_regs.len) {
-                const offset = self.allocLocal(param.name);
-                self.asm_.storeLocal(offset, param_regs[i]);
+        // Compile each block
+        for (func.blocks.items) |block| {
+            // Record block start offset for jump patching
+            self.block_offsets.put(self.alloc, block.id, self.asm_.offset()) catch {};
+
+            for (block.insts.items) |inst| {
+                self.compileInst(inst);
             }
         }
 
-        // Compile body
-        for (func.body) |stmt| {
-            try self.compileStmt(stmt);
-        }
-
-        // Default: exit(0)
-        self.asm_.movImm64(.rdi, 0);
-        self.asm_.movImm64(.rax, 60);
-        self.asm_.syscall();
-    }
-
-    fn compileMainHandler(self: *Codegen, handler: ast.ReceiveDecl) !void {
-        self.locals = .{};
-        self.next_local = -8;
-
-        self.asm_.pushReg(.rbp);
-        self.asm_.movReg(.rbp, .rsp);
-        self.asm_.subRspImm8(128);
-
-        for (handler.params, 0..) |param, i| {
-            const param_regs = [_]x86.Reg64{ .rdi, .rsi, .rdx, .rcx, .r8, .r9 };
-            if (i < param_regs.len) {
-                const offset = self.allocLocal(param.name);
-                self.asm_.storeLocal(offset, param_regs[i]);
+        // Patch all jumps
+        for (self.jump_patches.items) |patch| {
+            if (self.block_offsets.get(patch.target_block)) |target_offset| {
+                self.asm_.patchRel32At(patch.patch_offset, target_offset);
             }
         }
-
-        for (handler.body) |stmt| {
-            try self.compileStmt(stmt);
-        }
-
-        self.asm_.movImm64(.rdi, 0);
-        self.asm_.movImm64(.rax, 60);
-        self.asm_.syscall();
     }
 
-    // ── Statement compilation ────────────────────────────────
+    // ── Compile instruction ──────────────────────────────────
 
-    fn compileStmt(self: *Codegen, stmt: ast.Stmt) !void {
-        switch (stmt) {
-            .return_stmt => |r| {
-                if (r.value) |val| {
-                    try self.compileExpr(val); // result in rax
+    fn compileInst(self: *LinuxX86Backend, inst: ir.Inst) void {
+        switch (inst) {
+            // ── Constants
+            .const_int => |c| {
+                self.asm_.movImm64(.rax, c.value);
+                self.storeReg(c.dest);
+            },
+            .const_bool => |c| {
+                self.asm_.movImm64(.rax, if (c.value) 1 else 0);
+                self.storeReg(c.dest);
+            },
+            .const_string => |c| {
+                const offset = self.addString(c.value);
+                // Store rodata offset — patched to absolute address in build()
+                self.asm_.movImm64(.rax, @intCast(offset));
+                self.storeReg(c.dest);
+            },
+            .const_float => |c| {
+                _ = c; // TODO: float support
+            },
+
+            // ── Arithmetic
+            .add_i64 => |op| { self.compileBinOp(op, .add); },
+            .sub_i64 => |op| { self.compileBinOp(op, .sub); },
+            .mul_i64 => |op| { self.compileBinOp(op, .mul); },
+            .div_i64 => |op| { self.compileBinOp(op, .div); },
+            .mod_i64 => |op| { self.compileBinOp(op, .mod); },
+            .neg_i64 => |op| {
+                self.loadReg(op.operand);
+                self.asm_.negReg(.rax);
+                self.storeReg(op.dest);
+            },
+
+            // ── Comparison
+            .eq_i64 => |op| { self.compileCmp(op, .eq); },
+            .neq_i64 => |op| { self.compileCmp(op, .neq); },
+            .lt_i64 => |op| { self.compileCmp(op, .lt); },
+            .gt_i64 => |op| { self.compileCmp(op, .gt); },
+            .lte_i64 => |op| { self.compileCmp(op, .lte); },
+            .gte_i64 => |op| { self.compileCmp(op, .gte); },
+
+            // ── Logical
+            .and_bool => |op| { self.compileBinOp(op, .@"and"); },
+            .or_bool => |op| { self.compileBinOp(op, .@"or"); },
+            .not_bool => |op| {
+                self.loadReg(op.operand);
+                self.asm_.xorImm8(.rax, 1);
+                self.storeReg(op.dest);
+            },
+
+            // ── Variables
+            .store_local => |s| {
+                self.loadReg(s.src);
+                const offset = self.localSlot(s.name);
+                self.asm_.storeLocal32(offset, .rax);
+            },
+            .load_local => |l| {
+                const offset = self.localSlot(l.name);
+                self.asm_.loadLocal32(.rax, offset);
+                self.storeReg(l.dest);
+            },
+
+            // ── Control flow
+            .jump => |j| {
+                const patch = self.asm_.jmpRel32();
+                self.jump_patches.append(self.alloc, .{
+                    .patch_offset = patch,
+                    .target_block = j.target,
+                }) catch {};
+            },
+            .branch => |b| {
+                self.loadReg(b.cond);
+                self.asm_.testReg(.rax);
+                // je else_block (jump if zero = false)
+                const else_patch = self.asm_.jeRel32();
+                // fall through to then_block
+                const then_patch = self.asm_.jmpRel32();
+                self.jump_patches.append(self.alloc, .{
+                    .patch_offset = then_patch,
+                    .target_block = b.then_block,
+                }) catch {};
+                self.jump_patches.append(self.alloc, .{
+                    .patch_offset = else_patch,
+                    .target_block = b.else_block,
+                }) catch {};
+            },
+            .ret => |r| {
+                if (r.value) |reg| {
+                    self.loadReg(reg);
                 } else {
                     self.asm_.movImm64(.rax, 0);
                 }
-                // In main, return means exit
-                self.asm_.movReg(.rdi, .rax);
-                self.asm_.movImm64(.rax, 60); // sys_exit
-                self.asm_.syscall();
-            },
-            .assign => |a| {
-                try self.compileExpr(a.value); // result in rax
-                const offset = self.allocLocal(a.name);
-                self.asm_.storeLocal(offset, .rax);
-            },
-            .if_stmt => |i| {
-                try self.compileExpr(i.condition);
-                self.asm_.testReg(.rax);
-                const else_patch = self.asm_.jeRel32();
-
-                for (i.body) |s| try self.compileStmt(s);
-
-                if (i.else_body) |eb| {
-                    const end_patch = self.asm_.jmpRel32();
-                    self.asm_.patchRel32(else_patch);
-                    for (eb) |s| try self.compileStmt(s);
-                    self.asm_.patchRel32(end_patch);
+                if (self.is_entry) {
+                    // In main: exit syscall
+                    self.asm_.movReg(.rdi, .rax);
+                    self.emitSyscall(60); // sys_exit
                 } else {
-                    self.asm_.patchRel32(else_patch);
+                    // Normal return
+                    self.asm_.movReg(.rsp, .rbp);
+                    self.asm_.popReg(.rbp);
+                    self.asm_.ret();
                 }
             },
-            .while_stmt => |w| {
-                const loop_top = self.asm_.offset();
-                try self.compileExpr(w.condition);
-                self.asm_.testReg(.rax);
-                const exit_patch = self.asm_.jeRel32();
 
-                for (w.body) |s| try self.compileStmt(s);
-
-                // Jump back to loop top
-                const jmp_patch = self.asm_.jmpRel32();
-                self.asm_.patchRel32At(jmp_patch, loop_top);
-
-                self.asm_.patchRel32(exit_patch);
+            // ── Calls
+            .call_builtin => |c| {
+                self.compileBuiltin(c.dest, c.name, c.args);
             },
-            .break_stmt => {
-                // TODO: need a break target stack
+            .call => |c| {
+                _ = c; // TODO: user function calls
             },
-            .continue_stmt => {
-                // TODO: need a continue target stack
-            },
-            .expr_stmt => |e| {
-                try self.compileExpr(e);
-            },
-            else => {},
         }
     }
 
-    // ── Expression compilation ───────────────────────────────
-    // All expressions leave their result in rax.
+    const ArithOp = enum { add, sub, mul, div, mod, @"and", @"or" };
 
-    fn compileExpr(self: *Codegen, expr: ast.Expr) !void {
-        switch (expr) {
-            .int_literal => |v| {
-                self.asm_.movImm64(.rax, v);
-            },
-            .bool_literal => |v| {
-                self.asm_.movImm64(.rax, if (v) 1 else 0);
-            },
-            .string_literal => |v| {
-                // Store string in rodata, load address into rax
-                const offset = self.addString(v);
-                // Address will be patched in build()
-                self.asm_.movImm64(.rax, @intCast(offset));
-            },
-            .identifier => |name| {
-                if (self.locals.get(name)) |offset| {
-                    self.asm_.loadLocal(.rax, offset);
-                }
-            },
-            .binary_op => |op| {
-                // Left → rax, push, right → rax, pop left → rcx
-                try self.compileExpr(op.left.*);
-                self.asm_.pushReg(.rax);
-                try self.compileExpr(op.right.*);
-                self.asm_.movReg(.rcx, .rax); // right in rcx
-                self.asm_.popReg(.rax); // left in rax
+    fn compileBinOp(self: *LinuxX86Backend, op: ir.Inst.BinOp, arith: ArithOp) void {
+        self.loadReg(op.lhs);
+        self.asm_.pushReg(.rax);
+        self.loadReg(op.rhs);
+        self.asm_.movReg(.rcx, .rax);
+        self.asm_.popReg(.rax);
 
-                switch (op.op) {
-                    .add => self.asm_.addReg(.rax, .rcx),
-                    .sub => self.asm_.subReg(.rax, .rcx),
-                    .mul => self.asm_.imulReg(.rax, .rcx),
-                    .div => {
-                        self.asm_.cqo();
-                        self.asm_.idivReg(.rcx);
-                    },
-                    .mod => {
-                        self.asm_.cqo();
-                        self.asm_.idivReg(.rcx);
-                        self.asm_.movReg(.rax, .rdx); // remainder
-                    },
-                    .eq => {
-                        self.asm_.cmpReg(.rax, .rcx);
-                        self.asm_.sete(.rax);
-                        self.asm_.movzxByte(.rax, .rax);
-                    },
-                    .neq => {
-                        self.asm_.cmpReg(.rax, .rcx);
-                        self.asm_.setne(.rax);
-                        self.asm_.movzxByte(.rax, .rax);
-                    },
-                    .lt => {
-                        self.asm_.cmpReg(.rax, .rcx);
-                        self.asm_.setl(.rax);
-                        self.asm_.movzxByte(.rax, .rax);
-                    },
-                    .gt => {
-                        self.asm_.cmpReg(.rax, .rcx);
-                        self.asm_.setg(.rax);
-                        self.asm_.movzxByte(.rax, .rax);
-                    },
-                    .lte => {
-                        self.asm_.cmpReg(.rax, .rcx);
-                        self.asm_.setle(.rax);
-                        self.asm_.movzxByte(.rax, .rax);
-                    },
-                    .gte => {
-                        self.asm_.cmpReg(.rax, .rcx);
-                        self.asm_.setge(.rax);
-                        self.asm_.movzxByte(.rax, .rax);
-                    },
-                    .@"and" => self.asm_.andReg(.rax, .rcx),
-                    .@"or" => self.asm_.orReg(.rax, .rcx),
-                    .not => {},
-                }
+        switch (arith) {
+            .add => self.asm_.addReg(.rax, .rcx),
+            .sub => self.asm_.subReg(.rax, .rcx),
+            .mul => self.asm_.imulReg(.rax, .rcx),
+            .div => {
+                self.asm_.cqo();
+                self.asm_.idivReg(.rcx);
             },
-            .unary_op => |op| {
-                try self.compileExpr(op.operand.*);
-                switch (op.op) {
-                    .not => self.asm_.xorImm8(.rax, 1),
-                    .sub => self.asm_.negReg(.rax),
-                    else => {},
-                }
+            .mod => {
+                self.asm_.cqo();
+                self.asm_.idivReg(.rcx);
+                self.asm_.movReg(.rax, .rdx);
             },
-            else => {},
+            .@"and" => self.asm_.andReg(.rax, .rcx),
+            .@"or" => self.asm_.orReg(.rax, .rcx),
         }
+        self.storeReg(op.dest);
+    }
+
+    const CmpKind = enum { eq, neq, lt, gt, lte, gte };
+
+    fn compileCmp(self: *LinuxX86Backend, op: ir.Inst.BinOp, kind: CmpKind) void {
+        self.loadReg(op.lhs);
+        self.asm_.pushReg(.rax);
+        self.loadReg(op.rhs);
+        self.asm_.movReg(.rcx, .rax);
+        self.asm_.popReg(.rax);
+        self.asm_.cmpReg(.rax, .rcx);
+
+        switch (kind) {
+            .eq => self.asm_.sete(.rax),
+            .neq => self.asm_.setne(.rax),
+            .lt => self.asm_.setl(.rax),
+            .gt => self.asm_.setg(.rax),
+            .lte => self.asm_.setle(.rax),
+            .gte => self.asm_.setge(.rax),
+        }
+        self.asm_.movzxByte(.rax, .rax);
+        self.storeReg(op.dest);
+    }
+
+    // ── Platform builtins (Linux syscalls) ────────────────────
+
+    fn compileBuiltin(self: *LinuxX86Backend, dest: ir.Reg, name: []const u8, args: []const ir.Reg) void {
+        _ = dest;
+        _ = name;
+        _ = args;
+        _ = self;
+        // TODO: implement builtins like println → write syscall
+    }
+
+    fn emitSyscall(self: *LinuxX86Backend, number: i64) void {
+        self.asm_.movImm64(.rax, number);
+        self.asm_.syscall();
     }
 
     // ── Build final binary ───────────────────────────────────
 
-    pub fn build(self: *Codegen, output_path: []const u8) !void {
-        // Patch string addresses: any movImm64 to rax that holds a rodata offset
-        // needs to become rodata_vaddr + offset.
-        // We track this by scanning for the pattern REX.W(48) B8 + small value
-        if (self.rodata.items.len > 0) {
-            const layout = elf.computeLayout(self.asm_.code.items.len, self.rodata.items.len);
-            var i: usize = 0;
-            while (i + 10 <= self.asm_.code.items.len) {
-                // movImm64 rax: 48 B8 + imm64
-                if (self.asm_.code.items[i] == 0x48 and self.asm_.code.items[i + 1] == 0xB8) {
-                    const val: u64 = @bitCast(self.asm_.code.items[i + 2 ..][0..8].*);
-                    if (val < self.rodata.items.len) {
-                        const new_val = val + layout.rodata_vaddr;
-                        const new_bytes: [8]u8 = @bitCast(new_val);
-                        @memcpy(self.asm_.code.items[i + 2 ..][0..8], &new_bytes);
-                    }
-                    i += 10;
-                    continue;
-                }
-                i += 1;
-            }
-        }
-
+    pub fn build(self: *LinuxX86Backend, output_path: []const u8) !void {
         try elf.emit(self.alloc, self.asm_.code.items, self.rodata.items, output_path);
     }
 };

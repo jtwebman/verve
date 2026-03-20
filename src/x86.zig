@@ -439,6 +439,22 @@ pub const Asm = struct {
         self.emit(@bitCast(offset_val));
     }
 
+    /// mov [rbp + disp32], reg — for larger stack frames
+    pub fn storeLocal32(self: *Asm, offset_val: i32, src: Reg64) void {
+        self.rexW(src, .rbp);
+        self.emit(0x89);
+        self.emit(0x85 | (@as(u8, src.low3()) << 3)); // modrm: mod=10 [rbp+disp32]
+        self.emitI32(offset_val);
+    }
+
+    /// mov reg, [rbp + disp32] — for larger stack frames
+    pub fn loadLocal32(self: *Asm, dst: Reg64, offset_val: i32) void {
+        self.rexW(dst, .rbp);
+        self.emit(0x8B);
+        self.emit(0x85 | (@as(u8, dst.low3()) << 3)); // modrm: mod=10 [rbp+disp32]
+        self.emitI32(offset_val);
+    }
+
     /// lea reg, [rip + disp32] — load effective address (for string constants)
     pub fn leaRipRel(self: *Asm, dst: Reg64) usize {
         self.rexW(dst, .rbp);
