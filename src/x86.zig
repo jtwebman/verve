@@ -133,19 +133,135 @@ pub const Asm = struct {
     }
 
     /// idiv src — signed divide rdx:rax by src, quotient in rax, remainder in rdx
+    /// Encoding: REX.W F7 /7 (modrm reg field = 7)
     pub fn idivReg(self: *Asm, src: Reg64) void {
         self.rexW(.rax, src);
         self.emit(0xF7);
-        self.modrm(.rdi, src); // /7 = 0xF8 but modrm encodes it
-        // Actually idiv is /7: modrm with reg=7
-        // Let me fix this
+        self.emit(0xC0 | (7 << 3) | @as(u8, src.low3())); // /7 = IDIV
     }
 
     /// neg reg — negate
+    /// Encoding: REX.W F7 /3
     pub fn negReg(self: *Asm, reg: Reg64) void {
         self.rexW(.rax, reg);
         self.emit(0xF7);
         self.emit(0xC0 | (3 << 3) | @as(u8, reg.low3())); // /3 = NEG
+    }
+
+    /// not reg — bitwise NOT
+    /// Encoding: REX.W F7 /2
+    pub fn notReg(self: *Asm, reg: Reg64) void {
+        self.rexW(.rax, reg);
+        self.emit(0xF7);
+        self.emit(0xC0 | (2 << 3) | @as(u8, reg.low3())); // /2 = NOT
+    }
+
+    /// and dst, src
+    pub fn andReg(self: *Asm, dst: Reg64, src: Reg64) void {
+        self.rexW(src, dst);
+        self.emit(0x21); // AND r/m64, r64
+        self.modrm(src, dst);
+    }
+
+    /// or dst, src
+    pub fn orReg(self: *Asm, dst: Reg64, src: Reg64) void {
+        self.rexW(src, dst);
+        self.emit(0x09); // OR r/m64, r64
+        self.modrm(src, dst);
+    }
+
+    /// xor dst, src
+    pub fn xorReg(self: *Asm, dst: Reg64, src: Reg64) void {
+        self.rexW(src, dst);
+        self.emit(0x31); // XOR r/m64, r64
+        self.modrm(src, dst);
+    }
+
+    /// xor reg, imm8 (useful for bool flip: xor rax, 1)
+    pub fn xorImm8(self: *Asm, dst: Reg64, val: u8) void {
+        self.rexW(.rax, dst);
+        self.emit(0x83);
+        self.emit(0xC0 | (6 << 3) | @as(u8, dst.low3())); // /6 = XOR r/m64, imm8
+        self.emit(val);
+    }
+
+    /// add reg, imm32
+    pub fn addImm32(self: *Asm, dst: Reg64, val: i32) void {
+        self.rexW(.rax, dst);
+        self.emit(0x81);
+        self.emit(0xC0 | @as(u8, dst.low3())); // /0 = ADD
+        self.emitI32(val);
+    }
+
+    /// sub reg, imm32
+    pub fn subImm32(self: *Asm, dst: Reg64, val: i32) void {
+        self.rexW(.rax, dst);
+        self.emit(0x81);
+        self.emit(0xC0 | (5 << 3) | @as(u8, dst.low3())); // /5 = SUB
+        self.emitI32(val);
+    }
+
+    /// cmp reg, imm32
+    pub fn cmpImm32(self: *Asm, dst: Reg64, val: i32) void {
+        self.rexW(.rax, dst);
+        self.emit(0x81);
+        self.emit(0xC0 | (7 << 3) | @as(u8, dst.low3())); // /7 = CMP
+        self.emitI32(val);
+    }
+
+    /// cmove dst, src — conditional move if equal
+    pub fn cmove(self: *Asm, dst: Reg64, src: Reg64) void {
+        self.rexW(dst, src);
+        self.emit2(0x0F, 0x44);
+        self.modrm(dst, src);
+    }
+
+    /// cmovne dst, src — conditional move if not equal
+    pub fn cmovne(self: *Asm, dst: Reg64, src: Reg64) void {
+        self.rexW(dst, src);
+        self.emit2(0x0F, 0x45);
+        self.modrm(dst, src);
+    }
+
+    /// cmovl dst, src — conditional move if less
+    pub fn cmovl(self: *Asm, dst: Reg64, src: Reg64) void {
+        self.rexW(dst, src);
+        self.emit2(0x0F, 0x4C);
+        self.modrm(dst, src);
+    }
+
+    /// cmovg dst, src — conditional move if greater
+    pub fn cmovg(self: *Asm, dst: Reg64, src: Reg64) void {
+        self.rexW(dst, src);
+        self.emit2(0x0F, 0x4F);
+        self.modrm(dst, src);
+    }
+
+    /// cmovle dst, src — conditional move if less or equal
+    pub fn cmovle(self: *Asm, dst: Reg64, src: Reg64) void {
+        self.rexW(dst, src);
+        self.emit2(0x0F, 0x4E);
+        self.modrm(dst, src);
+    }
+
+    /// cmovge dst, src — conditional move if greater or equal
+    pub fn cmovge(self: *Asm, dst: Reg64, src: Reg64) void {
+        self.rexW(dst, src);
+        self.emit2(0x0F, 0x4D);
+        self.modrm(dst, src);
+    }
+
+    /// nop — no operation (1 byte)
+    pub fn nop(self: *Asm) void {
+        self.emit(0x90);
+    }
+
+    /// mov reg, imm32 (sign-extended to 64-bit) — shorter encoding for small constants
+    pub fn movImm32(self: *Asm, dst: Reg64, val: i32) void {
+        self.rexW(.rax, dst);
+        self.emit(0xC7);
+        self.emit(0xC0 | @as(u8, dst.low3())); // /0 = MOV r/m64, imm32
+        self.emitI32(val);
     }
 
     /// cmp reg1, reg2
