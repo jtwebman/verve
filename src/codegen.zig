@@ -8,36 +8,29 @@ const elf = @import("elf.zig");
 /// Maps IR builtins to Linux syscalls.
 
 pub const LinuxX86Backend = struct {
-    alloc: std.mem.Allocator,
-    asm_: x86.Asm,
-    rodata: std.ArrayListUnmanaged(u8),
-    // Virtual register → stack offset mapping
-    reg_offsets: std.AutoHashMapUnmanaged(ir.Reg, i32),
-    // Local variable name → stack offset
-    local_offsets: std.StringHashMapUnmanaged(i32),
-    next_stack_offset: i32,
-    // Block ID → code offset for patching jumps
-    block_offsets: std.AutoHashMapUnmanaged(ir.BlockId, usize),
-    // Pending jump patches: (code_offset_of_rel32, target_block_id)
-    jump_patches: std.ArrayListUnmanaged(JumpPatch),
-    // Is this the entry point (main)?
-    is_entry: bool,
-    // Rodata address patches: code offsets where rodata offsets need to be fixed up
-    rodata_patches: std.ArrayListUnmanaged(usize),
-    // Function name → code offset for call patching
-    fn_offsets: std.StringHashMapUnmanaged(usize),
-    // Pending function call patches
-    fn_call_patches: std.ArrayListUnmanaged(FnCallPatch),
-
-    const FnCallPatch = struct {
-        patch_offset: usize,
-        target: []const u8, // "Module.function"
-    };
-
     const JumpPatch = struct {
         patch_offset: usize,
         target_block: ir.BlockId,
     };
+
+    const FnCallPatch = struct {
+        patch_offset: usize,
+        target: []const u8,
+    };
+
+    alloc: std.mem.Allocator,
+    asm_: x86.Asm,
+    rodata: std.ArrayListUnmanaged(u8),
+    reg_offsets: std.AutoHashMapUnmanaged(ir.Reg, i32),
+    local_offsets: std.StringHashMapUnmanaged(i32),
+    next_stack_offset: i32,
+    block_offsets: std.AutoHashMapUnmanaged(ir.BlockId, usize),
+    jump_patches: std.ArrayListUnmanaged(JumpPatch),
+    is_entry: bool,
+    rodata_patches: std.ArrayListUnmanaged(usize),
+    fn_offsets: std.StringHashMapUnmanaged(usize),
+    fn_call_patches: std.ArrayListUnmanaged(FnCallPatch),
+    heap_ptr_offset: ?i32,
 
     pub fn init(alloc: std.mem.Allocator) LinuxX86Backend {
         return .{
@@ -53,6 +46,7 @@ pub const LinuxX86Backend = struct {
             .fn_offsets = .{},
             .fn_call_patches = .{},
             .rodata_patches = .{},
+            .heap_ptr_offset = null,
         };
     }
 
@@ -132,6 +126,11 @@ pub const LinuxX86Backend = struct {
         self.asm_.pushReg(.rbp);
         self.asm_.movReg(.rbp, .rsp);
         self.asm_.subImm32(.rsp, 4096); // reserve 4KB for locals
+
+        // Initialize heap for entry point
+        if (is_entry) {
+            self.emitHeapInit();
+        }
 
         // Store incoming arguments (System V ABI: rdi, rsi, rdx, rcx, r8, r9)
         const arg_regs = [_]x86.Reg64{ .rdi, .rsi, .rdx, .rcx, .r8, .r9 };
@@ -277,6 +276,68 @@ pub const LinuxX86Backend = struct {
                 }
             },
 
+            // ── Lists
+            .list_new => |ln| {
+                // Allocate list header: [capacity(8)][length(8)][items(capacity*8)]
+                // Initial capacity = 16 items = 16*8 + 16 = 144 bytes
+                self.emitBumpAllocImm(16 + 16 * 8);
+                // Set capacity = 16
+                self.asm_.movImm64(.rcx, 16);
+                self.asm_.storeIndirect(.rax, 0, .rcx);
+                // Set length = 0
+                self.asm_.movImm64(.rcx, 0);
+                self.asm_.storeIndirect(.rax, 8, .rcx);
+                self.storeReg(ln.dest);
+            },
+            .list_append => |la| {
+                // Step 1: Load value into rdx (save it)
+                self.loadReg(la.value);
+                self.asm_.pushReg(.rax); // push value onto stack
+
+                // Step 2: Load list base, get length, compute item address
+                self.loadReg(la.list); // rax = list base
+                self.asm_.loadIndirect(.rcx, .rax, 8); // rcx = length
+
+                // Compute item offset: 16 + length * 8
+                self.asm_.pushReg(.rax); // save base
+                self.asm_.movReg(.rsi, .rcx); // rsi = length
+                self.asm_.movImm64(.rdx, 8);
+                self.asm_.imulReg(.rsi, .rdx); // rsi = length * 8
+                self.asm_.addImm32(.rsi, 16); // rsi = 16 + length*8
+                self.asm_.popReg(.rax); // restore base
+
+                // Step 3: Store value at base + offset
+                self.asm_.popReg(.rdx); // pop saved value
+                self.asm_.addReg(.rax, .rsi); // rax = item address
+                self.asm_.storeIndirect(.rax, 0, .rdx);
+
+                // Step 4: Increment length
+                self.loadReg(la.list); // reload base
+                self.asm_.loadIndirect(.rcx, .rax, 8); // current length
+                self.asm_.addImm32(.rcx, 1);
+                self.asm_.storeIndirect(.rax, 8, .rcx); // store new length
+            },
+            .list_len => |ll| {
+                self.loadReg(ll.list); // list base in rax
+                self.asm_.loadIndirect(.rax, .rax, 8); // length at offset 8
+                self.storeReg(ll.dest);
+            },
+            .list_get => |lg| {
+                self.loadReg(lg.index); // index in rax
+                self.asm_.movReg(.rcx, .rax); // index in rcx
+                self.loadReg(lg.list); // base in rax
+                // item at [base + 16 + index*8]
+                self.asm_.pushReg(.rax); // save base
+                self.asm_.movReg(.rsi, .rcx);
+                self.asm_.movImm64(.rcx, 8);
+                self.asm_.imulReg(.rsi, .rcx); // rsi = index*8
+                self.asm_.addImm32(.rsi, 16); // rsi = 16 + index*8
+                self.asm_.popReg(.rax); // base
+                self.asm_.addReg(.rax, .rsi); // rax = base + offset
+                self.asm_.loadIndirect(.rax, .rax, 0); // load value
+                self.storeReg(lg.dest);
+            },
+
             // ── Structs
             .struct_alloc => |sa| {
                 // Reserve N*8 bytes on the stack, get base address
@@ -375,6 +436,46 @@ pub const LinuxX86Backend = struct {
         }
         self.asm_.movzxByte(.rax, .rax);
         self.storeReg(op.dest);
+    }
+
+    /// Emit the heap initialization code (mmap a large region).
+    /// Must be called at the start of main.
+    fn emitHeapInit(self: *LinuxX86Backend) void {
+        // mmap(NULL, 1MB, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0)
+        // syscall 9: rdi=addr, rsi=length, rdx=prot, r10=flags, r8=fd, r9=offset
+        self.asm_.movImm64(.rdi, 0); // addr = NULL
+        self.asm_.movImm64(.rsi, 1048576); // 1MB
+        self.asm_.movImm64(.rdx, 3); // PROT_READ | PROT_WRITE
+        self.asm_.movImm64(.r10, 0x22); // MAP_PRIVATE | MAP_ANONYMOUS
+        self.asm_.movImm64(.r8, @bitCast(@as(i64, -1))); // fd = -1
+        self.asm_.movImm64(.r9, 0); // offset = 0
+        self.emitSyscall(9); // sys_mmap
+        // rax = heap base. Store as bump pointer.
+        const offset = self.next_stack_offset;
+        self.next_stack_offset -= 8;
+        self.heap_ptr_offset = offset;
+        self.asm_.storeLocal32(offset, .rax);
+    }
+
+    /// Allocate n bytes from the bump heap. Returns address in rax.
+    fn emitBumpAlloc(self: *LinuxX86Backend, size_reg: x86.Reg64) void {
+        if (self.heap_ptr_offset) |hp_offset| {
+            // Load current heap pointer
+            self.asm_.loadLocal32(.rax, hp_offset);
+            // Save current pointer (allocation result)
+            self.asm_.pushReg(.rax);
+            // Advance: heap_ptr += size
+            self.asm_.addReg(.rax, size_reg);
+            self.asm_.storeLocal32(hp_offset, .rax);
+            // Return the old pointer
+            self.asm_.popReg(.rax);
+        }
+    }
+
+    /// Allocate a fixed number of bytes from the bump heap.
+    fn emitBumpAllocImm(self: *LinuxX86Backend, size: i64) void {
+        self.asm_.movImm64(.rcx, size);
+        self.emitBumpAlloc(.rcx);
     }
 
     // ── Platform builtins (Linux syscalls) ────────────────────

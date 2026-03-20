@@ -676,6 +676,72 @@ test "compile: multiple structs" {
     try testing.expectEqual(@as(u8, 42), exit);
 }
 
+// ════════════════════════════════════════════════════════════
+// Lists
+// ════════════════════════════════════════════════════════════
+
+test "compile: list create and length" {
+    const exit = try compileAndRun(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        items: list<int> = list();
+        \\        return items.len;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), exit);
+}
+
+test "compile: list append and length" {
+    const exit = try compileAndRun(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        items: list<int> = list();
+        \\        append items { 10; }
+        \\        append items { 20; }
+        \\        append items { 30; }
+        \\        return items.len;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 3), exit);
+}
+
+test "compile: list index access" {
+    const exit = try compileAndRun(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        items: list<int> = list();
+        \\        append items { 10; }
+        \\        append items { 32; }
+        \\        return items[0] + items[1];
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 42), exit);
+}
+
+test "compile: list iterate with while" {
+    const exit = try compileAndRun(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        items: list<int> = list();
+        \\        append items { 10; }
+        \\        append items { 20; }
+        \\        append items { 12; }
+        \\        sum: int = 0;
+        \\        i: int = 0;
+        \\        while i < items.len {
+        \\            sum = sum + items[i];
+        \\            i = i + 1;
+        \\        }
+        \\        return sum;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 42), exit);
+}
+
 test "compile: combined comparison and logic" {
     const exit = try compileAndRun(
         \\module App {

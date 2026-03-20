@@ -65,6 +65,16 @@ pub const Inst = union(enum) {
     /// Load value from struct field: dest = mem[base + index*8]
     struct_load: struct { dest: Reg, base: Reg, field_index: u32 },
 
+    // ── Lists ───────────────────────────────────────────
+    /// Allocate a new list (returns pointer to list header)
+    list_new: struct { dest: Reg },
+    /// Append a value to a list
+    list_append: struct { list: Reg, value: Reg },
+    /// Get list length
+    list_len: struct { dest: Reg, list: Reg },
+    /// Get list element by index
+    list_get: struct { dest: Reg, list: Reg, index: Reg },
+
     /// Call a platform builtin. The backend maps these to OS-specific operations.
     /// Examples: "exit", "write_stdout", "write_stderr"
     call_builtin: struct { dest: Reg, name: []const u8, args: []const Reg },

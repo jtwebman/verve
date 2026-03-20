@@ -215,6 +215,11 @@ pub const Lower = struct {
 
                 self.current_block = exit_block;
             },
+            .append => |a| {
+                const list_reg = self.lowerExpr(a.target);
+                const val_reg = self.lowerExpr(a.value);
+                block.append(.{ .list_append = .{ .list = list_reg, .value = val_reg } });
+            },
             .expr_stmt => |e| {
                 _ = self.lowerExpr(e);
             },
@@ -337,8 +342,14 @@ pub const Lower = struct {
                         } });
                         return dest;
                     }
+                    // list() creates a new list
+                    if (std.mem.eql(u8, name, "list")) {
+                        const list_dest = func.newReg();
+                        block.append(.{ .list_new = .{ .dest = list_dest } });
+                        return list_dest;
+                    }
                     // Other builtins
-                    if (std.mem.eql(u8, name, "list") or
+                    if (
                         std.mem.eql(u8, name, "map") or
                         std.mem.eql(u8, name, "set") or
                         std.mem.eql(u8, name, "stack") or
@@ -424,10 +435,24 @@ pub const Lower = struct {
                         }
                     }
                 }
-                // Not a struct field — could be .len or module access
-                // Fall through to const 0 for now
+                // Check for .len (list length)
+                if (std.mem.eql(u8, fa.field, "len")) {
+                    const list_reg = self.lowerExpr(fa.target.*);
+                    const dest = func.newReg();
+                    block.append(.{ .list_len = .{ .dest = dest, .list = list_reg } });
+                    return dest;
+                }
+
+                // Not a struct field or .len — return 0
                 const dest = func.newReg();
                 block.append(.{ .const_int = .{ .dest = dest, .value = 0 } });
+                return dest;
+            },
+            .index_access => |ia| {
+                const target_reg = self.lowerExpr(ia.target.*);
+                const index_reg = self.lowerExpr(ia.index.*);
+                const dest = func.newReg();
+                block.append(.{ .list_get = .{ .dest = dest, .list = target_reg, .index = index_reg } });
                 return dest;
             },
             else => {
