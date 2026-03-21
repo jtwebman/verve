@@ -2827,6 +2827,18 @@ fn verve_Parser_expect_kind(param_tokens: i64, param_pos: i64, param_kind: i64) 
     _ = &r50;
     var r51: i64 = 0;
     _ = &r51;
+    var r52: i64 = 0;
+    _ = &r52;
+    var r53: i64 = 0;
+    _ = &r53;
+    var r54: i64 = 0;
+    _ = &r54;
+    var r55: i64 = 0;
+    _ = &r55;
+    var r56: i64 = 0;
+    _ = &r56;
+    var r57: i64 = 0;
+    _ = &r57;
     var locals: [256]i64 = undefined;
     _ = &locals;
     locals[0] = param_tokens;
@@ -2843,73 +2855,79 @@ fn verve_Parser_expect_kind(param_tokens: i64, param_pos: i64, param_kind: i64) 
                 locals[3] = r2;
                 r3 = locals[3];
                 r4 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r3))))))[0];
-                r5 = locals[2];
-                r6 = locals[4];
-                r7 = if (r4 != r5) @as(i64, 1) else @as(i64, 0);
-                block = if (r7 != 0) 1 else 3; continue;
+                { const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r4)))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; r5 = @intCast(sl); }
+                r6 = locals[2];
+                r7 = locals[4];
+                r8 = if (strEql(@ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r4))))), r5, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r6))))), r7)) @as(i64, 1) else @as(i64, 0);
+                r9 = if (r8 == 0) @as(i64, 1) else @as(i64, 0);
+                block = if (r9 != 0) 1 else 3; continue;
             },
             1 => {
-                r8 = @intCast(@intFromPtr(@as([*]const u8, "Parse error at pos ")));
-                r9 = 19;
-                r10 = locals[3];
-                r11 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r10))))))[2];
-                r12 = @intCast(@intFromPtr(@as([*]const u8, ": expected ")));
-                r13 = 11;
-                r14 = locals[2];
-                r15 = locals[4];
-                r16 = @intCast(@intFromPtr(@as([*]const u8, " but got ")));
-                r17 = 9;
-                r18 = locals[3];
-                r19 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r18))))))[0];
-                r20 = @intCast(@intFromPtr(@as([*]const u8, " '")));
-                r21 = 2;
-                r22 = locals[3];
-                r23 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r22))))))[1];
-                r24 = @intCast(@intFromPtr(@as([*]const u8, "'")));
-                r25 = 1;
-                r27 = @intCast(@intFromPtr(@as([*]const u8, "Parse error at pos ")));
-                r28 = 19;
-                r29 = locals[3];
-                r30 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r29))))))[2];
-                r31 = -1;
-                r32 = @intCast(@intFromPtr(@as([*]const u8, ": expected ")));
-                r33 = 11;
-                r34 = locals[2];
-                r35 = locals[4];
-                r36 = @intCast(@intFromPtr(@as([*]const u8, " but got ")));
-                r37 = 9;
-                r38 = locals[3];
-                r39 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r38))))))[0];
-                r40 = -1;
-                r41 = @intCast(@intFromPtr(@as([*]const u8, " '")));
-                r42 = 2;
-                r43 = locals[3];
-                r44 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r43))))))[1];
+                r10 = @intCast(@intFromPtr(@as([*]const u8, "Parse error at pos ")));
+                r11 = 19;
+                r12 = locals[3];
+                r13 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r12))))))[2];
+                r14 = @intCast(@intFromPtr(@as([*]const u8, ": expected ")));
+                r15 = 11;
+                r16 = locals[2];
+                r17 = locals[4];
+                r18 = @intCast(@intFromPtr(@as([*]const u8, " but got ")));
+                r19 = 9;
+                r20 = locals[3];
+                r21 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r20))))))[0];
+                { const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r21)))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; r22 = @intCast(sl); }
+                r23 = @intCast(@intFromPtr(@as([*]const u8, " '")));
+                r24 = 2;
+                r25 = locals[3];
+                r26 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r25))))))[1];
+                { const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r26)))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; r27 = @intCast(sl); }
+                r28 = @intCast(@intFromPtr(@as([*]const u8, "'")));
+                r29 = 1;
+                r31 = @intCast(@intFromPtr(@as([*]const u8, "Parse error at pos ")));
+                r32 = 19;
+                r33 = locals[3];
+                r34 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r33))))))[2];
+                r35 = -1;
+                r36 = @intCast(@intFromPtr(@as([*]const u8, ": expected ")));
+                r37 = 11;
+                r38 = locals[2];
+                r39 = locals[4];
+                r40 = @intCast(@intFromPtr(@as([*]const u8, " but got ")));
+                r41 = 9;
+                r42 = locals[3];
+                r43 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r42))))))[0];
+                { const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r43)))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; r44 = @intCast(sl); }
                 r45 = -1;
-                r46 = @intCast(@intFromPtr(@as([*]const u8, "'")));
-                r47 = 1;
-                if (r28 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r27}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r27))))), r28); }
-                if (r31 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r30}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r30))))), r31); }
-                if (r33 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r32}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r32))))), r33); }
+                r46 = @intCast(@intFromPtr(@as([*]const u8, " '")));
+                r47 = 2;
+                r48 = locals[3];
+                r49 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r48))))))[1];
+                { const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r49)))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; r50 = @intCast(sl); }
+                r51 = -1;
+                r52 = @intCast(@intFromPtr(@as([*]const u8, "'")));
+                r53 = 1;
+                if (r32 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r31}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r31))))), r32); }
                 if (r35 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r34}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r34))))), r35); }
                 if (r37 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r36}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r36))))), r37); }
-                if (r40 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r39}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r39))))), r40); }
-                if (r42 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r41}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r41))))), r42); }
-                if (r45 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r44}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r44))))), r45); }
+                if (r39 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r38}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r38))))), r39); }
+                if (r41 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r40}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r40))))), r41); }
+                if (r45 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r43}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r43))))), r45); }
                 if (r47 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r46}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r46))))), r47); }
+                if (r51 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r49}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r49))))), r51); }
+                if (r53 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r52}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r52))))), r53); }
                 verve_write(1, "\n", 1);
-                r26 = 0;
-                r48 = locals[1];
-                return r48;
+                r30 = 0;
+                r54 = locals[1];
+                return r54;
             },
             2 => {
                 block = 3;
             },
             3 => {
-                r49 = locals[1];
-                r50 = 1;
-                r51 = r49 +% r50;
-                return r51;
+                r55 = locals[1];
+                r56 = 1;
+                r57 = r55 +% r56;
+                return r57;
             },
             else => break,
         }
@@ -3074,6 +3092,18 @@ fn verve_Parser_expect_kw(param_tokens: i64, param_pos: i64, param_word: i64) i6
     _ = &r76;
     var r77: i64 = 0;
     _ = &r77;
+    var r78: i64 = 0;
+    _ = &r78;
+    var r79: i64 = 0;
+    _ = &r79;
+    var r80: i64 = 0;
+    _ = &r80;
+    var r81: i64 = 0;
+    _ = &r81;
+    var r82: i64 = 0;
+    _ = &r82;
+    var r83: i64 = 0;
+    _ = &r83;
     var locals: [256]i64 = undefined;
     _ = &locals;
     locals[0] = param_tokens;
@@ -3090,10 +3120,10 @@ fn verve_Parser_expect_kw(param_tokens: i64, param_pos: i64, param_word: i64) i6
                 locals[3] = r2;
                 r3 = locals[3];
                 r4 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r3))))))[0];
-                r5 = @intCast(@intFromPtr(@as([*]const u8, "kw")));
-                r6 = 2;
-                { const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r4)))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; r7 = @intCast(sl); }
-                r8 = if (strEql(@ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r4))))), r7, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r5))))), r6)) @as(i64, 1) else @as(i64, 0);
+                { const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r4)))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; r5 = @intCast(sl); }
+                r6 = @intCast(@intFromPtr(@as([*]const u8, "kw")));
+                r7 = 2;
+                r8 = if (strEql(@ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r4))))), r5, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r6))))), r7)) @as(i64, 1) else @as(i64, 0);
                 r9 = if (r8 == 0) @as(i64, 1) else @as(i64, 0);
                 block = if (r9 != 0) 1 else 3; continue;
             },
@@ -3110,93 +3140,99 @@ fn verve_Parser_expect_kw(param_tokens: i64, param_pos: i64, param_word: i64) i6
                 r19 = 10;
                 r20 = locals[3];
                 r21 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r20))))))[0];
-                r23 = @intCast(@intFromPtr(@as([*]const u8, "Parse error at pos ")));
-                r24 = 19;
-                r25 = locals[3];
-                r26 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r25))))))[2];
-                r27 = -1;
-                r28 = @intCast(@intFromPtr(@as([*]const u8, ": expected keyword '")));
-                r29 = 20;
-                r30 = locals[2];
-                r31 = locals[4];
-                r32 = @intCast(@intFromPtr(@as([*]const u8, "' but got ")));
-                r33 = 10;
-                r34 = locals[3];
-                r35 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r34))))))[0];
-                r36 = -1;
-                if (r24 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r23}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r23))))), r24); }
-                if (r27 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r26}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r26))))), r27); }
-                if (r29 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r28}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r28))))), r29); }
-                if (r31 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r30}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r30))))), r31); }
-                if (r33 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r32}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r32))))), r33); }
-                if (r36 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r35}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r35))))), r36); }
+                { const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r21)))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; r22 = @intCast(sl); }
+                r24 = @intCast(@intFromPtr(@as([*]const u8, "Parse error at pos ")));
+                r25 = 19;
+                r26 = locals[3];
+                r27 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r26))))))[2];
+                r28 = -1;
+                r29 = @intCast(@intFromPtr(@as([*]const u8, ": expected keyword '")));
+                r30 = 20;
+                r31 = locals[2];
+                r32 = locals[4];
+                r33 = @intCast(@intFromPtr(@as([*]const u8, "' but got ")));
+                r34 = 10;
+                r35 = locals[3];
+                r36 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r35))))))[0];
+                { const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r36)))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; r37 = @intCast(sl); }
+                r38 = -1;
+                if (r25 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r24}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r24))))), r25); }
+                if (r28 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r27}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r27))))), r28); }
+                if (r30 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r29}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r29))))), r30); }
+                if (r32 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r31}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r31))))), r32); }
+                if (r34 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r33}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r33))))), r34); }
+                if (r38 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r36}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r36))))), r38); }
                 verve_write(1, "\n", 1);
-                r22 = 0;
-                r37 = locals[1];
-                return r37;
+                r23 = 0;
+                r39 = locals[1];
+                return r39;
             },
             2 => {
                 block = 3;
             },
             3 => {
-                r38 = locals[3];
-                r39 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r38))))))[1];
-                r40 = locals[2];
-                r41 = locals[4];
-                r42 = if (r39 != r40) @as(i64, 1) else @as(i64, 0);
-                block = if (r42 != 0) 4 else 6; continue;
+                r40 = locals[3];
+                r41 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r40))))))[1];
+                { const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r41)))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; r42 = @intCast(sl); }
+                r43 = locals[2];
+                r44 = locals[4];
+                r45 = if (strEql(@ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r41))))), r42, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r43))))), r44)) @as(i64, 1) else @as(i64, 0);
+                r46 = if (r45 == 0) @as(i64, 1) else @as(i64, 0);
+                block = if (r46 != 0) 4 else 6; continue;
             },
             4 => {
-                r43 = @intCast(@intFromPtr(@as([*]const u8, "Parse error at pos ")));
-                r44 = 19;
-                r45 = locals[3];
-                r46 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r45))))))[2];
-                r47 = @intCast(@intFromPtr(@as([*]const u8, ": expected '")));
-                r48 = 12;
-                r49 = locals[2];
-                r50 = locals[4];
-                r51 = @intCast(@intFromPtr(@as([*]const u8, "' but got '")));
-                r52 = 11;
-                r53 = locals[3];
-                r54 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r53))))))[1];
-                r55 = @intCast(@intFromPtr(@as([*]const u8, "'")));
-                r56 = 1;
-                r58 = @intCast(@intFromPtr(@as([*]const u8, "Parse error at pos ")));
-                r59 = 19;
-                r60 = locals[3];
-                r61 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r60))))))[2];
-                r62 = -1;
-                r63 = @intCast(@intFromPtr(@as([*]const u8, ": expected '")));
-                r64 = 12;
-                r65 = locals[2];
-                r66 = locals[4];
-                r67 = @intCast(@intFromPtr(@as([*]const u8, "' but got '")));
-                r68 = 11;
-                r69 = locals[3];
-                r70 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r69))))))[1];
-                r71 = -1;
-                r72 = @intCast(@intFromPtr(@as([*]const u8, "'")));
-                r73 = 1;
-                if (r59 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r58}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r58))))), r59); }
-                if (r62 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r61}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r61))))), r62); }
+                r47 = @intCast(@intFromPtr(@as([*]const u8, "Parse error at pos ")));
+                r48 = 19;
+                r49 = locals[3];
+                r50 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r49))))))[2];
+                r51 = @intCast(@intFromPtr(@as([*]const u8, ": expected '")));
+                r52 = 12;
+                r53 = locals[2];
+                r54 = locals[4];
+                r55 = @intCast(@intFromPtr(@as([*]const u8, "' but got '")));
+                r56 = 11;
+                r57 = locals[3];
+                r58 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r57))))))[1];
+                { const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r58)))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; r59 = @intCast(sl); }
+                r60 = @intCast(@intFromPtr(@as([*]const u8, "'")));
+                r61 = 1;
+                r63 = @intCast(@intFromPtr(@as([*]const u8, "Parse error at pos ")));
+                r64 = 19;
+                r65 = locals[3];
+                r66 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r65))))))[2];
+                r67 = -1;
+                r68 = @intCast(@intFromPtr(@as([*]const u8, ": expected '")));
+                r69 = 12;
+                r70 = locals[2];
+                r71 = locals[4];
+                r72 = @intCast(@intFromPtr(@as([*]const u8, "' but got '")));
+                r73 = 11;
+                r74 = locals[3];
+                r75 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r74))))))[1];
+                { const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r75)))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; r76 = @intCast(sl); }
+                r77 = -1;
+                r78 = @intCast(@intFromPtr(@as([*]const u8, "'")));
+                r79 = 1;
                 if (r64 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r63}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r63))))), r64); }
-                if (r66 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r65}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r65))))), r66); }
-                if (r68 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r67}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r67))))), r68); }
+                if (r67 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r66}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r66))))), r67); }
+                if (r69 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r68}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r68))))), r69); }
                 if (r71 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r70}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r70))))), r71); }
                 if (r73 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r72}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r72))))), r73); }
+                if (r77 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r75}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r75))))), r77); }
+                if (r79 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r78}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r78))))), r79); }
                 verve_write(1, "\n", 1);
-                r57 = 0;
-                r74 = locals[1];
-                return r74;
+                r62 = 0;
+                r80 = locals[1];
+                return r80;
             },
             5 => {
                 block = 6;
             },
             6 => {
-                r75 = locals[1];
-                r76 = 1;
-                r77 = r75 +% r76;
-                return r77;
+                r81 = locals[1];
+                r82 = 1;
+                r83 = r81 +% r82;
+                return r83;
             },
             else => break,
         }
@@ -3213,6 +3249,8 @@ fn verve_Parser_is_kind(param_tokens: i64, param_pos: i64, param_kind: i64) i64 
     _ = &r2;
     var r3: i64 = 0;
     _ = &r3;
+    var r4: i64 = 0;
+    _ = &r4;
     var locals: [256]i64 = undefined;
     _ = &locals;
     locals[0] = param_tokens;
@@ -3226,8 +3264,9 @@ fn verve_Parser_is_kind(param_tokens: i64, param_pos: i64, param_kind: i64) i64 
                 r0 = 0;
                 r1 = locals[2];
                 r2 = locals[3];
-                r3 = if (r0 == r1) @as(i64, 1) else @as(i64, 0);
-                return r3;
+                { const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r0)))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; r3 = @intCast(sl); }
+                r4 = if (strEql(@ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r0))))), r3, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r1))))), r2)) @as(i64, 1) else @as(i64, 0);
+                return r4;
             },
             else => break,
         }
@@ -3268,6 +3307,8 @@ fn verve_Parser_is_kw(param_tokens: i64, param_pos: i64, param_word: i64) i64 {
     _ = &r14;
     var r15: i64 = 0;
     _ = &r15;
+    var r16: i64 = 0;
+    _ = &r16;
     var locals: [256]i64 = undefined;
     _ = &locals;
     locals[0] = param_tokens;
@@ -3284,10 +3325,10 @@ fn verve_Parser_is_kw(param_tokens: i64, param_pos: i64, param_word: i64) i64 {
                 locals[3] = r2;
                 r3 = locals[3];
                 r4 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r3))))))[0];
-                r5 = @intCast(@intFromPtr(@as([*]const u8, "kw")));
-                r6 = 2;
-                { const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r4)))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; r7 = @intCast(sl); }
-                r8 = if (strEql(@ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r4))))), r7, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r5))))), r6)) @as(i64, 1) else @as(i64, 0);
+                { const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r4)))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; r5 = @intCast(sl); }
+                r6 = @intCast(@intFromPtr(@as([*]const u8, "kw")));
+                r7 = 2;
+                r8 = if (strEql(@ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r4))))), r5, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r6))))), r7)) @as(i64, 1) else @as(i64, 0);
                 r9 = if (r8 == 0) @as(i64, 1) else @as(i64, 0);
                 block = if (r9 != 0) 1 else 3; continue;
             },
@@ -3301,10 +3342,11 @@ fn verve_Parser_is_kw(param_tokens: i64, param_pos: i64, param_word: i64) i64 {
             3 => {
                 r11 = locals[3];
                 r12 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r11))))))[1];
-                r13 = locals[2];
-                r14 = locals[4];
-                r15 = if (r12 == r13) @as(i64, 1) else @as(i64, 0);
-                return r15;
+                { const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r12)))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; r13 = @intCast(sl); }
+                r14 = locals[2];
+                r15 = locals[4];
+                r16 = if (strEql(@ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r12))))), r13, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r14))))), r15)) @as(i64, 1) else @as(i64, 0);
+                return r16;
             },
             else => break,
         }
@@ -3655,6 +3697,18 @@ fn verve_Parser_parse_file(param_tokens: i64) i64 {
     _ = &r169;
     var r170: i64 = 0;
     _ = &r170;
+    var r171: i64 = 0;
+    _ = &r171;
+    var r172: i64 = 0;
+    _ = &r172;
+    var r173: i64 = 0;
+    _ = &r173;
+    var r174: i64 = 0;
+    _ = &r174;
+    var r175: i64 = 0;
+    _ = &r175;
+    var r176: i64 = 0;
+    _ = &r176;
     var locals: [256]i64 = undefined;
     _ = &locals;
     locals[0] = param_tokens;
@@ -3684,15 +3738,15 @@ fn verve_Parser_parse_file(param_tokens: i64) i64 {
                 locals[3] = r8;
                 r9 = locals[3];
                 r10 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r9))))))[0];
-                r11 = @intCast(@intFromPtr(@as([*]const u8, "doc")));
-                r12 = 3;
-                { const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r10)))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; r13 = @intCast(sl); }
-                r14 = if (strEql(@ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r10))))), r13, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r11))))), r12)) @as(i64, 1) else @as(i64, 0);
+                { const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r10)))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; r11 = @intCast(sl); }
+                r12 = @intCast(@intFromPtr(@as([*]const u8, "doc")));
+                r13 = 3;
+                r14 = if (strEql(@ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r10))))), r11, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r12))))), r13)) @as(i64, 1) else @as(i64, 0);
                 block = if (r14 != 0) 4 else 6; continue;
             },
             3 => {
-                r170 = locals[1];
-                return r170;
+                r176 = locals[1];
+                return r176;
             },
             4 => {
                 r15 = locals[2];
@@ -3750,12 +3804,12 @@ fn verve_Parser_parse_file(param_tokens: i64) i64 {
                 block = if (r41 != 0) 13 else 15; continue;
             },
             11 => {
-                r55 = locals[0];
-                r56 = locals[2];
-                r57 = @intCast(@intFromPtr(@as([*]const u8, "struct")));
-                r58 = 6;
-                r59 = verve_Parser_is_kw(r55, r56, r57);
-                block = if (r59 != 0) 16 else 17; continue;
+                r57 = locals[0];
+                r58 = locals[2];
+                r59 = @intCast(@intFromPtr(@as([*]const u8, "struct")));
+                r60 = 6;
+                r61 = verve_Parser_is_kw(r57, r58, r59);
+                block = if (r61 != 0) 16 else 17; continue;
             },
             12 => {
                 block = 1; continue;
@@ -3765,185 +3819,191 @@ fn verve_Parser_parse_file(param_tokens: i64) i64 {
                 r43 = 15;
                 r44 = locals[6];
                 r45 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r44))))))[1];
-                r46 = locals[6];
-                r47 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r46))))))[2];
-                r48 = locals[6];
-                r49 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r48))))))[3];
-                r50 = verve_Parser_node_with(r42, r45, r47, r49);
-                locals[6] = r50;
+                { const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r45)))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; r46 = @intCast(sl); }
+                r47 = locals[6];
+                r48 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r47))))))[2];
+                { const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r48)))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; r49 = @intCast(sl); }
+                r50 = locals[6];
+                r51 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r50))))))[3];
+                r52 = verve_Parser_node_with(r42, r45, r48, r51);
+                locals[6] = r52;
                 block = 15; continue;
             },
             14 => {
                 block = 15;
             },
             15 => {
-                r51 = locals[1];
-                r52 = locals[6];
-                @as(*List, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r51)))))).append(r52);
-                r53 = locals[5];
-                r54 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r53))))))[0];
-                locals[2] = r54;
+                r53 = locals[1];
+                r54 = locals[6];
+                @as(*List, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r53)))))).append(r54);
+                r55 = locals[5];
+                r56 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r55))))))[0];
+                locals[2] = r56;
                 block = 12; continue;
             },
             16 => {
-                r60 = locals[2];
-                r61 = 1;
-                r62 = r60 +% r61;
-                locals[2] = r62;
-                r63 = 0;
-                locals[7] = r63;
-                r64 = locals[2];
-                r65 = 1;
-                r66 = r64 +% r65;
-                locals[2] = r66;
-                r67 = locals[0];
-                r68 = locals[2];
-                r69 = @intCast(@intFromPtr(@as([*]const u8, "lbrace")));
-                r70 = 6;
-                r71 = verve_Parser_expect_kind(r67, r68, r69);
-                locals[2] = r71;
-                var list_72 = List.init();
-                r72 = @intCast(@intFromPtr(&list_72));
-                locals[8] = r72;
+                r62 = locals[2];
+                r63 = 1;
+                r64 = r62 +% r63;
+                locals[2] = r64;
+                r65 = 0;
+                locals[7] = r65;
+                r66 = locals[2];
+                r67 = 1;
+                r68 = r66 +% r67;
+                locals[2] = r68;
+                r69 = locals[0];
+                r70 = locals[2];
+                r71 = @intCast(@intFromPtr(@as([*]const u8, "lbrace")));
+                r72 = 6;
+                r73 = verve_Parser_expect_kind(r69, r70, r71);
+                locals[2] = r73;
+                var list_74 = List.init();
+                r74 = @intCast(@intFromPtr(&list_74));
+                locals[8] = r74;
                 block = 19; continue;
             },
             17 => {
-                r119 = locals[0];
-                r120 = locals[2];
-                r121 = @intCast(@intFromPtr(@as([*]const u8, "import")));
-                r122 = 6;
-                r123 = verve_Parser_is_kw(r119, r120, r121);
-                block = if (r123 != 0) 22 else 23; continue;
+                r121 = locals[0];
+                r122 = locals[2];
+                r123 = @intCast(@intFromPtr(@as([*]const u8, "import")));
+                r124 = 6;
+                r125 = verve_Parser_is_kw(r121, r122, r123);
+                block = if (r125 != 0) 22 else 23; continue;
             },
             18 => {
                 block = 12; continue;
             },
             19 => {
-                r73 = locals[0];
-                r74 = locals[2];
-                r75 = @intCast(@intFromPtr(@as([*]const u8, "rbrace")));
-                r76 = 6;
-                r77 = verve_Parser_is_kind(r73, r74, r75);
-                r78 = if (r77 == 0) @as(i64, 1) else @as(i64, 0);
-                block = if (r78 != 0) 20 else 21; continue;
+                r75 = locals[0];
+                r76 = locals[2];
+                r77 = @intCast(@intFromPtr(@as([*]const u8, "rbrace")));
+                r78 = 6;
+                r79 = verve_Parser_is_kind(r75, r76, r77);
+                r80 = if (r79 == 0) @as(i64, 1) else @as(i64, 0);
+                block = if (r80 != 0) 20 else 21; continue;
             },
             20 => {
-                r79 = 0;
-                locals[9] = r79;
-                r80 = locals[2];
-                r81 = 1;
-                r82 = r80 +% r81;
-                locals[2] = r82;
-                r83 = locals[0];
-                r84 = locals[2];
-                r85 = @intCast(@intFromPtr(@as([*]const u8, "colon")));
-                r86 = 5;
-                r87 = verve_Parser_expect_kind(r83, r84, r85);
-                locals[2] = r87;
-                r88 = 0;
-                locals[10] = r88;
-                r89 = locals[2];
-                r90 = 1;
-                r91 = r89 +% r90;
-                locals[2] = r91;
-                r92 = locals[0];
-                r93 = locals[2];
-                r94 = @intCast(@intFromPtr(@as([*]const u8, "semi")));
-                r95 = 4;
-                r96 = verve_Parser_expect_kind(r92, r93, r94);
-                locals[2] = r96;
-                r97 = locals[8];
-                r98 = @intCast(@intFromPtr(@as([*]const u8, "field")));
-                r99 = 5;
-                r100 = locals[9];
-                r101 = locals[11];
-                r102 = locals[10];
-                r103 = locals[12];
-                r104 = verve_Parser_node(r98, r100, r102);
-                @as(*List, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r97)))))).append(r104);
+                r81 = 0;
+                locals[9] = r81;
+                r82 = locals[2];
+                r83 = 1;
+                r84 = r82 +% r83;
+                locals[2] = r84;
+                r85 = locals[0];
+                r86 = locals[2];
+                r87 = @intCast(@intFromPtr(@as([*]const u8, "colon")));
+                r88 = 5;
+                r89 = verve_Parser_expect_kind(r85, r86, r87);
+                locals[2] = r89;
+                r90 = 0;
+                locals[10] = r90;
+                r91 = locals[2];
+                r92 = 1;
+                r93 = r91 +% r92;
+                locals[2] = r93;
+                r94 = locals[0];
+                r95 = locals[2];
+                r96 = @intCast(@intFromPtr(@as([*]const u8, "semi")));
+                r97 = 4;
+                r98 = verve_Parser_expect_kind(r94, r95, r96);
+                locals[2] = r98;
+                r99 = locals[8];
+                r100 = @intCast(@intFromPtr(@as([*]const u8, "field")));
+                r101 = 5;
+                r102 = locals[9];
+                r103 = locals[11];
+                r104 = locals[10];
+                r105 = locals[12];
+                r106 = verve_Parser_node(r100, r102, r104);
+                @as(*List, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r99)))))).append(r106);
                 block = 19; continue;
             },
             21 => {
-                r105 = locals[0];
-                r106 = locals[2];
-                r107 = @intCast(@intFromPtr(@as([*]const u8, "rbrace")));
-                r108 = 6;
-                r109 = verve_Parser_expect_kind(r105, r106, r107);
-                locals[2] = r109;
-                r110 = locals[1];
-                r111 = @intCast(@intFromPtr(@as([*]const u8, "struct")));
-                r112 = 6;
-                r113 = locals[7];
-                r114 = locals[13];
-                r115 = @intCast(@intFromPtr(@as([*]const u8, "")));
-                r116 = 0;
-                r117 = locals[8];
-                r118 = verve_Parser_node_with(r111, r113, r115, r117);
-                @as(*List, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r110)))))).append(r118);
+                r107 = locals[0];
+                r108 = locals[2];
+                r109 = @intCast(@intFromPtr(@as([*]const u8, "rbrace")));
+                r110 = 6;
+                r111 = verve_Parser_expect_kind(r107, r108, r109);
+                locals[2] = r111;
+                r112 = locals[1];
+                r113 = @intCast(@intFromPtr(@as([*]const u8, "struct")));
+                r114 = 6;
+                r115 = locals[7];
+                r116 = locals[13];
+                r117 = @intCast(@intFromPtr(@as([*]const u8, "")));
+                r118 = 0;
+                r119 = locals[8];
+                r120 = verve_Parser_node_with(r113, r115, r117, r119);
+                @as(*List, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r112)))))).append(r120);
                 block = 18; continue;
             },
             22 => {
-                r124 = locals[2];
-                r125 = 1;
-                r126 = r124 +% r125;
-                locals[2] = r126;
-                r127 = 0;
-                locals[14] = r127;
-                r128 = locals[2];
-                r129 = 1;
-                r130 = r128 +% r129;
-                locals[2] = r130;
-                r131 = locals[0];
-                r132 = locals[2];
-                r133 = @intCast(@intFromPtr(@as([*]const u8, "semi")));
-                r134 = 4;
-                r135 = verve_Parser_expect_kind(r131, r132, r133);
-                locals[2] = r135;
-                r136 = locals[1];
-                r137 = @intCast(@intFromPtr(@as([*]const u8, "import")));
-                r138 = 6;
-                r139 = locals[14];
-                r140 = locals[15];
-                r141 = @intCast(@intFromPtr(@as([*]const u8, "")));
-                r142 = 0;
-                r143 = verve_Parser_node(r137, r139, r141);
-                @as(*List, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r136)))))).append(r143);
+                r126 = locals[2];
+                r127 = 1;
+                r128 = r126 +% r127;
+                locals[2] = r128;
+                r129 = 0;
+                locals[14] = r129;
+                r130 = locals[2];
+                r131 = 1;
+                r132 = r130 +% r131;
+                locals[2] = r132;
+                r133 = locals[0];
+                r134 = locals[2];
+                r135 = @intCast(@intFromPtr(@as([*]const u8, "semi")));
+                r136 = 4;
+                r137 = verve_Parser_expect_kind(r133, r134, r135);
+                locals[2] = r137;
+                r138 = locals[1];
+                r139 = @intCast(@intFromPtr(@as([*]const u8, "import")));
+                r140 = 6;
+                r141 = locals[14];
+                r142 = locals[15];
+                r143 = @intCast(@intFromPtr(@as([*]const u8, "")));
+                r144 = 0;
+                r145 = verve_Parser_node(r139, r141, r143);
+                @as(*List, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r138)))))).append(r145);
                 block = 24; continue;
             },
             23 => {
-                r144 = @intCast(@intFromPtr(@as([*]const u8, "Unexpected token: ")));
-                r145 = 18;
-                r146 = locals[3];
-                r147 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r146))))))[0];
-                r148 = @intCast(@intFromPtr(@as([*]const u8, " '")));
-                r149 = 2;
-                r150 = locals[3];
-                r151 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r150))))))[1];
-                r152 = @intCast(@intFromPtr(@as([*]const u8, "'")));
-                r153 = 1;
-                r155 = @intCast(@intFromPtr(@as([*]const u8, "Unexpected token: ")));
-                r156 = 18;
-                r157 = locals[3];
-                r158 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r157))))))[0];
-                r159 = -1;
-                r160 = @intCast(@intFromPtr(@as([*]const u8, " '")));
-                r161 = 2;
-                r162 = locals[3];
-                r163 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r162))))))[1];
+                r146 = @intCast(@intFromPtr(@as([*]const u8, "Unexpected token: ")));
+                r147 = 18;
+                r148 = locals[3];
+                r149 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r148))))))[0];
+                { const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r149)))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; r150 = @intCast(sl); }
+                r151 = @intCast(@intFromPtr(@as([*]const u8, " '")));
+                r152 = 2;
+                r153 = locals[3];
+                r154 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r153))))))[1];
+                { const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r154)))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; r155 = @intCast(sl); }
+                r156 = @intCast(@intFromPtr(@as([*]const u8, "'")));
+                r157 = 1;
+                r159 = @intCast(@intFromPtr(@as([*]const u8, "Unexpected token: ")));
+                r160 = 18;
+                r161 = locals[3];
+                r162 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r161))))))[0];
+                { const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r162)))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; r163 = @intCast(sl); }
                 r164 = -1;
-                r165 = @intCast(@intFromPtr(@as([*]const u8, "'")));
-                r166 = 1;
-                if (r156 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r155}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r155))))), r156); }
-                if (r159 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r158}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r158))))), r159); }
-                if (r161 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r160}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r160))))), r161); }
-                if (r164 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r163}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r163))))), r164); }
+                r165 = @intCast(@intFromPtr(@as([*]const u8, " '")));
+                r166 = 2;
+                r167 = locals[3];
+                r168 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r167))))))[1];
+                { const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r168)))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; r169 = @intCast(sl); }
+                r170 = -1;
+                r171 = @intCast(@intFromPtr(@as([*]const u8, "'")));
+                r172 = 1;
+                if (r160 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r159}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r159))))), r160); }
+                if (r164 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r162}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r162))))), r164); }
                 if (r166 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r165}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r165))))), r166); }
+                if (r170 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r168}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r168))))), r170); }
+                if (r172 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r171}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r171))))), r172); }
                 verve_write(1, "\n", 1);
-                r154 = 0;
-                r167 = locals[2];
-                r168 = 1;
-                r169 = r167 +% r168;
-                locals[2] = r169;
+                r158 = 0;
+                r173 = locals[2];
+                r174 = 1;
+                r175 = r173 +% r174;
+                locals[2] = r175;
                 block = 24; continue;
             },
             24 => {
@@ -5976,6 +6036,74 @@ fn verve_Printer_print_node(param_n: i64, param_depth: i64) i64 {
     _ = &r297;
     var r298: i64 = 0;
     _ = &r298;
+    var r299: i64 = 0;
+    _ = &r299;
+    var r300: i64 = 0;
+    _ = &r300;
+    var r301: i64 = 0;
+    _ = &r301;
+    var r302: i64 = 0;
+    _ = &r302;
+    var r303: i64 = 0;
+    _ = &r303;
+    var r304: i64 = 0;
+    _ = &r304;
+    var r305: i64 = 0;
+    _ = &r305;
+    var r306: i64 = 0;
+    _ = &r306;
+    var r307: i64 = 0;
+    _ = &r307;
+    var r308: i64 = 0;
+    _ = &r308;
+    var r309: i64 = 0;
+    _ = &r309;
+    var r310: i64 = 0;
+    _ = &r310;
+    var r311: i64 = 0;
+    _ = &r311;
+    var r312: i64 = 0;
+    _ = &r312;
+    var r313: i64 = 0;
+    _ = &r313;
+    var r314: i64 = 0;
+    _ = &r314;
+    var r315: i64 = 0;
+    _ = &r315;
+    var r316: i64 = 0;
+    _ = &r316;
+    var r317: i64 = 0;
+    _ = &r317;
+    var r318: i64 = 0;
+    _ = &r318;
+    var r319: i64 = 0;
+    _ = &r319;
+    var r320: i64 = 0;
+    _ = &r320;
+    var r321: i64 = 0;
+    _ = &r321;
+    var r322: i64 = 0;
+    _ = &r322;
+    var r323: i64 = 0;
+    _ = &r323;
+    var r324: i64 = 0;
+    _ = &r324;
+    var r325: i64 = 0;
+    _ = &r325;
+    var r326: i64 = 0;
+    _ = &r326;
+    var r327: i64 = 0;
+    _ = &r327;
+    var r328: i64 = 0;
+    _ = &r328;
+    var r329: i64 = 0;
+    _ = &r329;
+    var r330: i64 = 0;
+    _ = &r330;
+    var r331: i64 = 0;
+    _ = &r331;
+    var r332: i64 = 0;
+    _ = &r332;
     var locals: [256]i64 = undefined;
     _ = &locals;
     locals[0] = param_n;
@@ -6015,10 +6143,10 @@ fn verve_Printer_print_node(param_n: i64, param_depth: i64) i64 {
             3 => {
                 r14 = locals[0];
                 r15 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r14))))))[0];
-                r16 = @intCast(@intFromPtr(@as([*]const u8, "module")));
-                r17 = 6;
-                { const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r15)))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; r18 = @intCast(sl); }
-                r19 = if (strEql(@ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r15))))), r18, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r16))))), r17)) @as(i64, 1) else @as(i64, 0);
+                { const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r15)))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; r16 = @intCast(sl); }
+                r17 = @intCast(@intFromPtr(@as([*]const u8, "module")));
+                r18 = 6;
+                r19 = if (strEql(@ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r15))))), r16, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r17))))), r18)) @as(i64, 1) else @as(i64, 0);
                 block = if (r19 != 0) 4 else 5; continue;
             },
             4 => {
@@ -6028,450 +6156,484 @@ fn verve_Printer_print_node(param_n: i64, param_depth: i64) i64 {
                 r23 = 7;
                 r24 = locals[0];
                 r25 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r24))))))[1];
-                r27 = locals[2];
-                r28 = locals[3];
-                r29 = @intCast(@intFromPtr(@as([*]const u8, "module ")));
-                r30 = 7;
-                r31 = locals[0];
-                r32 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r31))))))[1];
-                r33 = -1;
-                if (r28 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r27}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r27))))), r28); }
-                if (r30 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r29}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r29))))), r30); }
-                if (r33 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r32}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r32))))), r33); }
+                { const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r25)))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; r26 = @intCast(sl); }
+                r28 = locals[2];
+                r29 = locals[3];
+                r30 = @intCast(@intFromPtr(@as([*]const u8, "module ")));
+                r31 = 7;
+                r32 = locals[0];
+                r33 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r32))))))[1];
+                { const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r33)))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; r34 = @intCast(sl); }
+                r35 = -1;
+                if (r29 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r28}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r28))))), r29); }
+                if (r31 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r30}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r30))))), r31); }
+                if (r35 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r33}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r33))))), r35); }
                 verve_write(1, "\n", 1);
-                r26 = 0;
+                r27 = 0;
                 block = 6; continue;
             },
             5 => {
-                r34 = locals[0];
-                r35 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r34))))))[0];
-                r36 = @intCast(@intFromPtr(@as([*]const u8, "module_exported")));
-                r37 = 15;
-                { const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r35)))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; r38 = @intCast(sl); }
-                r39 = if (strEql(@ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r35))))), r38, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r36))))), r37)) @as(i64, 1) else @as(i64, 0);
-                block = if (r39 != 0) 7 else 8; continue;
+                r36 = locals[0];
+                r37 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r36))))))[0];
+                { const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r37)))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; r38 = @intCast(sl); }
+                r39 = @intCast(@intFromPtr(@as([*]const u8, "module_exported")));
+                r40 = 15;
+                r41 = if (strEql(@ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r37))))), r38, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r39))))), r40)) @as(i64, 1) else @as(i64, 0);
+                block = if (r41 != 0) 7 else 8; continue;
             },
             6 => {
-                r276 = 0;
-                locals[5] = r276;
+                r310 = 0;
+                locals[5] = r310;
                 block = 37; continue;
             },
             7 => {
-                r40 = locals[2];
-                r41 = locals[3];
-                r42 = @intCast(@intFromPtr(@as([*]const u8, "export module ")));
-                r43 = 14;
-                r44 = locals[0];
-                r45 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r44))))))[1];
-                r47 = locals[2];
-                r48 = locals[3];
-                r49 = @intCast(@intFromPtr(@as([*]const u8, "export module ")));
-                r50 = 14;
-                r51 = locals[0];
-                r52 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r51))))))[1];
-                r53 = -1;
-                if (r48 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r47}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r47))))), r48); }
-                if (r50 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r49}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r49))))), r50); }
+                r42 = locals[2];
+                r43 = locals[3];
+                r44 = @intCast(@intFromPtr(@as([*]const u8, "export module ")));
+                r45 = 14;
+                r46 = locals[0];
+                r47 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r46))))))[1];
+                { const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r47)))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; r48 = @intCast(sl); }
+                r50 = locals[2];
+                r51 = locals[3];
+                r52 = @intCast(@intFromPtr(@as([*]const u8, "export module ")));
+                r53 = 14;
+                r54 = locals[0];
+                r55 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r54))))))[1];
+                { const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r55)))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; r56 = @intCast(sl); }
+                r57 = -1;
+                if (r51 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r50}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r50))))), r51); }
                 if (r53 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r52}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r52))))), r53); }
+                if (r57 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r55}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r55))))), r57); }
                 verve_write(1, "\n", 1);
-                r46 = 0;
+                r49 = 0;
                 block = 9; continue;
             },
             8 => {
-                r54 = locals[0];
-                r55 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r54))))))[0];
-                r56 = @intCast(@intFromPtr(@as([*]const u8, "fn")));
-                r57 = 2;
-                { const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r55)))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; r58 = @intCast(sl); }
-                r59 = if (strEql(@ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r55))))), r58, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r56))))), r57)) @as(i64, 1) else @as(i64, 0);
-                block = if (r59 != 0) 10 else 11; continue;
+                r58 = locals[0];
+                r59 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r58))))))[0];
+                { const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r59)))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; r60 = @intCast(sl); }
+                r61 = @intCast(@intFromPtr(@as([*]const u8, "fn")));
+                r62 = 2;
+                r63 = if (strEql(@ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r59))))), r60, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r61))))), r62)) @as(i64, 1) else @as(i64, 0);
+                block = if (r63 != 0) 10 else 11; continue;
             },
             9 => {
                 block = 6; continue;
             },
             10 => {
-                r60 = locals[2];
-                r61 = locals[3];
-                r62 = @intCast(@intFromPtr(@as([*]const u8, "fn ")));
-                r63 = 3;
-                r64 = locals[0];
-                r65 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r64))))))[1];
-                r66 = @intCast(@intFromPtr(@as([*]const u8, "(")));
-                r67 = 1;
-                r69 = locals[2];
-                r70 = locals[3];
-                r71 = @intCast(@intFromPtr(@as([*]const u8, "fn ")));
-                r72 = 3;
-                r73 = locals[0];
-                r74 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r73))))))[1];
-                r75 = -1;
-                r76 = @intCast(@intFromPtr(@as([*]const u8, "(")));
-                r77 = 1;
-                if (r70 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r69}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r69))))), r70); }
-                if (r72 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r71}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r71))))), r72); }
+                r64 = locals[2];
+                r65 = locals[3];
+                r66 = @intCast(@intFromPtr(@as([*]const u8, "fn ")));
+                r67 = 3;
+                r68 = locals[0];
+                r69 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r68))))))[1];
+                { const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r69)))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; r70 = @intCast(sl); }
+                r71 = @intCast(@intFromPtr(@as([*]const u8, "(")));
+                r72 = 1;
+                r74 = locals[2];
+                r75 = locals[3];
+                r76 = @intCast(@intFromPtr(@as([*]const u8, "fn ")));
+                r77 = 3;
+                r78 = locals[0];
+                r79 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r78))))))[1];
+                { const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r79)))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; r80 = @intCast(sl); }
+                r81 = -1;
+                r82 = @intCast(@intFromPtr(@as([*]const u8, "(")));
+                r83 = 1;
                 if (r75 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r74}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r74))))), r75); }
                 if (r77 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r76}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r76))))), r77); }
-                r68 = 0;
-                r78 = 0;
-                locals[6] = r78;
+                if (r81 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r79}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r79))))), r81); }
+                if (r83 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r82}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r82))))), r83); }
+                r73 = 0;
+                r84 = 0;
+                locals[6] = r84;
                 block = 13; continue;
             },
             11 => {
-                r122 = locals[0];
-                r123 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r122))))))[0];
-                r124 = @intCast(@intFromPtr(@as([*]const u8, "const")));
-                r125 = 5;
-                { const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r123)))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; r126 = @intCast(sl); }
-                r127 = if (strEql(@ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r123))))), r126, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r124))))), r125)) @as(i64, 1) else @as(i64, 0);
-                block = if (r127 != 0) 19 else 20; continue;
+                r134 = locals[0];
+                r135 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r134))))))[0];
+                { const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r135)))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; r136 = @intCast(sl); }
+                r137 = @intCast(@intFromPtr(@as([*]const u8, "const")));
+                r138 = 5;
+                r139 = if (strEql(@ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r135))))), r136, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r137))))), r138)) @as(i64, 1) else @as(i64, 0);
+                block = if (r139 != 0) 19 else 20; continue;
             },
             12 => {
                 block = 9; continue;
             },
             13 => {
-                r79 = locals[6];
-                r80 = 0;
-                r81 = if (r79 < r80) @as(i64, 1) else @as(i64, 0);
-                block = if (r81 != 0) 14 else 15; continue;
+                r85 = locals[6];
+                r86 = 0;
+                r87 = if (r85 < r86) @as(i64, 1) else @as(i64, 0);
+                block = if (r87 != 0) 14 else 15; continue;
             },
             14 => {
-                r82 = locals[0];
-                r83 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r82))))))[3];
-                r84 = locals[6];
-                r85 = @as(*const List, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r83)))))).get(r84);
-                locals[7] = r85;
-                r86 = locals[6];
-                r87 = 0;
-                r88 = if (r86 > r87) @as(i64, 1) else @as(i64, 0);
-                block = if (r88 != 0) 16 else 18; continue;
+                r88 = locals[0];
+                r89 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r88))))))[3];
+                r90 = locals[6];
+                r91 = @as(*const List, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r89)))))).get(r90);
+                locals[7] = r91;
+                r92 = locals[6];
+                r93 = 0;
+                r94 = if (r92 > r93) @as(i64, 1) else @as(i64, 0);
+                block = if (r94 != 0) 16 else 18; continue;
             },
             15 => {
-                r112 = @intCast(@intFromPtr(@as([*]const u8, ") -> ")));
-                r113 = 5;
-                r114 = locals[0];
-                r115 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r114))))))[2];
-                r117 = @intCast(@intFromPtr(@as([*]const u8, ") -> ")));
-                r118 = 5;
-                r119 = locals[0];
-                r120 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r119))))))[2];
-                r121 = -1;
-                if (r118 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r117}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r117))))), r118); }
-                if (r121 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r120}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r120))))), r121); }
+                r122 = @intCast(@intFromPtr(@as([*]const u8, ") -> ")));
+                r123 = 5;
+                r124 = locals[0];
+                r125 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r124))))))[2];
+                { const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r125)))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; r126 = @intCast(sl); }
+                r128 = @intCast(@intFromPtr(@as([*]const u8, ") -> ")));
+                r129 = 5;
+                r130 = locals[0];
+                r131 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r130))))))[2];
+                { const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r131)))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; r132 = @intCast(sl); }
+                r133 = -1;
+                if (r129 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r128}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r128))))), r129); }
+                if (r133 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r131}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r131))))), r133); }
                 verve_write(1, "\n", 1);
-                r116 = 0;
+                r127 = 0;
                 block = 12; continue;
             },
             16 => {
-                r89 = @intCast(@intFromPtr(@as([*]const u8, ", ")));
-                r90 = 2;
-                r92 = @intCast(@intFromPtr(@as([*]const u8, ", ")));
-                r93 = 2;
-                if (r93 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r92}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r92))))), r93); }
-                r91 = 0;
+                r95 = @intCast(@intFromPtr(@as([*]const u8, ", ")));
+                r96 = 2;
+                r98 = @intCast(@intFromPtr(@as([*]const u8, ", ")));
+                r99 = 2;
+                if (r99 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r98}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r98))))), r99); }
+                r97 = 0;
                 block = 18; continue;
             },
             17 => {
                 block = 18;
             },
             18 => {
-                r94 = locals[7];
-                r95 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r94))))))[1];
-                r96 = @intCast(@intFromPtr(@as([*]const u8, ": ")));
-                r97 = 2;
-                r98 = locals[7];
-                r99 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r98))))))[2];
-                r101 = locals[7];
-                r102 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r101))))))[1];
-                r103 = -1;
-                r104 = @intCast(@intFromPtr(@as([*]const u8, ": ")));
-                r105 = 2;
-                r106 = locals[7];
-                r107 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r106))))))[2];
-                r108 = -1;
-                if (r103 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r102}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r102))))), r103); }
-                if (r105 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r104}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r104))))), r105); }
-                if (r108 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r107}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r107))))), r108); }
-                r100 = 0;
-                r109 = locals[6];
-                r110 = 1;
-                r111 = r109 +% r110;
-                locals[6] = r111;
+                r100 = locals[7];
+                r101 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r100))))))[1];
+                { const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r101)))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; r102 = @intCast(sl); }
+                r103 = @intCast(@intFromPtr(@as([*]const u8, ": ")));
+                r104 = 2;
+                r105 = locals[7];
+                r106 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r105))))))[2];
+                { const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r106)))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; r107 = @intCast(sl); }
+                r109 = locals[7];
+                r110 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r109))))))[1];
+                { const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r110)))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; r111 = @intCast(sl); }
+                r112 = -1;
+                r113 = @intCast(@intFromPtr(@as([*]const u8, ": ")));
+                r114 = 2;
+                r115 = locals[7];
+                r116 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r115))))))[2];
+                { const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r116)))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; r117 = @intCast(sl); }
+                r118 = -1;
+                if (r112 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r110}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r110))))), r112); }
+                if (r114 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r113}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r113))))), r114); }
+                if (r118 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r116}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r116))))), r118); }
+                r108 = 0;
+                r119 = locals[6];
+                r120 = 1;
+                r121 = r119 +% r120;
+                locals[6] = r121;
                 block = 13; continue;
             },
             19 => {
-                r128 = locals[2];
-                r129 = locals[3];
-                r130 = locals[0];
-                r131 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r130))))))[1];
-                r132 = @intCast(@intFromPtr(@as([*]const u8, ": ")));
-                r133 = 2;
-                r134 = locals[0];
-                r135 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r134))))))[2];
-                r137 = locals[2];
-                r138 = locals[3];
-                r139 = locals[0];
-                r140 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r139))))))[1];
-                r141 = -1;
-                r142 = @intCast(@intFromPtr(@as([*]const u8, ": ")));
-                r143 = 2;
-                r144 = locals[0];
-                r145 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r144))))))[2];
-                r146 = -1;
-                if (r138 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r137}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r137))))), r138); }
-                if (r141 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r140}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r140))))), r141); }
-                if (r143 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r142}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r142))))), r143); }
-                if (r146 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r145}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r145))))), r146); }
+                r140 = locals[2];
+                r141 = locals[3];
+                r142 = locals[0];
+                r143 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r142))))))[1];
+                { const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r143)))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; r144 = @intCast(sl); }
+                r145 = @intCast(@intFromPtr(@as([*]const u8, ": ")));
+                r146 = 2;
+                r147 = locals[0];
+                r148 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r147))))))[2];
+                { const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r148)))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; r149 = @intCast(sl); }
+                r151 = locals[2];
+                r152 = locals[3];
+                r153 = locals[0];
+                r154 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r153))))))[1];
+                { const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r154)))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; r155 = @intCast(sl); }
+                r156 = -1;
+                r157 = @intCast(@intFromPtr(@as([*]const u8, ": ")));
+                r158 = 2;
+                r159 = locals[0];
+                r160 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r159))))))[2];
+                { const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r160)))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; r161 = @intCast(sl); }
+                r162 = -1;
+                if (r152 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r151}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r151))))), r152); }
+                if (r156 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r154}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r154))))), r156); }
+                if (r158 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r157}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r157))))), r158); }
+                if (r162 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r160}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r160))))), r162); }
                 verve_write(1, "\n", 1);
-                r136 = 0;
+                r150 = 0;
                 block = 21; continue;
             },
             20 => {
-                r147 = locals[0];
-                r148 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r147))))))[0];
-                r149 = @intCast(@intFromPtr(@as([*]const u8, "use")));
-                r150 = 3;
-                { const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r148)))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; r151 = @intCast(sl); }
-                r152 = if (strEql(@ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r148))))), r151, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r149))))), r150)) @as(i64, 1) else @as(i64, 0);
-                block = if (r152 != 0) 22 else 23; continue;
+                r163 = locals[0];
+                r164 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r163))))))[0];
+                { const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r164)))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; r165 = @intCast(sl); }
+                r166 = @intCast(@intFromPtr(@as([*]const u8, "use")));
+                r167 = 3;
+                r168 = if (strEql(@ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r164))))), r165, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r166))))), r167)) @as(i64, 1) else @as(i64, 0);
+                block = if (r168 != 0) 22 else 23; continue;
             },
             21 => {
                 block = 12; continue;
             },
             22 => {
-                r153 = locals[2];
-                r154 = locals[3];
-                r155 = @intCast(@intFromPtr(@as([*]const u8, "use ")));
-                r156 = 4;
-                r157 = locals[0];
-                r158 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r157))))))[1];
-                r160 = locals[2];
-                r161 = locals[3];
-                r162 = @intCast(@intFromPtr(@as([*]const u8, "use ")));
-                r163 = 4;
-                r164 = locals[0];
-                r165 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r164))))))[1];
-                r166 = -1;
-                if (r161 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r160}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r160))))), r161); }
-                if (r163 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r162}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r162))))), r163); }
-                if (r166 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r165}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r165))))), r166); }
+                r169 = locals[2];
+                r170 = locals[3];
+                r171 = @intCast(@intFromPtr(@as([*]const u8, "use ")));
+                r172 = 4;
+                r173 = locals[0];
+                r174 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r173))))))[1];
+                { const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r174)))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; r175 = @intCast(sl); }
+                r177 = locals[2];
+                r178 = locals[3];
+                r179 = @intCast(@intFromPtr(@as([*]const u8, "use ")));
+                r180 = 4;
+                r181 = locals[0];
+                r182 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r181))))))[1];
+                { const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r182)))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; r183 = @intCast(sl); }
+                r184 = -1;
+                if (r178 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r177}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r177))))), r178); }
+                if (r180 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r179}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r179))))), r180); }
+                if (r184 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r182}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r182))))), r184); }
                 verve_write(1, "\n", 1);
-                r159 = 0;
+                r176 = 0;
                 block = 24; continue;
             },
             23 => {
-                r167 = locals[0];
-                r168 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r167))))))[0];
-                r169 = @intCast(@intFromPtr(@as([*]const u8, "struct")));
-                r170 = 6;
-                { const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r168)))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; r171 = @intCast(sl); }
-                r172 = if (strEql(@ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r168))))), r171, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r169))))), r170)) @as(i64, 1) else @as(i64, 0);
-                block = if (r172 != 0) 25 else 26; continue;
+                r185 = locals[0];
+                r186 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r185))))))[0];
+                { const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r186)))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; r187 = @intCast(sl); }
+                r188 = @intCast(@intFromPtr(@as([*]const u8, "struct")));
+                r189 = 6;
+                r190 = if (strEql(@ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r186))))), r187, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r188))))), r189)) @as(i64, 1) else @as(i64, 0);
+                block = if (r190 != 0) 25 else 26; continue;
             },
             24 => {
                 block = 21; continue;
             },
             25 => {
-                r173 = locals[2];
-                r174 = locals[3];
-                r175 = @intCast(@intFromPtr(@as([*]const u8, "struct ")));
-                r176 = 7;
-                r177 = locals[0];
-                r178 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r177))))))[1];
-                r180 = locals[2];
-                r181 = locals[3];
-                r182 = @intCast(@intFromPtr(@as([*]const u8, "struct ")));
-                r183 = 7;
-                r184 = locals[0];
-                r185 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r184))))))[1];
-                r186 = -1;
-                if (r181 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r180}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r180))))), r181); }
-                if (r183 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r182}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r182))))), r183); }
-                if (r186 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r185}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r185))))), r186); }
+                r191 = locals[2];
+                r192 = locals[3];
+                r193 = @intCast(@intFromPtr(@as([*]const u8, "struct ")));
+                r194 = 7;
+                r195 = locals[0];
+                r196 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r195))))))[1];
+                { const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r196)))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; r197 = @intCast(sl); }
+                r199 = locals[2];
+                r200 = locals[3];
+                r201 = @intCast(@intFromPtr(@as([*]const u8, "struct ")));
+                r202 = 7;
+                r203 = locals[0];
+                r204 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r203))))))[1];
+                { const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r204)))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; r205 = @intCast(sl); }
+                r206 = -1;
+                if (r200 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r199}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r199))))), r200); }
+                if (r202 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r201}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r201))))), r202); }
+                if (r206 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r204}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r204))))), r206); }
                 verve_write(1, "\n", 1);
-                r179 = 0;
+                r198 = 0;
                 block = 27; continue;
             },
             26 => {
-                r187 = locals[0];
-                r188 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r187))))))[0];
-                r189 = @intCast(@intFromPtr(@as([*]const u8, "field")));
-                r190 = 5;
-                { const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r188)))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; r191 = @intCast(sl); }
-                r192 = if (strEql(@ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r188))))), r191, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r189))))), r190)) @as(i64, 1) else @as(i64, 0);
-                block = if (r192 != 0) 28 else 29; continue;
+                r207 = locals[0];
+                r208 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r207))))))[0];
+                { const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r208)))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; r209 = @intCast(sl); }
+                r210 = @intCast(@intFromPtr(@as([*]const u8, "field")));
+                r211 = 5;
+                r212 = if (strEql(@ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r208))))), r209, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r210))))), r211)) @as(i64, 1) else @as(i64, 0);
+                block = if (r212 != 0) 28 else 29; continue;
             },
             27 => {
                 block = 24; continue;
             },
             28 => {
-                r193 = locals[2];
-                r194 = locals[3];
-                r195 = locals[0];
-                r196 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r195))))))[1];
-                r197 = @intCast(@intFromPtr(@as([*]const u8, ": ")));
-                r198 = 2;
-                r199 = locals[0];
-                r200 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r199))))))[2];
-                r202 = locals[2];
-                r203 = locals[3];
-                r204 = locals[0];
-                r205 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r204))))))[1];
-                r206 = -1;
-                r207 = @intCast(@intFromPtr(@as([*]const u8, ": ")));
-                r208 = 2;
-                r209 = locals[0];
-                r210 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r209))))))[2];
-                r211 = -1;
-                if (r203 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r202}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r202))))), r203); }
-                if (r206 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r205}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r205))))), r206); }
-                if (r208 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r207}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r207))))), r208); }
-                if (r211 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r210}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r210))))), r211); }
+                r213 = locals[2];
+                r214 = locals[3];
+                r215 = locals[0];
+                r216 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r215))))))[1];
+                { const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r216)))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; r217 = @intCast(sl); }
+                r218 = @intCast(@intFromPtr(@as([*]const u8, ": ")));
+                r219 = 2;
+                r220 = locals[0];
+                r221 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r220))))))[2];
+                { const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r221)))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; r222 = @intCast(sl); }
+                r224 = locals[2];
+                r225 = locals[3];
+                r226 = locals[0];
+                r227 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r226))))))[1];
+                { const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r227)))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; r228 = @intCast(sl); }
+                r229 = -1;
+                r230 = @intCast(@intFromPtr(@as([*]const u8, ": ")));
+                r231 = 2;
+                r232 = locals[0];
+                r233 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r232))))))[2];
+                { const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r233)))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; r234 = @intCast(sl); }
+                r235 = -1;
+                if (r225 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r224}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r224))))), r225); }
+                if (r229 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r227}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r227))))), r229); }
+                if (r231 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r230}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r230))))), r231); }
+                if (r235 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r233}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r233))))), r235); }
                 verve_write(1, "\n", 1);
-                r201 = 0;
+                r223 = 0;
                 block = 30; continue;
             },
             29 => {
-                r212 = locals[0];
-                r213 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r212))))))[0];
-                r214 = @intCast(@intFromPtr(@as([*]const u8, "import")));
-                r215 = 6;
-                { const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r213)))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; r216 = @intCast(sl); }
-                r217 = if (strEql(@ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r213))))), r216, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r214))))), r215)) @as(i64, 1) else @as(i64, 0);
-                block = if (r217 != 0) 31 else 32; continue;
+                r236 = locals[0];
+                r237 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r236))))))[0];
+                { const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r237)))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; r238 = @intCast(sl); }
+                r239 = @intCast(@intFromPtr(@as([*]const u8, "import")));
+                r240 = 6;
+                r241 = if (strEql(@ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r237))))), r238, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r239))))), r240)) @as(i64, 1) else @as(i64, 0);
+                block = if (r241 != 0) 31 else 32; continue;
             },
             30 => {
                 block = 27; continue;
             },
             31 => {
-                r218 = locals[2];
-                r219 = locals[3];
-                r220 = @intCast(@intFromPtr(@as([*]const u8, "import ")));
-                r221 = 7;
-                r222 = locals[0];
-                r223 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r222))))))[1];
-                r225 = locals[2];
-                r226 = locals[3];
-                r227 = @intCast(@intFromPtr(@as([*]const u8, "import ")));
-                r228 = 7;
-                r229 = locals[0];
-                r230 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r229))))))[1];
-                r231 = -1;
-                if (r226 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r225}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r225))))), r226); }
-                if (r228 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r227}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r227))))), r228); }
-                if (r231 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r230}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r230))))), r231); }
+                r242 = locals[2];
+                r243 = locals[3];
+                r244 = @intCast(@intFromPtr(@as([*]const u8, "import ")));
+                r245 = 7;
+                r246 = locals[0];
+                r247 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r246))))))[1];
+                { const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r247)))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; r248 = @intCast(sl); }
+                r250 = locals[2];
+                r251 = locals[3];
+                r252 = @intCast(@intFromPtr(@as([*]const u8, "import ")));
+                r253 = 7;
+                r254 = locals[0];
+                r255 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r254))))))[1];
+                { const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r255)))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; r256 = @intCast(sl); }
+                r257 = -1;
+                if (r251 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r250}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r250))))), r251); }
+                if (r253 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r252}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r252))))), r253); }
+                if (r257 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r255}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r255))))), r257); }
                 verve_write(1, "\n", 1);
-                r224 = 0;
+                r249 = 0;
                 block = 33; continue;
             },
             32 => {
-                r232 = locals[0];
-                r233 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r232))))))[0];
-                r234 = @intCast(@intFromPtr(@as([*]const u8, "param")));
-                r235 = 5;
-                { const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r233)))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; r236 = @intCast(sl); }
-                r237 = if (strEql(@ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r233))))), r236, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r234))))), r235)) @as(i64, 1) else @as(i64, 0);
-                block = if (r237 != 0) 34 else 35; continue;
+                r258 = locals[0];
+                r259 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r258))))))[0];
+                { const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r259)))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; r260 = @intCast(sl); }
+                r261 = @intCast(@intFromPtr(@as([*]const u8, "param")));
+                r262 = 5;
+                r263 = if (strEql(@ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r259))))), r260, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r261))))), r262)) @as(i64, 1) else @as(i64, 0);
+                block = if (r263 != 0) 34 else 35; continue;
             },
             33 => {
                 block = 30; continue;
             },
             34 => {
-                r238 = locals[2];
-                r239 = locals[3];
-                r240 = locals[0];
-                r241 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r240))))))[1];
-                r242 = @intCast(@intFromPtr(@as([*]const u8, ": ")));
-                r243 = 2;
-                r244 = locals[0];
-                r245 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r244))))))[2];
-                r247 = locals[2];
-                r248 = locals[3];
-                r249 = locals[0];
-                r250 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r249))))))[1];
-                r251 = -1;
-                r252 = @intCast(@intFromPtr(@as([*]const u8, ": ")));
-                r253 = 2;
-                r254 = locals[0];
-                r255 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r254))))))[2];
-                r256 = -1;
-                if (r248 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r247}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r247))))), r248); }
-                if (r251 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r250}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r250))))), r251); }
-                if (r253 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r252}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r252))))), r253); }
-                if (r256 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r255}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r255))))), r256); }
+                r264 = locals[2];
+                r265 = locals[3];
+                r266 = locals[0];
+                r267 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r266))))))[1];
+                { const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r267)))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; r268 = @intCast(sl); }
+                r269 = @intCast(@intFromPtr(@as([*]const u8, ": ")));
+                r270 = 2;
+                r271 = locals[0];
+                r272 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r271))))))[2];
+                { const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r272)))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; r273 = @intCast(sl); }
+                r275 = locals[2];
+                r276 = locals[3];
+                r277 = locals[0];
+                r278 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r277))))))[1];
+                { const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r278)))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; r279 = @intCast(sl); }
+                r280 = -1;
+                r281 = @intCast(@intFromPtr(@as([*]const u8, ": ")));
+                r282 = 2;
+                r283 = locals[0];
+                r284 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r283))))))[2];
+                { const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r284)))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; r285 = @intCast(sl); }
+                r286 = -1;
+                if (r276 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r275}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r275))))), r276); }
+                if (r280 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r278}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r278))))), r280); }
+                if (r282 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r281}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r281))))), r282); }
+                if (r286 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r284}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r284))))), r286); }
                 verve_write(1, "\n", 1);
-                r246 = 0;
+                r274 = 0;
                 block = 36; continue;
             },
             35 => {
-                r257 = locals[2];
-                r258 = locals[3];
-                r259 = locals[0];
-                r260 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r259))))))[0];
-                r261 = @intCast(@intFromPtr(@as([*]const u8, " ")));
-                r262 = 1;
-                r263 = locals[0];
-                r264 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r263))))))[1];
-                r266 = locals[2];
-                r267 = locals[3];
-                r268 = locals[0];
-                r269 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r268))))))[0];
-                r270 = -1;
-                r271 = @intCast(@intFromPtr(@as([*]const u8, " ")));
-                r272 = 1;
-                r273 = locals[0];
-                r274 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r273))))))[1];
-                r275 = -1;
-                if (r267 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r266}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r266))))), r267); }
-                if (r270 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r269}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r269))))), r270); }
-                if (r272 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r271}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r271))))), r272); }
-                if (r275 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r274}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r274))))), r275); }
+                r287 = locals[2];
+                r288 = locals[3];
+                r289 = locals[0];
+                r290 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r289))))))[0];
+                { const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r290)))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; r291 = @intCast(sl); }
+                r292 = @intCast(@intFromPtr(@as([*]const u8, " ")));
+                r293 = 1;
+                r294 = locals[0];
+                r295 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r294))))))[1];
+                { const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r295)))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; r296 = @intCast(sl); }
+                r298 = locals[2];
+                r299 = locals[3];
+                r300 = locals[0];
+                r301 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r300))))))[0];
+                { const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r301)))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; r302 = @intCast(sl); }
+                r303 = -1;
+                r304 = @intCast(@intFromPtr(@as([*]const u8, " ")));
+                r305 = 1;
+                r306 = locals[0];
+                r307 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r306))))))[1];
+                { const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r307)))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; r308 = @intCast(sl); }
+                r309 = -1;
+                if (r299 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r298}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r298))))), r299); }
+                if (r303 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r301}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r301))))), r303); }
+                if (r305 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r304}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r304))))), r305); }
+                if (r309 == -1) { var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, "{d}", .{r307}) catch "?"; verve_write(1, s.ptr, @intCast(s.len)); } else { verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r307))))), r309); }
                 verve_write(1, "\n", 1);
-                r265 = 0;
+                r297 = 0;
                 block = 36; continue;
             },
             36 => {
                 block = 33; continue;
             },
             37 => {
-                r277 = locals[5];
-                r278 = 0;
-                r279 = if (r277 < r278) @as(i64, 1) else @as(i64, 0);
-                block = if (r279 != 0) 38 else 39; continue;
+                r311 = locals[5];
+                r312 = 0;
+                r313 = if (r311 < r312) @as(i64, 1) else @as(i64, 0);
+                block = if (r313 != 0) 38 else 39; continue;
             },
             38 => {
-                r280 = locals[0];
-                r281 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r280))))))[3];
-                r282 = locals[5];
-                r283 = @as(*const List, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r281)))))).get(r282);
-                locals[8] = r283;
-                r284 = locals[0];
-                r285 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r284))))))[0];
-                r286 = @intCast(@intFromPtr(@as([*]const u8, "fn")));
-                r287 = 2;
-                { const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r285)))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; r288 = @intCast(sl); }
-                r289 = if (strEql(@ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r285))))), r288, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r286))))), r287)) @as(i64, 1) else @as(i64, 0);
-                r290 = if (r289 == 0) @as(i64, 1) else @as(i64, 0);
-                block = if (r290 != 0) 40 else 42; continue;
+                r314 = locals[0];
+                r315 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r314))))))[3];
+                r316 = locals[5];
+                r317 = @as(*const List, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r315)))))).get(r316);
+                locals[8] = r317;
+                r318 = locals[0];
+                r319 = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r318))))))[0];
+                { const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r319)))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; r320 = @intCast(sl); }
+                r321 = @intCast(@intFromPtr(@as([*]const u8, "fn")));
+                r322 = 2;
+                r323 = if (strEql(@ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r319))))), r320, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(r321))))), r322)) @as(i64, 1) else @as(i64, 0);
+                r324 = if (r323 == 0) @as(i64, 1) else @as(i64, 0);
+                block = if (r324 != 0) 40 else 42; continue;
             },
             39 => {
                 block = 40;
             },
             40 => {
-                r291 = locals[8];
-                r292 = locals[1];
-                r293 = 1;
-                r294 = r292 +% r293;
-                r295 = verve_Printer_print_node(r291, r294);
+                r325 = locals[8];
+                r326 = locals[1];
+                r327 = 1;
+                r328 = r326 +% r327;
+                r329 = verve_Printer_print_node(r325, r328);
                 block = 42; continue;
             },
             41 => {
                 block = 42;
             },
             42 => {
-                r296 = locals[5];
-                r297 = 1;
-                r298 = r296 +% r297;
-                locals[5] = r298;
+                r330 = locals[5];
+                r331 = 1;
+                r332 = r330 +% r331;
+                locals[5] = r332;
                 block = 37; continue;
             },
             else => break,

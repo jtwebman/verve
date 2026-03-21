@@ -328,10 +328,14 @@ pub const Lower = struct {
                 return dest;
             },
             .binary_op => |op| {
-                // String comparison
+                // String comparison — detect if either side is a string
                 if (op.op == .eq or op.op == .neq) {
-                    const is_str_l = (op.left.* == .string_literal);
-                    const is_str_r = (op.right.* == .string_literal);
+                    const is_str_l = (op.left.* == .string_literal) or
+                        (op.left.* == .identifier and self.string_vars.get(op.left.identifier) != null) or
+                        (op.left.* == .field_access and self.isStringFieldAccess(op.left.field_access));
+                    const is_str_r = (op.right.* == .string_literal) or
+                        (op.right.* == .identifier and self.string_vars.get(op.right.identifier) != null) or
+                        (op.right.* == .field_access and self.isStringFieldAccess(op.right.field_access));
                     if (is_str_l or is_str_r) {
                         const lhs = self.lowerExpr(op.left.*);
                         const rhs = self.lowerExpr(op.right.*);
@@ -579,6 +583,13 @@ pub const Lower = struct {
                                     const base_reg = self.lowerExpr(fa.target.*);
                                     const dest = func.newReg();
                                     self.appendInst(.{ .struct_load = .{ .dest = dest, .base = base_reg, .field_index = @intCast(fi) } });
+                                    // If this field is a string type, track it
+                                    if (f.type_expr == .simple and std.mem.eql(u8, f.type_expr.simple, "string")) {
+                                        // Use strlen at runtime since struct doesn't store length
+                                        const len_reg = func.newReg();
+                                        self.appendInst(.{ .string_len = .{ .dest = len_reg, .str = dest } });
+                                        self.string_lens.put(self.alloc, dest, len_reg) catch {};
+                                    }
                                     return dest;
                                 }
                             }
@@ -631,6 +642,21 @@ pub const Lower = struct {
 
     /// Get the string length register for a value. Uses tracked length if available,
     /// otherwise emits a string_len instruction (strlen at runtime).
+    fn isStringFieldAccess(self: *Lower, fa: ast.FieldAccess) bool {
+        if (fa.target.* == .identifier) {
+            if (self.var_types.get(fa.target.identifier)) |type_name| {
+                if (self.struct_decls.get(type_name)) |sd| {
+                    for (sd.fields) |f| {
+                        if (std.mem.eql(u8, f.name, fa.field)) {
+                            return f.type_expr == .simple and std.mem.eql(u8, f.type_expr.simple, "string");
+                        }
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
     fn getStringLen(self: *Lower, func: *ir.Function, str_reg: ir.Reg) ir.Reg {
         if (self.string_lens.get(str_reg)) |lr| return lr;
         const lr = func.newReg();
