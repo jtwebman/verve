@@ -82,8 +82,10 @@ pub const Inst = union(enum) {
     list_get: struct { dest: Reg, list: Reg, index: Reg },
 
     // ── String operations ────────────────────────────────
-    /// Get byte at index: dest = string[index] as i64
+    /// Get byte at index as integer: dest = string[index] as i64
     string_byte_at: struct { dest: Reg, str: Reg, index: Reg },
+    /// Get pointer to byte at index (single-char string): dest = &string[index]
+    string_index: struct { dest: Reg, str: Reg, index: Reg },
     /// Get string byte length: dest = len(string)
     string_len: struct { dest: Reg, str: Reg },
     /// Compare two strings for equality: dest = (a == b)

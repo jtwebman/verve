@@ -12,6 +12,7 @@ pub const Lower = struct {
     current_module: []const u8,
     struct_decls: std.StringHashMapUnmanaged(ast.StructDecl),
     var_types: std.StringHashMapUnmanaged([]const u8),
+    string_vars: std.StringHashMapUnmanaged(void), // variables known to be strings
     string_lens: std.AutoHashMapUnmanaged(ir.Reg, ir.Reg),
     loop_cond_block: ?ir.BlockId,
     loop_exit_block: ?ir.BlockId,
@@ -26,6 +27,7 @@ pub const Lower = struct {
             .struct_decls = .{},
             .var_types = .{},
             .string_lens = .{},
+            .string_vars = .{},
             .loop_cond_block = null,
             .loop_exit_block = null,
         };
@@ -78,12 +80,18 @@ pub const Lower = struct {
 
     fn lowerFunction(self: *Lower, module: []const u8, func: ast.FnDecl) !void {
         var f = ir.Function.init(module, func.name, self.alloc);
+
+        // Reset per-function state BEFORE processing params
+        self.string_lens = .{};
+        self.string_vars = .{};
+
         var params = std.ArrayListUnmanaged(ir.Function.Param){};
         for (func.params) |p| {
             try params.append(self.alloc, .{ .name = p.name, .type_ = resolveType(p.type_expr) });
             switch (p.type_expr) {
                 .simple => |tn| {
                     if (self.struct_decls.get(tn) != null) self.var_types.put(self.alloc, p.name, tn) catch {};
+                    if (std.mem.eql(u8, tn, "string")) self.string_vars.put(self.alloc, p.name, {}) catch {};
                 },
                 else => {},
             }
@@ -139,10 +147,16 @@ pub const Lower = struct {
             .assign => |a| {
                 const reg = self.lowerExpr(a.value);
                 self.appendInst(.{ .store_local = .{ .name = a.name, .src = reg } });
+                // Store string length if the value has one tracked
+                if (self.string_lens.get(reg)) |len_reg| {
+                    const len_name = std.fmt.allocPrint(self.alloc, "{s}__len", .{a.name}) catch a.name;
+                    self.appendInst(.{ .store_local = .{ .name = len_name, .src = len_reg } });
+                }
                 if (a.type_expr) |te| {
                     switch (te) {
                         .simple => |tn| {
                             if (self.struct_decls.get(tn) != null) self.var_types.put(self.alloc, a.name, tn) catch {};
+                            if (std.mem.eql(u8, tn, "string")) self.string_vars.put(self.alloc, a.name, {}) catch {};
                         },
                         else => {},
                     }
@@ -314,16 +328,8 @@ pub const Lower = struct {
                     if (is_str_l or is_str_r) {
                         const lhs = self.lowerExpr(op.left.*);
                         const rhs = self.lowerExpr(op.right.*);
-                        const lhs_len = self.string_lens.get(lhs) orelse blk: {
-                            const lr = func.newReg();
-                            self.appendInst(.{ .string_len = .{ .dest = lr, .str = lhs } });
-                            break :blk lr;
-                        };
-                        const rhs_len = self.string_lens.get(rhs) orelse blk: {
-                            const lr = func.newReg();
-                            self.appendInst(.{ .string_len = .{ .dest = lr, .str = rhs } });
-                            break :blk lr;
-                        };
+                        const lhs_len = self.getStringLen(func, lhs);
+                        const rhs_len = self.getStringLen(func, rhs);
                         const dest = func.newReg();
                         self.appendInst(.{ .string_eq = .{ .dest = dest, .lhs = lhs, .lhs_len = lhs_len, .rhs = rhs, .rhs_len = rhs_len } });
                         if (op.op == .neq) {
@@ -454,19 +460,15 @@ pub const Lower = struct {
                 }
                 if (c.target.* == .identifier) {
                     const name = c.target.identifier;
-                    // println/print with string length pairs
+                    // println/print: pass (ptr, len) pairs for all string args
                     if (std.mem.eql(u8, name, "println") or std.mem.eql(u8, name, "print")) {
                         var builtin_args = std.ArrayListUnmanaged(ir.Reg){};
                         for (c.args) |arg| {
-                            if (arg == .string_literal) {
-                                const str_reg = self.lowerExpr(arg);
-                                const len_reg = func.newReg();
-                                self.appendInst(.{ .const_int = .{ .dest = len_reg, .value = @intCast(arg.string_literal.len) } });
-                                builtin_args.append(self.alloc, str_reg) catch {};
-                                builtin_args.append(self.alloc, len_reg) catch {};
-                            } else {
-                                builtin_args.append(self.alloc, self.lowerExpr(arg)) catch {};
-                            }
+                            const arg_reg = self.lowerExpr(arg);
+                            builtin_args.append(self.alloc, arg_reg) catch {};
+                            // Add string length
+                            const len_reg = self.getStringLen(func, arg_reg);
+                            builtin_args.append(self.alloc, len_reg) catch {};
                         }
                         self.appendInst(.{ .call_builtin = .{
                             .dest = dest,
@@ -537,6 +539,13 @@ pub const Lower = struct {
                         }
                     }
                     if (std.mem.eql(u8, fa.field, "len")) {
+                        // Check if it's a string .len or list .len
+                        if (self.string_vars.get(target_name) != null) {
+                            const str_reg = self.lowerExpr(fa.target.*);
+                            const dest = func.newReg();
+                            self.appendInst(.{ .string_len = .{ .dest = dest, .str = str_reg } });
+                            return dest;
+                        }
                         const list_reg = self.lowerExpr(fa.target.*);
                         const dest = func.newReg();
                         self.appendInst(.{ .list_len = .{ .dest = dest, .list = list_reg } });
@@ -551,6 +560,18 @@ pub const Lower = struct {
                 const target_reg = self.lowerExpr(ia.target.*);
                 const index_reg = self.lowerExpr(ia.index.*);
                 const dest = func.newReg();
+                // Check if target is a known string variable — use byte access
+                if (ia.target.* == .identifier) {
+                    if (self.string_vars.get(ia.target.identifier) != null) {
+                        // s[i] returns a single-char string (pointer), not byte value
+                        self.appendInst(.{ .string_index = .{ .dest = dest, .str = target_reg, .index = index_reg } });
+                        // The result is a 1-byte string
+                        const len_reg = func.newReg();
+                        self.appendInst(.{ .const_int = .{ .dest = len_reg, .value = 1 } });
+                        self.string_lens.put(self.alloc, dest, len_reg) catch {};
+                        return dest;
+                    }
+                }
                 self.appendInst(.{ .list_get = .{ .dest = dest, .list = target_reg, .index = index_reg } });
                 return dest;
             },
@@ -560,6 +581,15 @@ pub const Lower = struct {
                 return dest;
             },
         }
+    }
+
+    /// Get the string length register for a value. Uses tracked length if available,
+    /// otherwise emits a string_len instruction (strlen at runtime).
+    fn getStringLen(self: *Lower, func: *ir.Function, str_reg: ir.Reg) ir.Reg {
+        if (self.string_lens.get(str_reg)) |lr| return lr;
+        const lr = func.newReg();
+        self.appendInst(.{ .string_len = .{ .dest = lr, .str = str_reg } });
+        return lr;
     }
 
     fn resolveType(type_expr: ast.TypeExpr) ir.Type {

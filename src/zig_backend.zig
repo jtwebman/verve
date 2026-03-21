@@ -60,7 +60,8 @@ pub const ZigBackend = struct {
         self.indent += 1;
         self.line("const f = std.posix.STDOUT_FILENO;");
         self.line("_ = fd;");
-        self.line("const slice = ptr[0..@intCast(@as(u64, @bitCast(len)))];");
+        self.line("const actual_len: usize = if (len > 0) @intCast(@as(u64, @bitCast(len))) else blk: { var l: usize = 0; while (ptr[l] != 0) l += 1; break :blk l; };");
+        self.line("const slice = ptr[0..actual_len];");
         self.line("_ = std.posix.write(f, slice) catch 0;");
         self.indent -= 1;
         self.line("}");
@@ -169,6 +170,17 @@ pub const ZigBackend = struct {
     fn emitFunction(self: *ZigBackend, func: ir.Function, is_entry: bool) void {
         if (is_entry) {
             self.line("pub fn main() void {");
+            self.indent += 1;
+            // Build command-line args as list of null-terminated string pointers
+            self.line("var verve_args_list = List.init();");
+            self.line("var proc_args = std.process.argsWithAllocator(std.heap.page_allocator) catch return;");
+            self.line("_ = proc_args.skip(); // skip program name");
+            self.line("while (proc_args.next()) |arg| {");
+            self.indent += 1;
+            self.line("verve_args_list.append(@intCast(@intFromPtr(arg.ptr)));");
+            self.indent -= 1;
+            self.line("}");
+            self.indent -= 1;
         } else {
             self.writeIndent();
             self.writeFmt("fn verve_{s}_{s}(", .{ func.module, func.name });
@@ -207,8 +219,17 @@ pub const ZigBackend = struct {
         var local_count: usize = 0;
         var local_names: [128][]const u8 = undefined;
 
-        // Map param names to locals (skip for entry point — no real params)
-        if (!is_entry) {
+        // Map param names to locals
+        if (is_entry) {
+            // Entry point: store args list
+            for (func.params) |param| {
+                if (std.mem.eql(u8, param.name, "args")) {
+                    self.lineFmt("locals[{d}] = @intCast(@intFromPtr(&verve_args_list));", .{local_count});
+                }
+                local_names[local_count] = param.name;
+                local_count += 1;
+            }
+        } else if (!is_entry) {
             for (func.params) |param| {
                 self.lineFmt("locals[{d}] = param_{s};", .{ local_count, param.name });
                 local_names[local_count] = param.name;
@@ -378,12 +399,17 @@ pub const ZigBackend = struct {
             },
 
             .string_byte_at => |sb| {
+                // Returns byte VALUE as i64 (for String.byte_at)
                 self.lineFmt("{s} = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s}))))))[", .{ self.regName(sb.dest), self.regName(sb.str) });
                 self.writeFmt("@intCast(@as(u64, @bitCast({s})))];\n", .{self.regName(sb.index)});
             },
+            .string_index => |si| {
+                // Returns POINTER to byte (for s[i] string indexing — single-char string)
+                self.lineFmt("{s} = @intCast(@intFromPtr(@as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s})))))) + @as(usize, @intCast(@as(u64, @bitCast({s}))))));", .{ self.regName(si.dest), self.regName(si.str), self.regName(si.index) });
+            },
             .string_len => |sl| {
-                _ = sl;
-                self.line("// string_len not yet implemented");
+                // Compute string length using strlen (null-terminated fallback)
+                self.lineFmt("{{ const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s})))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; {s} = @intCast(sl); }}", .{ self.regName(sl.str), self.regName(sl.dest) });
             },
             .string_eq => |se| {
                 self.lineFmt("{s} = if (strEql(@ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s}))))), {s}, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s}))))), {s})) @as(i64, 1) else @as(i64, 0);", .{
@@ -433,7 +459,8 @@ pub const ZigBackend = struct {
             }
         } else if (std.mem.eql(u8, name, "set_has")) {
             if (args.len >= 2) {
-                self.lineFmt("{{ const list = @as(*const List, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s})))))); var found: i64 = 0; var si: i64 = 0; while (si < list.len) : (si += 1) {{ if (list.get(si) == {s}) {{ found = 1; break; }} }} {s} = found; }}", .{ self.regName(args[0]), self.regName(args[1]), self.regName(dest) });
+                // Use string comparison (strEql) for set elements — they're string pointers
+                self.lineFmt("{{ const list = @as(*const List, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s})))))); var found: i64 = 0; const needle_ptr = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s})))))); var needle_len: usize = 0; while (needle_ptr[needle_len] != 0) needle_len += 1; var si: i64 = 0; while (si < list.len) : (si += 1) {{ const elem = list.get(si); const eptr = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(elem)))))); var elen: usize = 0; while (eptr[elen] != 0) elen += 1; if (strEql(eptr, @intCast(elen), needle_ptr, @intCast(needle_len))) {{ found = 1; break; }} }} {s} = found; }}", .{ self.regName(args[0]), self.regName(args[1]), self.regName(dest) });
             }
         } else if (std.mem.eql(u8, name, "file_open")) {
             // args: path_ptr, path_len, mode_ptr, ...
@@ -490,6 +517,7 @@ pub const ZigBackend = struct {
             .tag_get => |tg| tg.dest,
             .tag_value => |tv| tv.dest,
             .string_byte_at => |sb| sb.dest,
+            .string_index => |si| si.dest,
             .string_len => |sl| sl.dest,
             .string_eq => |se| se.dest,
             else => null,
@@ -538,8 +566,8 @@ pub const ZigBackend = struct {
             return error.CompilationFailed;
         }
 
-        // Clean up .zig source and cache
-        std.fs.cwd().deleteFile(src_path) catch {};
+        // Keep .zig source for debugging (TODO: clean up in production)
+        // std.fs.cwd().deleteFile(src_path) catch {};
         std.fs.cwd().deleteTree(".zig-cache") catch {};
         // Delete the .o file if it exists
         const o_path = try std.fmt.allocPrint(self.alloc, "{s}.o", .{output_path});
