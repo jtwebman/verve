@@ -318,6 +318,13 @@ pub const Lower = struct {
             .identifier => |name| {
                 const dest = func.newReg();
                 self.appendInst(.{ .load_local = .{ .dest = dest, .name = name } });
+                // Load string length for known string variables
+                if (self.string_vars.get(name) != null) {
+                    const len_name = std.fmt.allocPrint(self.alloc, "{s}__len", .{name}) catch name;
+                    const len_reg = func.newReg();
+                    self.appendInst(.{ .load_local = .{ .dest = len_reg, .name = len_name } });
+                    self.string_lens.put(self.alloc, dest, len_reg) catch {};
+                }
                 return dest;
             },
             .binary_op => |op| {
@@ -394,12 +401,34 @@ pub const Lower = struct {
                                     return dest;
                                 }
                             }
+                            if (std.mem.eql(u8, fn_name, "slice")) {
+                                if (args.len >= 3) {
+                                    const len_reg = func.newReg();
+                                    self.appendInst(.{ .string_slice = .{
+                                        .dest_ptr = dest,
+                                        .dest_len = len_reg,
+                                        .str = args[0],
+                                        .start = args[1],
+                                        .end = args[2],
+                                    } });
+                                    self.string_lens.put(self.alloc, dest, len_reg) catch {};
+                                    return dest;
+                                }
+                            }
                             const builtin_name = std.fmt.allocPrint(self.alloc, "string_{s}", .{fn_name}) catch fn_name;
                             self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = builtin_name, .args = args } });
                             return dest;
                         }
                         if (std.mem.eql(u8, mod_name, "Set")) {
-                            self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = "set_has", .args = args } });
+                            // For Set.has, also pass the needle's length
+                            var set_args = std.ArrayListUnmanaged(ir.Reg){};
+                            set_args.append(self.alloc, args[0]) catch {}; // set
+                            if (args.len >= 2) {
+                                set_args.append(self.alloc, args[1]) catch {}; // needle ptr
+                                const needle_len = self.getStringLen(func, args[1]);
+                                set_args.append(self.alloc, needle_len) catch {}; // needle len
+                            }
+                            self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = "set_has_str", .args = set_args.toOwnedSlice(self.alloc) catch &.{} } });
                             return dest;
                         }
                         if (std.mem.eql(u8, mod_name, "Map")) {
@@ -466,9 +495,23 @@ pub const Lower = struct {
                         for (c.args) |arg| {
                             const arg_reg = self.lowerExpr(arg);
                             builtin_args.append(self.alloc, arg_reg) catch {};
-                            // Add string length
-                            const len_reg = self.getStringLen(func, arg_reg);
-                            builtin_args.append(self.alloc, len_reg) catch {};
+                            // Add string length for string args, 0 for non-string
+                            const is_string = (arg == .string_literal) or
+                                (arg == .identifier and self.string_vars.get(arg.identifier) != null);
+                            if (is_string) {
+                                if (self.string_lens.get(arg_reg)) |lr| {
+                                    builtin_args.append(self.alloc, lr) catch {};
+                                } else {
+                                    const lr = func.newReg();
+                                    self.appendInst(.{ .string_len = .{ .dest = lr, .str = arg_reg } });
+                                    builtin_args.append(self.alloc, lr) catch {};
+                                }
+                            } else {
+                                // Non-string: mark with -1 so backend knows to format as int
+                                const marker = func.newReg();
+                                self.appendInst(.{ .const_int = .{ .dest = marker, .value = -1 } });
+                                builtin_args.append(self.alloc, marker) catch {};
+                            }
                         }
                         self.appendInst(.{ .call_builtin = .{
                             .dest = dest,
@@ -486,6 +529,9 @@ pub const Lower = struct {
                         for (c.args) |arg| {
                             const val_reg = self.lowerExpr(arg);
                             self.appendInst(.{ .list_append = .{ .list = dest, .value = val_reg } });
+                            // Also append length for string elements
+                            const len_reg = self.getStringLen(func, val_reg);
+                            self.appendInst(.{ .list_append = .{ .list = dest, .value = len_reg } });
                         }
                         return dest;
                     }

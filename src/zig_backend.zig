@@ -200,6 +200,10 @@ pub const ZigBackend = struct {
                 if (dest) |d| {
                     if (d >= max_reg) max_reg = d + 1;
                 }
+                // string_slice has a second dest register
+                if (inst == .string_slice) {
+                    if (inst.string_slice.dest_len >= max_reg) max_reg = inst.string_slice.dest_len + 1;
+                }
             }
         }
         if (max_reg > 0) {
@@ -403,6 +407,11 @@ pub const ZigBackend = struct {
                 self.lineFmt("{s} = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s}))))))[", .{ self.regName(sb.dest), self.regName(sb.str) });
                 self.writeFmt("@intCast(@as(u64, @bitCast({s})))];\n", .{self.regName(sb.index)});
             },
+            .string_slice => |ss| {
+                // dest_ptr = str + start, dest_len = end - start
+                self.lineFmt("{s} = {s} +% {s};", .{ self.regName(ss.dest_ptr), self.regName(ss.str), self.regName(ss.start) });
+                self.lineFmt("{s} = {s} -% {s};", .{ self.regName(ss.dest_len), self.regName(ss.end), self.regName(ss.start) });
+            },
             .string_index => |si| {
                 // Returns POINTER to byte (for s[i] string indexing — single-char string)
                 self.lineFmt("{s} = @intCast(@intFromPtr(@as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s})))))) + @as(usize, @intCast(@as(u64, @bitCast({s}))))));", .{ self.regName(si.dest), self.regName(si.str), self.regName(si.index) });
@@ -430,7 +439,8 @@ pub const ZigBackend = struct {
             const newline = std.mem.eql(u8, name, "println");
             var i: usize = 0;
             while (i + 1 < args.len) {
-                self.lineFmt("verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s}))))), {s});", .{ self.regName(args[i]), self.regName(args[i + 1]) });
+                // If len == -1, it's an integer — format it. Otherwise it's a string.
+                self.lineFmt("if ({s} == -1) {{ var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, \"{{d}}\", .{{{s}}}) catch \"?\"; verve_write(1, s.ptr, @intCast(s.len)); }} else {{ verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s}))))), {s}); }}", .{ self.regName(args[i + 1]), self.regName(args[i]), self.regName(args[i]), self.regName(args[i + 1]) });
                 i += 2;
             }
             if (newline) {
@@ -457,10 +467,13 @@ pub const ZigBackend = struct {
             if (args.len >= 3) {
                 self.lineFmt("{s} = {s} + {s};", .{ self.regName(dest), self.regName(args[0]), self.regName(args[1]) });
             }
-        } else if (std.mem.eql(u8, name, "set_has")) {
-            if (args.len >= 2) {
-                // Use string comparison (strEql) for set elements — they're string pointers
-                self.lineFmt("{{ const list = @as(*const List, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s})))))); var found: i64 = 0; const needle_ptr = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s})))))); var needle_len: usize = 0; while (needle_ptr[needle_len] != 0) needle_len += 1; var si: i64 = 0; while (si < list.len) : (si += 1) {{ const elem = list.get(si); const eptr = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(elem)))))); var elen: usize = 0; while (eptr[elen] != 0) elen += 1; if (strEql(eptr, @intCast(elen), needle_ptr, @intCast(needle_len))) {{ found = 1; break; }} }} {s} = found; }}", .{ self.regName(args[0]), self.regName(args[1]), self.regName(dest) });
+        } else if (std.mem.eql(u8, name, "set_has") or std.mem.eql(u8, name, "set_has_str")) {
+            if (std.mem.eql(u8, name, "set_has_str") and args.len >= 3) {
+                // args: set, needle_ptr, needle_len — set stores (ptr, len) pairs
+                self.lineFmt("{{ const list = @as(*const List, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s})))))); var found: i64 = 0; var si: i64 = 0; while (si + 1 < list.len) : (si += 2) {{ const eptr = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(list.get(si))))))); const elen = list.get(si + 1); const nptr = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s})))))); if (strEql(eptr, elen, nptr, {s})) {{ found = 1; break; }} }} {s} = found; }}", .{ self.regName(args[0]), self.regName(args[1]), self.regName(args[2]), self.regName(dest) });
+            } else if (args.len >= 2) {
+                // Integer set — simple equality
+                self.lineFmt("{{ const list = @as(*const List, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s})))))); var found: i64 = 0; var si: i64 = 0; while (si < list.len) : (si += 1) {{ if (list.get(si) == {s}) {{ found = 1; break; }} }} {s} = found; }}", .{ self.regName(args[0]), self.regName(args[1]), self.regName(dest) });
             }
         } else if (std.mem.eql(u8, name, "file_open")) {
             // args: path_ptr, path_len, mode_ptr, ...
@@ -517,6 +530,8 @@ pub const ZigBackend = struct {
             .tag_get => |tg| tg.dest,
             .tag_value => |tv| tv.dest,
             .string_byte_at => |sb| sb.dest,
+            .string_slice => |ss| ss.dest_ptr,
+            // Note: string_slice also writes to dest_len but we handle that via max_reg scan
             .string_index => |si| si.dest,
             .string_len => |sl| sl.dest,
             .string_eq => |se| se.dest,

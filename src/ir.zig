@@ -86,6 +86,8 @@ pub const Inst = union(enum) {
     string_byte_at: struct { dest: Reg, str: Reg, index: Reg },
     /// Get pointer to byte at index (single-char string): dest = &string[index]
     string_index: struct { dest: Reg, str: Reg, index: Reg },
+    /// Slice a string: dest_ptr = str + start, dest_len = end - start
+    string_slice: struct { dest_ptr: Reg, dest_len: Reg, str: Reg, start: Reg, end: Reg },
     /// Get string byte length: dest = len(string)
     string_len: struct { dest: Reg, str: Reg },
     /// Compare two strings for equality: dest = (a == b)
