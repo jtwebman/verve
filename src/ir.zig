@@ -96,6 +96,20 @@ pub const Inst = union(enum) {
     /// Examples: "exit", "write_stdout", "write_stderr"
     call_builtin: struct { dest: Reg, name: []const u8, args: []const Reg },
 
+    // ── Process operations ──────────────────────────────────
+    /// Spawn a new process instance, returns PID in dest.
+    process_spawn: struct { dest: Reg, process_type: u32 },
+    /// Send a message to a process (synchronous call), result in dest.
+    process_send: struct { dest: Reg, target: Reg, handler_index: u32, args: []const Reg },
+    /// Tell a process (fire-and-forget).
+    process_tell: struct { target: Reg, handler_index: u32, args: []const Reg },
+    /// Read process state field into dest.
+    process_state_get: struct { dest: Reg, field_index: u32 },
+    /// Write value to process state field.
+    process_state_set: struct { field_index: u32, src: Reg },
+    /// Register current process as watcher of target.
+    process_watch: struct { target: Reg },
+
     pub const BinOp = struct { dest: Reg, lhs: Reg, rhs: Reg };
     pub const UnOp = struct { dest: Reg, operand: Reg };
 };
@@ -163,8 +177,19 @@ pub const Function = struct {
     }
 };
 
+pub const ProcessInfo = struct {
+    name: []const u8,
+    state_fields: []const StateFieldInfo,
+    handler_names: []const []const u8,
+};
+
+pub const StateFieldInfo = struct {
+    name: []const u8,
+};
+
 pub const Program = struct {
     functions: std.ArrayListUnmanaged(Function),
+    process_decls: std.ArrayListUnmanaged(ProcessInfo),
     entry_module: []const u8,
     entry_function: []const u8,
     alloc: std.mem.Allocator,
@@ -172,6 +197,7 @@ pub const Program = struct {
     pub fn init(alloc: std.mem.Allocator) Program {
         return .{
             .functions = .{},
+            .process_decls = .{},
             .entry_module = "",
             .entry_function = "main",
             .alloc = alloc,

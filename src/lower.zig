@@ -15,6 +15,10 @@ pub const Lower = struct {
     string_lens: std.AutoHashMapUnmanaged(ir.Reg, ir.Reg),
     loop_cond_block: ?ir.BlockId,
     loop_exit_block: ?ir.BlockId,
+    // Process support
+    process_decls: std.StringHashMapUnmanaged(ast.ProcessDecl),
+    process_vars: std.StringHashMapUnmanaged([]const u8), // var name -> process type name
+    current_process_decl: ?ast.ProcessDecl,
 
     pub fn init(alloc: std.mem.Allocator) Lower {
         return .{
@@ -29,6 +33,9 @@ pub const Lower = struct {
             .string_vars = .{},
             .loop_cond_block = null,
             .loop_exit_block = null,
+            .process_decls = .{},
+            .process_vars = .{},
+            .current_process_decl = null,
         };
     }
 
@@ -48,6 +55,28 @@ pub const Lower = struct {
         for (file.decls) |decl| {
             switch (decl) {
                 .struct_decl => |s| try self.struct_decls.put(self.alloc, s.name, s),
+                .process_decl => |p| try self.process_decls.put(self.alloc, p.name, p),
+                else => {},
+            }
+        }
+        // Build process_decls in program for backend
+        for (file.decls) |decl| {
+            switch (decl) {
+                .process_decl => |p| {
+                    var state_fields = std.ArrayListUnmanaged(ir.StateFieldInfo){};
+                    for (p.state_fields) |sf| {
+                        try state_fields.append(self.alloc, .{ .name = sf.name });
+                    }
+                    var handler_names = std.ArrayListUnmanaged([]const u8){};
+                    for (p.receive_handlers) |h| {
+                        try handler_names.append(self.alloc, h.name);
+                    }
+                    try self.program.process_decls.append(self.alloc, .{
+                        .name = p.name,
+                        .state_fields = try state_fields.toOwnedSlice(self.alloc),
+                        .handler_names = try handler_names.toOwnedSlice(self.alloc),
+                    });
+                },
                 else => {},
             }
         }
@@ -55,6 +84,7 @@ pub const Lower = struct {
             switch (decl) {
                 .module_decl => |m| {
                     self.current_module = m.name;
+                    self.current_process_decl = null;
                     for (m.functions) |func| {
                         try self.lowerFunction(m.name, func);
                         if (std.mem.eql(u8, func.name, "main")) {
@@ -64,12 +94,14 @@ pub const Lower = struct {
                 },
                 .process_decl => |p| {
                     self.current_module = p.name;
+                    self.current_process_decl = p;
                     for (p.receive_handlers) |handler| {
-                        try self.lowerHandler(p.name, handler);
+                        try self.lowerHandler(p.name, handler, p);
                         if (std.mem.eql(u8, handler.name, "main")) {
                             self.program.entry_module = p.name;
                         }
                     }
+                    self.current_process_decl = null;
                 },
                 else => {},
             }
@@ -109,8 +141,13 @@ pub const Lower = struct {
         self.current_block_id = null;
     }
 
-    fn lowerHandler(self: *Lower, module: []const u8, handler: ast.ReceiveDecl) !void {
+    fn lowerHandler(self: *Lower, module: []const u8, handler: ast.ReceiveDecl, proc_decl: ast.ProcessDecl) !void {
         var f = ir.Function.init(module, handler.name, self.alloc);
+
+        // Reset per-function state
+        self.string_lens = .{};
+        self.string_vars = .{};
+
         var params = std.ArrayListUnmanaged(ir.Function.Param){};
         for (handler.params) |p| {
             try params.append(self.alloc, .{ .name = p.name, .type_ = resolveType(p.type_expr) });
@@ -119,14 +156,40 @@ pub const Lower = struct {
         f.return_type = resolveType(handler.return_type);
 
         self.current_fn = &f;
+        self.current_process_decl = proc_decl;
         const entry = f.newBlock();
         self.current_block_id = entry.id;
+
+        // Emit guard checks — if any guard fails, return makeTagged(1, guard_failed_tag)
+        for (handler.guards) |guard_expr| {
+            const guard_reg = self.lowerExpr(guard_expr);
+            const pass_id = f.newBlock().id;
+            const fail_id = f.newBlock().id;
+            self.appendInst(.{ .branch = .{ .cond = guard_reg, .then_block = pass_id, .else_block = fail_id } });
+            // Fail block: return tagged error(:guard_failed)
+            self.current_block_id = fail_id;
+            const tag_id_reg = f.newReg();
+            self.appendInst(.{ .const_int = .{ .dest = tag_id_reg, .value = 1 } }); // 1 = error tag
+            const val_reg = f.newReg();
+            self.appendInst(.{ .const_int = .{ .dest = val_reg, .value = 99 } }); // 99 = guard_failed sentinel
+            const tagged_reg = f.newReg();
+            self.appendInst(.{ .call_builtin = .{ .dest = tagged_reg, .name = "make_tagged", .args = blk: {
+                const a = self.alloc.alloc(ir.Reg, 2) catch break :blk &.{};
+                a[0] = tag_id_reg;
+                a[1] = val_reg;
+                break :blk a;
+            } } });
+            self.appendInst(.{ .ret = .{ .value = tagged_reg } });
+            // Continue in pass block
+            self.current_block_id = pass_id;
+        }
 
         for (handler.body) |stmt| self.lowerStmt(stmt);
 
         self.program.addFunction(f);
         self.current_fn = null;
         self.current_block_id = null;
+        self.current_process_decl = null;
     }
 
     // ── Statements ───────────────────────────────────────────
@@ -144,6 +207,26 @@ pub const Lower = struct {
                 }
             },
             .assign => |a| {
+                // Check if value is spawn — intercept before lowerExpr
+                if (a.value == .call) {
+                    if (a.value.call.target.* == .identifier and std.mem.eql(u8, a.value.call.target.identifier, "spawn")) {
+                        // spawn ProcessName() — args[0] is string_literal with process name
+                        if (a.value.call.args.len > 0 and a.value.call.args[0] == .string_literal) {
+                            const proc_name = a.value.call.args[0].string_literal;
+                            // Find process type index
+                            for (self.program.process_decls.items, 0..) |pd, pi| {
+                                if (std.mem.eql(u8, pd.name, proc_name)) {
+                                    const dest = func.newReg();
+                                    self.appendInst(.{ .process_spawn = .{ .dest = dest, .process_type = @intCast(pi) } });
+                                    self.appendInst(.{ .store_local = .{ .name = a.name, .src = dest } });
+                                    self.process_vars.put(self.alloc, a.name, proc_name) catch {};
+                                    break;
+                                }
+                            }
+                            return;
+                        }
+                    }
+                }
                 const reg = self.lowerExpr(a.value);
                 self.appendInst(.{ .store_local = .{ .name = a.name, .src = reg } });
                 // Store string length if the value has one tracked
@@ -223,6 +306,53 @@ pub const Lower = struct {
                 const list_reg = self.lowerExpr(a.target);
                 const val_reg = self.lowerExpr(a.value);
                 self.appendInst(.{ .list_append = .{ .list = list_reg, .value = val_reg } });
+            },
+            .transition => |t| {
+                // transition field_name { expr; }
+                if (self.current_process_decl) |pdecl| {
+                    const target_name = switch (t.target) {
+                        .identifier => |id| id,
+                        else => "",
+                    };
+                    if (t.fields.len == 1 and t.fields[0].name == null) {
+                        const val_reg = self.lowerExpr(t.fields[0].value);
+                        // Find field index
+                        for (pdecl.state_fields, 0..) |sf, fi| {
+                            if (std.mem.eql(u8, sf.name, target_name)) {
+                                self.appendInst(.{ .process_state_set = .{ .field_index = @intCast(fi), .src = val_reg } });
+                                break;
+                            }
+                        }
+                    }
+                }
+            },
+            .tell_stmt => |t| {
+                const target_reg = self.lowerExpr(t.target);
+                var arg_regs = std.ArrayListUnmanaged(ir.Reg){};
+                for (t.args) |arg| {
+                    arg_regs.append(self.alloc, self.lowerExpr(arg)) catch {};
+                }
+                // Resolve handler index from process type
+                if (t.target == .identifier) {
+                    if (self.process_vars.get(t.target.identifier)) |proc_type| {
+                        if (self.process_decls.get(proc_type)) |pdecl| {
+                            for (pdecl.receive_handlers, 0..) |h, hi| {
+                                if (std.mem.eql(u8, h.name, t.handler)) {
+                                    self.appendInst(.{ .process_tell = .{
+                                        .target = target_reg,
+                                        .handler_index = @intCast(hi),
+                                        .args = arg_regs.toOwnedSlice(self.alloc) catch &.{},
+                                    } });
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            .watch_stmt => |w| {
+                const target_reg = self.lowerExpr(w.target);
+                self.appendInst(.{ .process_watch = .{ .target = target_reg } });
             },
             .match_stmt => |m| {
                 const subject_reg = self.lowerExpr(m.subject);
@@ -312,6 +442,16 @@ pub const Lower = struct {
                 return dest;
             },
             .identifier => |name| {
+                // Check if this is a process state field
+                if (self.current_process_decl) |pdecl| {
+                    for (pdecl.state_fields, 0..) |sf, fi| {
+                        if (std.mem.eql(u8, sf.name, name)) {
+                            const dest = func.newReg();
+                            self.appendInst(.{ .process_state_get = .{ .dest = dest, .field_index = @intCast(fi) } });
+                            return dest;
+                        }
+                    }
+                }
                 const dest = func.newReg();
                 self.appendInst(.{ .load_local = .{ .dest = dest, .name = name } });
                 // Load string length for known string variables
@@ -392,6 +532,24 @@ pub const Lower = struct {
                     if (fa.target.* == .identifier) {
                         const mod_name = fa.target.identifier;
                         const fn_name = fa.field;
+
+                        // Process send: counter.Increment() -> process_send
+                        if (self.process_vars.get(mod_name)) |proc_type| {
+                            if (self.process_decls.get(proc_type)) |pdecl| {
+                                for (pdecl.receive_handlers, 0..) |h, hi| {
+                                    if (std.mem.eql(u8, h.name, fn_name)) {
+                                        const target_reg = self.lowerExpr(fa.target.*);
+                                        self.appendInst(.{ .process_send = .{
+                                            .dest = dest,
+                                            .target = target_reg,
+                                            .handler_index = @intCast(hi),
+                                            .args = args,
+                                        } });
+                                        return dest;
+                                    }
+                                }
+                            }
+                        }
 
                         // String builtins
                         if (std.mem.eql(u8, mod_name, "String")) {

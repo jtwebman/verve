@@ -284,3 +284,227 @@ test "compile: File.open success" {
     try testing.expectEqual(@as(u8, 0), r.exit);
     try testing.expectEqualStrings("ok\n", r.stdout);
 }
+
+// ════════════════════════════════════════════════════════════
+// Processes
+// ════════════════════════════════════════════════════════════
+
+test "compile: process main handler" {
+    const r = try compileAndCapture(
+        \\process App {
+        \\    state { x: int; }
+        \\    receive main() -> int {
+        \\        println("hello from process");
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("hello from process\n", r.stdout);
+}
+
+test "compile: process state default zero" {
+    const r = try compileAndCapture(
+        \\process App {
+        \\    state { count: int; }
+        \\    receive main() -> int {
+        \\        println(count);
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("0\n", r.stdout);
+}
+
+test "compile: process transition and state read" {
+    const r = try compileAndCapture(
+        \\process App {
+        \\    state { count: int; }
+        \\    receive main() -> int {
+        \\        transition count { count + 5; }
+        \\        println(count);
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("5\n", r.stdout);
+}
+
+test "compile: spawn and send" {
+    const r = try compileAndCapture(
+        \\process Counter {
+        \\    state { count: int; }
+        \\    receive Increment() -> int {
+        \\        transition count { count + 1; }
+        \\        return count;
+        \\    }
+        \\    receive GetCount() -> int {
+        \\        return count;
+        \\    }
+        \\}
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        counter: int = spawn Counter();
+        \\        match counter.Increment() {
+        \\            :ok{val} => println(val);
+        \\            :error{e} => println("err");
+        \\        }
+        \\        match counter.Increment() {
+        \\            :ok{val} => println(val);
+        \\            :error{e} => println("err");
+        \\        }
+        \\        match counter.GetCount() {
+        \\            :ok{val} => println(val);
+        \\            :error{e} => println("err");
+        \\        }
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("1\n2\n2\n", r.stdout);
+}
+
+test "compile: spawn and tell" {
+    const r = try compileAndCapture(
+        \\process Counter {
+        \\    state { count: int; }
+        \\    receive Increment() -> int {
+        \\        transition count { count + 1; }
+        \\        return count;
+        \\    }
+        \\    receive GetCount() -> int {
+        \\        return count;
+        \\    }
+        \\}
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        counter: int = spawn Counter();
+        \\        tell counter.Increment();
+        \\        tell counter.Increment();
+        \\        tell counter.Increment();
+        \\        match counter.GetCount() {
+        \\            :ok{val} => println(val);
+        \\            :error{e} => println("err");
+        \\        }
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("3\n", r.stdout);
+}
+
+test "compile: guard failure" {
+    const r = try compileAndCapture(
+        \\process Counter {
+        \\    state { count: int; }
+        \\    receive Add(n: int) -> int {
+        \\        guard n > 0;
+        \\        transition count { count + n; }
+        \\        return count;
+        \\    }
+        \\}
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        counter: int = spawn Counter();
+        \\        match counter.Add(5) {
+        \\            :ok{val} => println(val);
+        \\            :error{e} => println("guard failed");
+        \\        }
+        \\        match counter.Add(0) {
+        \\            :ok{val} => println(val);
+        \\            :error{e} => println("guard failed");
+        \\        }
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("5\nguard failed\n", r.stdout);
+}
+
+test "compile: multiple state fields" {
+    const r = try compileAndCapture(
+        \\process Pair {
+        \\    state { x: int; y: int; }
+        \\    receive SetX(val: int) -> int {
+        \\        transition x { val; }
+        \\        return x;
+        \\    }
+        \\    receive SetY(val: int) -> int {
+        \\        transition y { val; }
+        \\        return y;
+        \\    }
+        \\    receive Sum() -> int {
+        \\        return x + y;
+        \\    }
+        \\}
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        p: int = spawn Pair();
+        \\        match p.SetX(10) {
+        \\            :ok{v} => println(v);
+        \\            :error{e} => println("err");
+        \\        }
+        \\        match p.SetY(32) {
+        \\            :ok{v} => println(v);
+        \\            :error{e} => println("err");
+        \\        }
+        \\        match p.Sum() {
+        \\            :ok{v} => println(v);
+        \\            :error{e} => println("err");
+        \\        }
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("10\n32\n42\n", r.stdout);
+}
+
+test "compile: multi-process interaction" {
+    const r = try compileAndCapture(
+        \\process Adder {
+        \\    state { total: int; }
+        \\    receive Add(n: int) -> int {
+        \\        transition total { total + n; }
+        \\        return total;
+        \\    }
+        \\    receive GetTotal() -> int {
+        \\        return total;
+        \\    }
+        \\}
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        a1: int = spawn Adder();
+        \\        a2: int = spawn Adder();
+        \\        match a1.Add(10) {
+        \\            :ok{v} => println(v);
+        \\            :error{e} => println("err");
+        \\        }
+        \\        match a2.Add(20) {
+        \\            :ok{v} => println(v);
+        \\            :error{e} => println("err");
+        \\        }
+        \\        match a1.Add(5) {
+        \\            :ok{v} => println(v);
+        \\            :error{e} => println("err");
+        \\        }
+        \\        match a1.GetTotal() {
+        \\            :ok{v} => println(v);
+        \\            :error{e} => println("err");
+        \\        }
+        \\        match a2.GetTotal() {
+        \\            :ok{v} => println(v);
+        \\            :error{e} => println("err");
+        \\        }
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("10\n20\n15\n15\n20\n", r.stdout);
+}

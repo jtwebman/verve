@@ -8,12 +8,14 @@ pub const ZigBackend = struct {
     alloc: std.mem.Allocator,
     out: std.ArrayListUnmanaged(u8),
     indent: usize,
+    program: ir.Program,
 
     pub fn init(alloc: std.mem.Allocator) ZigBackend {
         return .{
             .alloc = alloc,
             .out = .{},
             .indent = 0,
+            .program = ir.Program.init(alloc),
         };
     }
 
@@ -51,6 +53,7 @@ pub const ZigBackend = struct {
     // ── Emit program ─────────────────────────────────────────
 
     pub fn emit(self: *ZigBackend, program: ir.Program) void {
+        self.program = program;
         // Preamble
         self.line("const std = @import(\"std\");");
         self.line("");
@@ -151,6 +154,124 @@ pub const ZigBackend = struct {
         self.line("}");
         self.line("");
 
+        // ── Process runtime ──────────────────────────────────
+        if (program.process_decls.items.len > 0) {
+            self.line("// ── Process runtime ──────────────────────────────");
+            self.line("const VerveProcess = struct {");
+            self.indent += 1;
+            self.line("id: i64,");
+            self.line("alive: bool,");
+            self.line("process_type: i64,");
+            self.line("state: [16]i64,");
+            self.line("watcher_pids: [64]i64,");
+            self.line("watcher_count: usize,");
+            self.indent -= 1;
+            self.line("};");
+            self.line("");
+            self.line("var process_table: [256]VerveProcess = blk: {");
+            self.indent += 1;
+            self.line("var t: [256]VerveProcess = undefined;");
+            self.line("for (&t) |*p| { p.* = .{ .id = 0, .alive = false, .process_type = 0, .state = @splat(0), .watcher_pids = @splat(0), .watcher_count = 0 }; }");
+            self.line("break :blk t;");
+            self.indent -= 1;
+            self.line("};");
+            self.line("var process_count: i64 = 0;");
+            self.line("var current_process_id: i64 = 0;");
+            self.line("var handler_error: bool = false;");
+            self.line("");
+            self.line("fn verve_spawn(process_type: i64) i64 {");
+            self.indent += 1;
+            self.line("process_count += 1;");
+            self.line("const idx: usize = @intCast(@as(u64, @bitCast(process_count - 1)));");
+            self.line("process_table[idx] = .{ .id = process_count, .alive = true, .process_type = process_type, .state = @splat(0), .watcher_pids = @splat(0), .watcher_count = 0 };");
+            self.line("return process_count;");
+            self.indent -= 1;
+            self.line("}");
+            self.line("");
+            self.line("fn verve_state_get(field_index: i64) i64 {");
+            self.indent += 1;
+            self.line("const idx: usize = @intCast(@as(u64, @bitCast(current_process_id - 1)));");
+            self.line("return process_table[idx].state[@intCast(@as(u64, @bitCast(field_index)))];");
+            self.indent -= 1;
+            self.line("}");
+            self.line("");
+            self.line("fn verve_state_set(field_index: i64, value: i64) void {");
+            self.indent += 1;
+            self.line("const idx: usize = @intCast(@as(u64, @bitCast(current_process_id - 1)));");
+            self.line("process_table[idx].state[@intCast(@as(u64, @bitCast(field_index)))] = value;");
+            self.indent -= 1;
+            self.line("}");
+            self.line("");
+            self.line("fn verve_watch(target_pid: i64) void {");
+            self.indent += 1;
+            self.line("const idx: usize = @intCast(@as(u64, @bitCast(target_pid - 1)));");
+            self.line("const wc = process_table[idx].watcher_count;");
+            self.line("process_table[idx].watcher_pids[wc] = current_process_id;");
+            self.line("process_table[idx].watcher_count = wc + 1;");
+            self.indent -= 1;
+            self.line("}");
+            self.line("");
+
+            // Emit per-process dispatch functions
+            for (program.process_decls.items, 0..) |pd, pdi| {
+                self.writeFmt("fn verve_dispatch_{d}(handler_id: i64, args: [*]const i64, arg_count: i64) i64 {{\n", .{pdi});
+                self.indent += 1;
+                self.line("_ = arg_count;");
+                self.line("_ = &args;");
+                self.line("return switch (handler_id) {");
+                self.indent += 1;
+                for (pd.handler_names, 0..) |hname, hi| {
+                    self.writeIndent();
+                    self.writeFmt("{d} => verve_{s}_{s}(", .{ hi, pd.name, hname });
+                    // Find the handler param count from the program's functions
+                    var param_count: usize = 0;
+                    for (program.functions.items) |f| {
+                        if (std.mem.eql(u8, f.module, pd.name) and std.mem.eql(u8, f.name, hname)) {
+                            param_count = f.params.len;
+                            break;
+                        }
+                    }
+                    for (0..param_count) |pi| {
+                        if (pi > 0) self.write(", ");
+                        self.writeFmt("args[{d}]", .{pi});
+                    }
+                    self.write("),\n");
+                }
+                self.line("else => makeTagged(1, 0),");
+                self.indent -= 1;
+                self.line("};");
+                self.indent -= 1;
+                self.line("}");
+                self.line("");
+            }
+
+            // Top-level dispatch
+            self.line("fn verve_send(target_pid: i64, handler_id: i64, args: [*]const i64, arg_count: i64) i64 {");
+            self.indent += 1;
+            self.line("const idx: usize = @intCast(@as(u64, @bitCast(target_pid - 1)));");
+            self.line("const proc = &process_table[idx];");
+            self.line("if (!proc.alive) return makeTagged(1, 0);");
+            self.line("const saved = current_process_id;");
+            self.line("current_process_id = target_pid;");
+            // Dispatch by process type
+            self.write("    const result = switch (proc.process_type) {\n");
+            self.indent += 1;
+            for (program.process_decls.items, 0..) |_, pdi| {
+                self.lineFmt("{d} => verve_dispatch_{d}(handler_id, args, arg_count),", .{ pdi, pdi });
+            }
+            self.line("else => makeTagged(1, 0),");
+            self.indent -= 1;
+            self.line("};");
+            self.line("current_process_id = saved;");
+            self.line("// If handler returned an error tag, pass through without wrapping");
+            self.line("// Tagged pointers are heap addresses (large values); normal returns are small ints");
+            self.line("if (result > 0x10000 and getTag(result) == 1) return result;");
+            self.line("return makeTagged(0, result);");
+            self.indent -= 1;
+            self.line("}");
+            self.line("");
+        }
+
         // Emit functions (non-main first, main last for Zig ordering)
         for (program.functions.items) |func| {
             if (!std.mem.eql(u8, func.name, "main")) {
@@ -158,10 +279,30 @@ pub const ZigBackend = struct {
                 self.line("");
             }
         }
-        // Emit main
+        // Check if main is a process handler — emit as regular function too
+        var main_is_process = false;
         for (program.functions.items) |func| {
             if (std.mem.eql(u8, func.name, "main")) {
-                self.emitFunction(func, true);
+                for (program.process_decls.items) |pd| {
+                    if (std.mem.eql(u8, pd.name, func.module)) {
+                        main_is_process = true;
+                        // Emit as regular function for dispatch table
+                        self.emitFunction(func, false);
+                        self.line("");
+                        break;
+                    }
+                }
+            }
+        }
+        // Emit main entry point
+        for (program.functions.items) |func| {
+            if (std.mem.eql(u8, func.name, "main")) {
+                if (main_is_process) {
+                    // Process main: spawn process, set current, call handler
+                    self.emitProcessMainWrapper(func);
+                } else {
+                    self.emitFunction(func, true);
+                }
             }
         }
     }
@@ -283,6 +424,32 @@ pub const ZigBackend = struct {
             self.line("return 0;");
         }
 
+        self.indent -= 1;
+        self.line("}");
+    }
+
+    fn emitProcessMainWrapper(self: *ZigBackend, func: ir.Function) void {
+        self.line("pub fn main() void {");
+        self.indent += 1;
+        // Find process type index
+        for (self.program.process_decls.items, 0..) |pd, pdi| {
+            if (std.mem.eql(u8, pd.name, func.module)) {
+                self.lineFmt("const pid = verve_spawn({d});", .{pdi});
+                self.line("current_process_id = pid;");
+                break;
+            }
+        }
+        self.writeFmt("    const result = verve_{s}_{s}(", .{ func.module, func.name });
+        for (func.params, 0..) |_, i| {
+            if (i > 0) self.write(", ");
+            self.write("0");
+        }
+        self.write(");\n");
+        self.line("if (result != 0) {");
+        self.indent += 1;
+        self.line("std.posix.exit(@intCast(@as(u64, @bitCast(result))));");
+        self.indent -= 1;
+        self.line("}");
         self.indent -= 1;
         self.line("}");
     }
@@ -429,6 +596,46 @@ pub const ZigBackend = struct {
                 });
             },
 
+            .process_spawn => |ps| {
+                self.lineFmt("{s} = verve_spawn({d});", .{ self.regName(ps.dest), ps.process_type });
+            },
+            .process_send => |ps| {
+                // Build args array, call verve_send
+                if (ps.args.len > 0) {
+                    self.writeIndent();
+                    self.writeFmt("{{ const send_args = [_]i64{{ ", .{});
+                    for (ps.args, 0..) |arg, i| {
+                        if (i > 0) self.write(", ");
+                        self.write(self.regName(arg));
+                    }
+                    self.writeFmt(" }}; {s} = verve_send({s}, {d}, &send_args, {d}); }}\n", .{ self.regName(ps.dest), self.regName(ps.target), ps.handler_index, ps.args.len });
+                } else {
+                    self.lineFmt("{{ const send_args = [_]i64{{0}}; {s} = verve_send({s}, {d}, &send_args, 0); }}", .{ self.regName(ps.dest), self.regName(ps.target), ps.handler_index });
+                }
+            },
+            .process_tell => |pt| {
+                if (pt.args.len > 0) {
+                    self.writeIndent();
+                    self.writeFmt("{{ const tell_args = [_]i64{{ ", .{});
+                    for (pt.args, 0..) |arg, i| {
+                        if (i > 0) self.write(", ");
+                        self.write(self.regName(arg));
+                    }
+                    self.writeFmt(" }}; _ = verve_send({s}, {d}, &tell_args, {d}); }}\n", .{ self.regName(pt.target), pt.handler_index, pt.args.len });
+                } else {
+                    self.lineFmt("{{ const tell_args = [_]i64{{0}}; _ = verve_send({s}, {d}, &tell_args, 0); }}", .{ self.regName(pt.target), pt.handler_index });
+                }
+            },
+            .process_state_get => |sg| {
+                self.lineFmt("{s} = verve_state_get({d});", .{ self.regName(sg.dest), sg.field_index });
+            },
+            .process_state_set => |ss| {
+                self.lineFmt("verve_state_set({d}, {s});", .{ ss.field_index, self.regName(ss.src) });
+            },
+            .process_watch => |pw| {
+                self.lineFmt("verve_watch({s});", .{self.regName(pw.target)});
+            },
+
             .break_loop, .continue_loop => {},
         }
     }
@@ -485,6 +692,10 @@ pub const ZigBackend = struct {
             }
         } else if (std.mem.eql(u8, name, "stream_close")) {
             self.lineFmt("{s} = 0; // stream close (no-op)", .{self.regName(dest)});
+        } else if (std.mem.eql(u8, name, "make_tagged")) {
+            if (args.len >= 2) {
+                self.lineFmt("{s} = makeTagged({s}, {s});", .{ self.regName(dest), self.regName(args[0]), self.regName(args[1]) });
+            }
         } else {
             self.lineFmt("{s} = 0; // unknown builtin: {s}", .{ self.regName(dest), name });
         }
@@ -534,6 +745,9 @@ pub const ZigBackend = struct {
             .string_index => |si| si.dest,
             .string_len => |sl| sl.dest,
             .string_eq => |se| se.dest,
+            .process_spawn => |ps| ps.dest,
+            .process_send => |ps| ps.dest,
+            .process_state_get => |sg| sg.dest,
             else => null,
         };
     }

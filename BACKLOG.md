@@ -127,17 +127,17 @@ High-impact gaps identified by AI self-review:
 
 ## Phase 4 — Native Compilation (x86_64)
 
-- [ ] Design Verve IR (target-agnostic, SSA-style)
-- [ ] Lower typed AST to Verve IR
+- [x] Design Verve IR (target-agnostic, SSA-style)
+- [x] Lower typed AST to Verve IR
 - [ ] x86_64 instruction selection
 - [ ] Register allocator
 - [ ] ELF binary emission (Linux)
 - [ ] Process runtime — multi-threaded scheduler
 - [ ] Process runtime — message queues with fixed capacity
-- [ ] Process runtime — spawn/watch/ProcessDied
+- [x] Process runtime — spawn/watch/ProcessDied
 - [ ] Process runtime — send with actual timeout
-- [ ] Process runtime — pre-allocated state memory
-- [ ] CLI — `verve build file.vv`
+- [x] Process runtime — pre-allocated state memory (cooperative single-threaded)
+- [x] CLI — `verve build file.vv`
 - [ ] Benchmark: message passing throughput
 
 ## Phase 5 — arm64 & Cross-compilation
