@@ -4,7 +4,6 @@ const std = @import("std");
 /// SSA-style: each instruction produces a value in a virtual register.
 /// Types are monomorphized: int is bare i64, not a tagged union.
 /// No OS-specific operations — backends map builtins to syscalls/APIs.
-
 pub const Type = enum {
     i64,
     f64,

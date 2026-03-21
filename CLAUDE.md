@@ -1,6 +1,14 @@
 # Verve
 
-Process-oriented language with no exceptions, no recursion, no nulls. Written in Zig 0.15. Tree-walk interpreter, native compilation planned.
+Process-oriented language with no exceptions, no recursion, no nulls. Written in Zig 0.15. Tree-walk interpreter + native compiler via Zig backend.
+
+## Before every commit
+
+1. Run `zig fmt` on all changed files: `/home/jt/.local/zig/zig fmt src/file.zig`
+2. Build: `/home/jt/.local/zig/zig build`
+3. All tests pass: `/home/jt/.local/zig/zig build test`
+
+Do NOT commit code that fails any of these steps.
 
 ## Quick reference
 
@@ -8,33 +16,46 @@ See `LANGUAGE.md` for complete syntax, built-in modules, and API reference.
 
 ## Project structure
 
+### Interpreter (verve run)
 - `src/parser.zig` — hand-written recursive descent parser
 - `src/ast.zig` — AST node definitions
-- `src/interpreter.zig` — tree-walk interpreter with built-in modules (String, Map, Set, Stdio, File, Stream)
+- `src/interpreter.zig` — tree-walk interpreter with built-in modules
 - `src/value.zig` — runtime value types (int, float, string, list, map, set, stream, struct, tag, poison)
 - `src/process.zig` — process scheduler, mailbox, state management
 - `src/checker.zig` — type checker (undefined vars, recursion detection, doc comment enforcement)
-- `src/verifier.zig` — @example and @property test runner
+- `src/verifier.zig` — @example, @property, and test block runner
 - `src/formatter.zig` — canonical code formatter
 - `src/loader.zig` — multi-file import resolver
-- `src/main.zig` — CLI entry point (run, check, test, fmt)
-- `examples/` — working example programs
+
+### Compiler (verve build)
+- `src/ir.zig` — target-independent SSA intermediate representation
+- `src/lower.zig` — lowers AST to IR
+- `src/zig_backend.zig` — emits Zig source from IR, compiles via zig build-exe
+
+### CLI
+- `src/main.zig` — CLI entry point (run, build, check, test, fmt)
+
+### Examples
+- `examples/` — working example programs including self-hosting tokenizer (parser.vv)
 
 ## Build and test
 
 ```
-/home/jt/.local/zig/zig build        # build
-/home/jt/.local/zig/zig build test   # run all tests
-./zig-out/bin/verve run file.vv      # run a program
-./zig-out/bin/verve check file.vv    # type check
-./zig-out/bin/verve test file.vv     # run @example tests
+/home/jt/.local/zig/zig build              # build
+/home/jt/.local/zig/zig build test         # run all tests
+./zig-out/bin/verve run file.vv            # run (interpreter)
+./zig-out/bin/verve build file.vv          # compile to native binary
+./zig-out/bin/verve check file.vv          # type check
+./zig-out/bin/verve test file.vv           # run @example and test blocks
+./zig-out/bin/verve fmt file.vv            # format in place
 ```
 
 ## Key design decisions
 
-- Strings are UTF-8 byte sequences. `s[i]` is byte access, `String.char_at(s, i)` is code point access.
-- IO uses opaque `stream` values. Stdio/File return streams, Stream module operates on them.
-- Doc comments (`///`) are required on all exported modules, processes, and functions.
-- No recursion — enforced by call graph cycle detection. Use while loops with explicit stacks.
-- Poison values instead of exceptions for arithmetic errors.
-- Processes communicate via send (returns Result) and tell (fire-and-forget).
+- Strings are UTF-8 byte sequences stored as (ptr, len) fat pointers in compiled code
+- IO uses opaque `stream` values. Stdio/File return streams, Stream module operates on them
+- Doc comments (`///`) required on all exported modules, processes, and functions
+- No recursion — enforced by call graph cycle detection. Use while loops with explicit stacks
+- Poison values instead of exceptions for arithmetic errors
+- Processes communicate via send (returns Result) and tell (fire-and-forget)
+- Compiler pipeline: AST → IR (target-independent) → Zig backend → native binary

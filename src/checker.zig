@@ -567,10 +567,10 @@ pub const Checker = struct {
             .simple => |name| {
                 // Built-in types
                 const builtins = [_][]const u8{
-                    "int",     "int8",    "int16",   "int32",        "int64",
-                    "uint8",   "uint16",  "uint32",  "uint64",       "float",
-                    "float32", "float64", "decimal",  "string",       "bool",
-                    "byte",    "bytes",   "void",    "uuid",         "email",
+                    "int",     "int8",    "int16",        "int32",    "int64",
+                    "uint8",   "uint16",  "uint32",       "uint64",   "float",
+                    "float32", "float64", "decimal",      "string",   "bool",
+                    "byte",    "bytes",   "void",         "uuid",     "email",
                     "uri",     "phone",   "utc_datetime", "duration", "Result",
                     "stream",
                 };
@@ -594,7 +594,10 @@ pub const Checker = struct {
                 const known_generics = [_][]const u8{ "list", "map", "set", "stack", "queue", "process", "Result" };
                 var found = false;
                 for (known_generics) |kg| {
-                    if (std.mem.eql(u8, g.name, kg)) { found = true; break; }
+                    if (std.mem.eql(u8, g.name, kg)) {
+                        found = true;
+                        break;
+                    }
                 }
                 if (!found and self.struct_decls.get(g.name) == null) {
                     try self.addError(

@@ -159,14 +159,14 @@ pub const Parser = struct {
     // ── Identifiers & Literals ────────────────────────────────
 
     const reserved_words = [_][]const u8{
-        "fn",        "module",    "process",   "struct",
-        "type",      "state",     "receive",   "guard",
-        "match",     "while",     "return",    "send",
-        "tell",      "spawn",     "watch",     "connect",
-        "transition","append",    "use",       "invariant",
-        "enum",      "union",     "import",    "export",
-        "break",     "continue", "if",        "else",
-        "assert",    "test",
+        "fn",         "module",   "process", "struct",
+        "type",       "state",    "receive", "guard",
+        "match",      "while",    "return",  "send",
+        "tell",       "spawn",    "watch",   "connect",
+        "transition", "append",   "use",     "invariant",
+        "enum",       "union",    "import",  "export",
+        "break",      "continue", "if",      "else",
+        "assert",     "test",
     };
 
     fn isReserved(word: []const u8) bool {
@@ -510,14 +510,32 @@ pub const Parser = struct {
         if (self.pos >= self.source.len) return null;
         if (self.pos + 1 < self.source.len) {
             const two = self.source[self.pos .. self.pos + 2];
-            if (std.mem.eql(u8, two, "==")) { self.pos += 2; return .eq; }
-            if (std.mem.eql(u8, two, "!=")) { self.pos += 2; return .neq; }
-            if (std.mem.eql(u8, two, ">=")) { self.pos += 2; return .gte; }
-            if (std.mem.eql(u8, two, "<=")) { self.pos += 2; return .lte; }
+            if (std.mem.eql(u8, two, "==")) {
+                self.pos += 2;
+                return .eq;
+            }
+            if (std.mem.eql(u8, two, "!=")) {
+                self.pos += 2;
+                return .neq;
+            }
+            if (std.mem.eql(u8, two, ">=")) {
+                self.pos += 2;
+                return .gte;
+            }
+            if (std.mem.eql(u8, two, "<=")) {
+                self.pos += 2;
+                return .lte;
+            }
             if (std.mem.eql(u8, two, "=>")) return null;
         }
-        if (self.source[self.pos] == '>') { self.pos += 1; return .gt; }
-        if (self.source[self.pos] == '<') { self.pos += 1; return .lt; }
+        if (self.source[self.pos] == '>') {
+            self.pos += 1;
+            return .gt;
+        }
+        if (self.source[self.pos] == '<') {
+            self.pos += 1;
+            return .lt;
+        }
         return null;
     }
 

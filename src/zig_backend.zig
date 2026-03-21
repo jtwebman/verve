@@ -4,7 +4,6 @@ const ir = @import("ir.zig");
 /// Zig code emitter backend.
 /// Consumes target-independent IR, emits Zig source code.
 /// Compile with `zig build-exe` for native binary.
-
 pub const ZigBackend = struct {
     alloc: std.mem.Allocator,
     out: std.ArrayListUnmanaged(u8),

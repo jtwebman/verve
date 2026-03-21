@@ -3,7 +3,6 @@ const ast = @import("ast.zig");
 const ir = @import("ir.zig");
 
 /// Lowers Verve AST to target-independent IR.
-
 pub const Lower = struct {
     alloc: std.mem.Allocator,
     program: ir.Program,
@@ -252,10 +251,7 @@ pub const Lower = struct {
                             const tag_reg = func.newReg();
                             self.appendInst(.{ .tag_get = .{ .dest = tag_reg, .tagged = subject_reg } });
                             // Map tag name to id: ok=0, error=1, eof=2
-                            const tag_id: i64 = if (std.mem.eql(u8, t.tag, "ok")) 0
-                                else if (std.mem.eql(u8, t.tag, "error")) 1
-                                else if (std.mem.eql(u8, t.tag, "eof")) 2
-                                else -1;
+                            const tag_id: i64 = if (std.mem.eql(u8, t.tag, "ok")) 0 else if (std.mem.eql(u8, t.tag, "error")) 1 else if (std.mem.eql(u8, t.tag, "eof")) 2 else -1;
                             const id_reg = func.newReg();
                             self.appendInst(.{ .const_int = .{ .dest = id_reg, .value = tag_id } });
                             const cmp_reg = func.newReg();

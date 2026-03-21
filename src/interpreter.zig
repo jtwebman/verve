@@ -93,11 +93,26 @@ pub const Interpreter = struct {
 
     fn freezeValue(val: Value) Value {
         switch (val) {
-            .list => |ml| { ml.frozen = true; return val; },
-            .map => |mm| { mm.frozen = true; return val; },
-            .set => |ms| { ms.frozen = true; return val; },
-            .stack => |ms| { ms.frozen = true; return val; },
-            .queue => |mq| { mq.frozen = true; return val; },
+            .list => |ml| {
+                ml.frozen = true;
+                return val;
+            },
+            .map => |mm| {
+                mm.frozen = true;
+                return val;
+            },
+            .set => |ms| {
+                ms.frozen = true;
+                return val;
+            },
+            .stack => |ms| {
+                ms.frozen = true;
+                return val;
+            },
+            .queue => |mq| {
+                mq.frozen = true;
+                return val;
+            },
             else => return val,
         }
     }
