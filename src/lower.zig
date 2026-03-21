@@ -233,8 +233,32 @@ pub const Lower = struct {
                             self.appendInst(.{ .jump = .{ .target = merge_id } });
                             self.current_block_id = next_id;
                         },
-                        .tag => {
+                        .tag => |t| {
+                            // Tag matching: check tag_id
+                            const tag_reg = func.newReg();
+                            self.appendInst(.{ .tag_get = .{ .dest = tag_reg, .tagged = subject_reg } });
+                            // Map tag name to id: ok=0, error=1, eof=2
+                            const tag_id: i64 = if (std.mem.eql(u8, t.tag, "ok")) 0
+                                else if (std.mem.eql(u8, t.tag, "error")) 1
+                                else if (std.mem.eql(u8, t.tag, "eof")) 2
+                                else -1;
+                            const id_reg = func.newReg();
+                            self.appendInst(.{ .const_int = .{ .dest = id_reg, .value = tag_id } });
+                            const cmp_reg = func.newReg();
+                            self.appendInst(.{ .eq_i64 = .{ .dest = cmp_reg, .lhs = tag_reg, .rhs = id_reg } });
+                            const arm_id = func.newBlock().id;
+                            const next_id = func.newBlock().id;
+                            self.appendInst(.{ .branch = .{ .cond = cmp_reg, .then_block = arm_id, .else_block = next_id } });
+                            self.current_block_id = arm_id;
+                            // Bind inner value to variable names
+                            if (t.bindings.len > 0) {
+                                const val_reg = func.newReg();
+                                self.appendInst(.{ .tag_value = .{ .dest = val_reg, .tagged = subject_reg } });
+                                self.appendInst(.{ .store_local = .{ .name = t.bindings[0], .src = val_reg } });
+                            }
+                            for (arm.body) |s| self.lowerStmt(s);
                             self.appendInst(.{ .jump = .{ .target = merge_id } });
+                            self.current_block_id = next_id;
                         },
                     }
                 }
@@ -393,6 +417,27 @@ pub const Lower = struct {
                             return dest;
                         }
                         if (std.mem.eql(u8, mod_name, "File")) {
+                            if (std.mem.eql(u8, fn_name, "open")) {
+                                // File.open(path, mode) — need path + length
+                                var file_args = std.ArrayListUnmanaged(ir.Reg){};
+                                for (c.args, 0..) |arg, ai| {
+                                    const areg = self.lowerExpr(arg);
+                                    file_args.append(self.alloc, areg) catch {};
+                                    // Add length for string args
+                                    if (arg == .string_literal) {
+                                        const lr = func.newReg();
+                                        self.appendInst(.{ .const_int = .{ .dest = lr, .value = @intCast(arg.string_literal.len) } });
+                                        file_args.append(self.alloc, lr) catch {};
+                                    } else if (ai == 0) {
+                                        // Path variable — need its length. For now use string_len
+                                        const lr = func.newReg();
+                                        self.appendInst(.{ .string_len = .{ .dest = lr, .str = areg } });
+                                        file_args.append(self.alloc, lr) catch {};
+                                    }
+                                }
+                                self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = "file_open", .args = file_args.toOwnedSlice(self.alloc) catch &.{} } });
+                                return dest;
+                            }
                             const builtin_name = std.fmt.allocPrint(self.alloc, "file_{s}", .{fn_name}) catch fn_name;
                             self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = builtin_name, .args = args } });
                             return dest;

@@ -56,6 +56,10 @@ pub const Inst = union(enum) {
     break_loop: void,
     continue_loop: void,
 
+    // ── Tagged values ────────────────────────────────────
+    tag_get: struct { dest: Reg, tagged: Reg },
+    tag_value: struct { dest: Reg, tagged: Reg },
+
     // ── Calls ───────────────────────────────────────────
     /// Call a user-defined function.
     call: struct { dest: Reg, module: []const u8, function: []const u8, args: []const Reg },

@@ -91,6 +91,57 @@ pub const ZigBackend = struct {
         self.indent -= 1;
         self.line("};");
         self.line("");
+        // Tagged values: tag_id (0=ok, 1=error, 2=eof), value
+        self.line("const Tagged = struct { tag: i64, value: i64 };");
+        self.line("fn makeTagged(tag: i64, value: i64) i64 {");
+        self.indent += 1;
+        self.line("const t = std.heap.page_allocator.create(Tagged) catch return 0;");
+        self.line("t.* = .{ .tag = tag, .value = value };");
+        self.line("return @intCast(@intFromPtr(t));");
+        self.indent -= 1;
+        self.line("}");
+        self.line("fn getTag(ptr: i64) i64 {");
+        self.indent += 1;
+        self.line("if (ptr == 0) return -1;");
+        self.line("return @as(*const Tagged, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(ptr)))))).tag;");
+        self.indent -= 1;
+        self.line("}");
+        self.line("fn getTagValue(ptr: i64) i64 {");
+        self.indent += 1;
+        self.line("if (ptr == 0) return 0;");
+        self.line("return @as(*const Tagged, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(ptr)))))).value;");
+        self.indent -= 1;
+        self.line("}");
+        self.line("");
+        self.line("fn fileOpen(path_ptr: i64, path_len: i64) i64 {");
+        self.indent += 1;
+        self.line("const ptr = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(path_ptr))))));");
+        self.line("const len: usize = if (path_len > 0) @intCast(@as(u64, @bitCast(path_len))) else blk: { var l: usize = 0; while (ptr[l] != 0) l += 1; break :blk l; };");
+        self.line("const path = ptr[0..len];");
+        self.line("const data = std.fs.cwd().readFileAlloc(std.heap.page_allocator, path, 10 * 1024 * 1024) catch return makeTagged(1, 0);");
+        self.line("// Store data ptr and len as a stream (two i64s)");
+        self.line("const stream = std.heap.page_allocator.alloc(i64, 3) catch return makeTagged(1, 0);");
+        self.line("stream[0] = @intCast(@intFromPtr(data.ptr));");
+        self.line("stream[1] = @intCast(data.len);");
+        self.line("stream[2] = 0; // read position");
+        self.line("return makeTagged(0, @intCast(@intFromPtr(stream.ptr)));");
+        self.indent -= 1;
+        self.line("}");
+        self.line("");
+        self.line("fn streamReadAll(stream_ptr: i64) i64 {");
+        self.indent += 1;
+        self.line("const s = @as([*]i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(stream_ptr))))));");
+        self.line("return s[0]; // return data ptr");
+        self.indent -= 1;
+        self.line("}");
+        self.line("fn streamReadAllLen(stream_ptr: i64) i64 {");
+        self.indent += 1;
+        self.line("const s = @as([*]i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(stream_ptr))))));");
+        self.line("return s[1]; // return data len");
+        self.indent -= 1;
+        self.line("}");
+        self.line("");
+
         self.line("fn strEql(a: [*]const u8, a_len: i64, b: [*]const u8, b_len: i64) bool {");
         self.indent += 1;
         self.line("if (a_len != b_len) return false;");
@@ -319,6 +370,13 @@ pub const ZigBackend = struct {
                 self.lineFmt("{s} = @as(*const List, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s})))))).get({s});", .{ self.regName(lg.dest), self.regName(lg.list), self.regName(lg.index) });
             },
 
+            .tag_get => |tg| {
+                self.lineFmt("{s} = getTag({s});", .{ self.regName(tg.dest), self.regName(tg.tagged) });
+            },
+            .tag_value => |tv| {
+                self.lineFmt("{s} = getTagValue({s});", .{ self.regName(tv.dest), self.regName(tv.tagged) });
+            },
+
             .string_byte_at => |sb| {
                 self.lineFmt("{s} = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s}))))))[", .{ self.regName(sb.dest), self.regName(sb.str) });
                 self.writeFmt("@intCast(@as(u64, @bitCast({s})))];\n", .{self.regName(sb.index)});
@@ -377,9 +435,27 @@ pub const ZigBackend = struct {
             if (args.len >= 2) {
                 self.lineFmt("{{ const list = @as(*const List, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s})))))); var found: i64 = 0; var si: i64 = 0; while (si < list.len) : (si += 1) {{ if (list.get(si) == {s}) {{ found = 1; break; }} }} {s} = found; }}", .{ self.regName(args[0]), self.regName(args[1]), self.regName(dest) });
             }
+        } else if (std.mem.eql(u8, name, "file_open")) {
+            // args: path_ptr, path_len, mode_ptr, ...
+            if (args.len >= 2) {
+                self.lineFmt("{s} = fileOpen({s}, {s});", .{ self.regName(dest), self.regName(args[0]), self.regName(args[1]) });
+            }
+        } else if (std.mem.eql(u8, name, "stream_read_all")) {
+            if (args.len >= 1) {
+                self.lineFmt("{s} = streamReadAll({s});", .{ self.regName(dest), self.regName(args[0]) });
+            }
+        } else if (std.mem.eql(u8, name, "stream_close")) {
+            self.lineFmt("{s} = 0; // stream close (no-op)", .{self.regName(dest)});
         } else {
             self.lineFmt("{s} = 0; // unknown builtin: {s}", .{ self.regName(dest), name });
         }
+    }
+
+    fn findStringLen(self: *ZigBackend, reg: ir.Reg) ?ir.Reg {
+        // String length is typically reg+1 (convention from lowering)
+        _ = self;
+        _ = reg;
+        return null; // TODO: proper string length tracking
     }
 
     fn findOrAddLocal(self: *ZigBackend, name: []const u8, local_names: *[128][]const u8, local_count: *usize) usize {
@@ -411,6 +487,8 @@ pub const ZigBackend = struct {
             .list_new => |ln| ln.dest,
             .list_len => |ll| ll.dest,
             .list_get => |lg| lg.dest,
+            .tag_get => |tg| tg.dest,
+            .tag_value => |tv| tv.dest,
             .string_byte_at => |sb| sb.dest,
             .string_len => |sl| sl.dest,
             .string_eq => |se| se.dest,
