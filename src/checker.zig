@@ -383,7 +383,10 @@ pub const Checker = struct {
                     }
                 }
 
+                // Require wildcard unless exhaustiveness is proven
+                var has_wildcard = false;
                 for (m.arms) |arm| {
+                    if (arm.pattern == .wildcard) has_wildcard = true;
                     switch (arm.pattern) {
                         .tag => |t| {
                             for (t.bindings) |binding| {
@@ -393,6 +396,81 @@ pub const Checker = struct {
                         else => {},
                     }
                     for (arm.body) |s| try self.checkStmt(s);
+                }
+                if (!has_wildcard and m.arms.len > 0) {
+                    // Check if exhaustiveness was already proven (bool or enum)
+                    var proven_exhaustive = false;
+                    if (m.subject == .binary_op) {
+                        // Bool exhaustiveness: check if both true and false are covered
+                        var has_true = false;
+                        var has_false = false;
+                        for (m.arms) |arm| {
+                            if (arm.pattern == .literal) {
+                                if (arm.pattern.literal == .bool_literal) {
+                                    if (arm.pattern.literal.bool_literal) has_true = true else has_false = true;
+                                }
+                            }
+                        }
+                        if (has_true and has_false) proven_exhaustive = true;
+                    }
+                    if (m.subject == .identifier) {
+                        if (self.current_scope.get(m.subject.identifier)) |maybe_type| {
+                            if (maybe_type) |type_expr| {
+                                const type_name = self.typeExprName(type_expr);
+                                if (std.mem.eql(u8, type_name, "bool")) {
+                                    var has_true = false;
+                                    var has_false = false;
+                                    for (m.arms) |arm| {
+                                        if (arm.pattern == .literal) {
+                                            if (arm.pattern.literal == .bool_literal) {
+                                                if (arm.pattern.literal.bool_literal) has_true = true else has_false = true;
+                                            }
+                                        }
+                                    }
+                                    if (has_true and has_false) proven_exhaustive = true;
+                                }
+                                if (self.type_decls.get(type_name)) |td| {
+                                    if (td.value == .enum_type) {
+                                        var all_covered = true;
+                                        var covered: std.StringHashMapUnmanaged(void) = .{};
+                                        for (m.arms) |arm| {
+                                            switch (arm.pattern) {
+                                                .tag => |t| covered.put(self.alloc, t.tag, {}) catch {},
+                                                .literal => |e| {
+                                                    if (e == .tag) covered.put(self.alloc, e.tag, {}) catch {};
+                                                },
+                                                else => {},
+                                            }
+                                        }
+                                        for (td.value.enum_type) |variant| {
+                                            if (covered.get(variant) == null) all_covered = false;
+                                        }
+                                        if (all_covered) proven_exhaustive = true;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    // Result<T> exhaustiveness: :ok + :error covers all cases
+                    if (!proven_exhaustive) {
+                        var has_ok = false;
+                        var has_error = false;
+                        for (m.arms) |arm| {
+                            if (arm.pattern == .tag) {
+                                if (std.mem.eql(u8, arm.pattern.tag.tag, "ok")) has_ok = true;
+                                if (std.mem.eql(u8, arm.pattern.tag.tag, "error")) has_error = true;
+                            }
+                        }
+                        if (has_ok and has_error) proven_exhaustive = true;
+                    }
+
+                    if (!proven_exhaustive) {
+                        try self.addError(
+                            try std.fmt.allocPrint(self.alloc, "{s}: match is not exhaustive — add a wildcard '_' arm", .{self.locationPrefix()}),
+                            0,
+                            0,
+                        );
+                    }
                 }
             },
             .transition => |t| {
@@ -701,14 +779,25 @@ pub const Checker = struct {
         switch (t) {
             .simple => |name| {
                 // Built-in types
+                // Generic types require type parameters
+                const needs_params = [_][]const u8{ "list", "map", "set", "stack", "queue" };
+                for (needs_params) |g| {
+                    if (std.mem.eql(u8, name, g)) {
+                        try self.addError(
+                            try std.fmt.allocPrint(self.alloc, "'{s}' requires type parameters — use {s}<T> instead", .{ name, name }),
+                            0,
+                            0,
+                        );
+                        return;
+                    }
+                }
                 const builtins = [_][]const u8{
                     "int",     "int8",    "int16",        "int32",    "int64",
                     "uint8",   "uint16",  "uint32",       "uint64",   "float",
                     "float32", "float64", "decimal",      "string",   "bool",
                     "byte",    "bytes",   "void",         "uuid",     "email",
                     "uri",     "phone",   "utc_datetime", "duration", "Result",
-                    "stream",  "list",    "map",          "set",      "stack",
-                    "queue",
+                    "stream",
                 };
                 for (builtins) |b| {
                     if (std.mem.eql(u8, name, b)) return;

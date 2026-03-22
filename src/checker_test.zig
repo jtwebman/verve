@@ -439,6 +439,49 @@ test "error: enum match missing multiple variants" {
     , "missing case");
 }
 
+test "error: match not exhaustive without wildcard" {
+    try expectError(
+        \\module Main {
+        \\    fn main(x: int) -> int {
+        \\        match x {
+        \\            42 => return 1;
+        \\        }
+        \\    }
+        \\}
+    , "match is not exhaustive");
+}
+
+test "valid: match with wildcard is exhaustive" {
+    try expectNoErrors(
+        \\module Main {
+        \\    fn main(x: int) -> int {
+        \\        match x {
+        \\            42 => return 1;
+        \\            _ => return 0;
+        \\        }
+        \\    }
+        \\}
+    );
+}
+
+test "valid: Result match with ok and error is exhaustive" {
+    try expectNoErrors(
+        \\process Counter {
+        \\    state { count: int = 0; }
+        \\    receive Get() -> int { return count; }
+        \\}
+        \\module Main {
+        \\    fn main() -> int {
+        \\        c: int = spawn Counter();
+        \\        match c.Get() {
+        \\            :ok{val} => return val;
+        \\            :error{reason} => return 1;
+        \\        }
+        \\    }
+        \\}
+    );
+}
+
 test "valid: boolean match with wildcard" {
     try expectNoErrors(
         \\module Main {

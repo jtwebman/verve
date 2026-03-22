@@ -41,7 +41,7 @@ pub const Value = union(enum) {
         }
 
         pub fn append(self: *MutableList, val: Value) !void {
-            if (self.frozen) return error.OutOfMemory; // frozen collection
+            if (self.frozen) return error.FrozenCollection;
             try self.items.append(self.alloc, val);
         }
 
@@ -66,7 +66,7 @@ pub const Value = union(enum) {
         }
 
         pub fn put(self: *MutableMap, key: Value, val: Value) !void {
-            if (self.frozen) return error.OutOfMemory; // frozen collection
+            if (self.frozen) return error.FrozenCollection;
             // Check for existing key
             for (self.keys.items, 0..) |k, i| {
                 if (Value.eql(k, key)) {
@@ -100,7 +100,7 @@ pub const Value = union(enum) {
         }
 
         pub fn push(self: *MutableStack, val: Value) !void {
-            if (self.frozen) return error.OutOfMemory;
+            if (self.frozen) return error.FrozenCollection;
             try self.items.append(self.alloc, val);
         }
 
@@ -130,7 +130,7 @@ pub const Value = union(enum) {
         }
 
         pub fn push(self: *MutableQueue, val: Value) !void {
-            if (self.frozen) return error.OutOfMemory;
+            if (self.frozen) return error.FrozenCollection;
             try self.items.append(self.alloc, val);
         }
 
@@ -162,7 +162,7 @@ pub const Value = union(enum) {
         }
 
         pub fn add(self: *MutableSet, val: Value) !void {
-            if (self.frozen) return error.OutOfMemory; // frozen collection
+            if (self.frozen) return error.FrozenCollection;
             // Check for duplicates
             for (self.items.items) |existing| {
                 if (Value.eql(existing, val)) return;

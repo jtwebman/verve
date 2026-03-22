@@ -3,7 +3,7 @@ module Main {
 		println("=== List Test ===");
 
 		// Create a list and append to it
-		numbers: list = list();
+		numbers: list<int> = list();
 		append numbers { 10; }
 		append numbers { 20; }
 		append numbers { 30; }
@@ -22,7 +22,7 @@ module Main {
 		println("Sum: ", total);
 
 		// Build a list of squares
-		squares: list = list();
+		squares: list<int> = list();
 		i = 0;
 		while i < 5 {
 			append squares { i * i; }

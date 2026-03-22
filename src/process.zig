@@ -101,38 +101,8 @@ pub const Scheduler = struct {
         const proc = try self.alloc.create(Process);
         proc.* = Process.init(id, name, decl, self.alloc);
 
-        // Initialize state fields with default values
-        for (decl.state_fields) |field| {
-            const default_val: Value = switch (field.type_expr) {
-                .simple => |type_name| blk: {
-                    if (std.mem.eql(u8, type_name, "int")) break :blk .{ .int = 0 };
-                    if (std.mem.eql(u8, type_name, "float")) break :blk .{ .float = 0.0 };
-                    if (std.mem.eql(u8, type_name, "bool")) break :blk .{ .bool = false };
-                    if (std.mem.eql(u8, type_name, "string")) break :blk .{ .string = "" };
-                    break :blk .{ .none = {} };
-                },
-                .generic => |g| blk: {
-                    if (std.mem.eql(u8, g.name, "list")) {
-                        const ml = self.alloc.create(Value.MutableList) catch break :blk .{ .none = {} };
-                        ml.* = Value.MutableList.init(self.alloc);
-                        break :blk .{ .list = ml };
-                    }
-                    if (std.mem.eql(u8, g.name, "map")) {
-                        const mm = self.alloc.create(Value.MutableMap) catch break :blk .{ .none = {} };
-                        mm.* = Value.MutableMap.init(self.alloc);
-                        break :blk .{ .map = mm };
-                    }
-                    if (std.mem.eql(u8, g.name, "set")) {
-                        const ms = self.alloc.create(Value.MutableSet) catch break :blk .{ .none = {} };
-                        ms.* = Value.MutableSet.init(self.alloc);
-                        break :blk .{ .set = ms };
-                    }
-                    break :blk .{ .none = {} };
-                },
-                else => .{ .none = {} },
-            };
-            try proc.setState(field.name, default_val);
-        }
+        // State fields are initialized by the interpreter via explicit default values.
+        // The checker enforces that all state fields have defaults.
 
         try self.processes.put(self.alloc, id, proc);
         return id;

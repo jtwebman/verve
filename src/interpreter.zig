@@ -185,7 +185,8 @@ pub const Interpreter = struct {
         // Evaluate guards
         for (handler.guards) |guard_expr| {
             const guard_val = try self.evalExpr(guard_expr, &scope);
-            if (!guard_val.isTruthy()) {
+            if (guard_val != .bool) return error.TypeError;
+            if (!guard_val.bool) {
                 return .{ .tag_with_value = .{
                     .tag = "error",
                     .values = try self.allocValues(&.{.{ .tag = "guard_failed" }}),
@@ -214,8 +215,8 @@ pub const Interpreter = struct {
             var empty_scope = Scope.init(self.alloc);
             for (decl.state_fields) |field| {
                 if (field.default_value) |default_expr| {
-                    const val = self.evalExpr(default_expr, &empty_scope) catch continue;
-                    p.setState(field.name, val) catch {};
+                    const val = try self.evalExpr(default_expr, &empty_scope);
+                    p.setState(field.name, val) catch return error.OutOfMemory;
                 }
             }
         }
@@ -290,7 +291,8 @@ pub const Interpreter = struct {
         // Evaluate guards
         for (func.guards) |guard_expr| {
             const guard_val = try self.evalExpr(guard_expr, &scope);
-            if (!guard_val.isTruthy()) {
+            if (guard_val != .bool) return error.TypeError;
+            if (!guard_val.bool) {
                 return .{ .tag_with_value = .{
                     .tag = "error",
                     .values = try self.allocValues(&.{.{ .tag = "guard_failed" }}),
@@ -338,7 +340,8 @@ pub const Interpreter = struct {
             .continue_stmt => return error.ContinueSignal,
             .if_stmt => |i| {
                 const cond = try self.evalExpr(i.condition, scope);
-                if (cond.isTruthy()) {
+                if (cond != .bool) return error.TypeError;
+                if (cond.bool) {
                     const result = try self.execBlock(i.body, scope);
                     if (result.returned) return result;
                 } else if (i.else_body) |eb| {
@@ -350,7 +353,8 @@ pub const Interpreter = struct {
             .while_stmt => |w| {
                 while (true) {
                     const cond = try self.evalExpr(w.condition, scope);
-                    if (!cond.isTruthy()) break;
+                    if (cond != .bool) return error.TypeError;
+                    if (!cond.bool) break;
                     const result = self.execBlock(w.body, scope) catch |err| switch (err) {
                         error.BreakSignal => break,
                         error.ContinueSignal => continue,
@@ -402,7 +406,13 @@ pub const Interpreter = struct {
                 const target = try self.evalExpr(a.target, scope);
                 const value = try self.evalExpr(a.value, scope);
                 if (target == .list) {
-                    target.list.append(value) catch return error.OutOfMemory;
+                    target.list.append(value) catch |err| switch (err) {
+                        error.FrozenCollection => {
+                            self.setRuntimeError("cannot mutate constant — collections in module constants are frozen", .{}, a.span);
+                            return error.RuntimeError;
+                        },
+                        else => return error.OutOfMemory,
+                    };
                 }
                 return .{ .value = .{ .void = {} }, .returned = false };
             },
@@ -417,7 +427,11 @@ pub const Interpreter = struct {
                         args_buf[arg_count] = try self.evalExpr(arg_expr, scope);
                         arg_count += 1;
                     }
-                    self.tellProcess(target_val.process_id, t.handler, args_buf[0..arg_count]) catch {};
+                    // tell is fire-and-forget but still fails fast on errors
+                    _ = self.tellProcess(target_val.process_id, t.handler, args_buf[0..arg_count]) catch |err| {
+                        self.setRuntimeError("tell failed: {}", .{err}, t.span);
+                        return error.RuntimeError;
+                    };
                 } else if (target_val == .void) {
                     // Old stub path — target wasn't parsed properly
                 }
@@ -441,7 +455,8 @@ pub const Interpreter = struct {
             },
             .assert_stmt => |a| {
                 const cond = try self.evalExpr(a.condition, scope);
-                if (!cond.isTruthy()) {
+                if (cond != .bool) return error.TypeError;
+                if (!cond.bool) {
                     if (a.message) |msg| {
                         self.setRuntimeError("assertion failed: {s}", .{msg}, a.span);
                     } else {
@@ -455,7 +470,7 @@ pub const Interpreter = struct {
                 const target_val = try self.evalExpr(w.target, scope);
                 if (target_val == .process_id) {
                     if (self.current_process) |my_pid| {
-                        self.scheduler.watch(my_pid, target_val.process_id) catch {};
+                        self.scheduler.watch(my_pid, target_val.process_id) catch return error.OutOfMemory;
                     }
                 }
                 return .{ .value = .{ .void = {} }, .returned = false };
@@ -472,7 +487,8 @@ pub const Interpreter = struct {
             }
         }
 
-        return .{ .value = .{ .void = {} }, .returned = false };
+        self.setRuntimeError("match is not exhaustive — no arm matched the value", .{}, m.span);
+        return error.RuntimeError;
     }
 
     fn matchPattern(self: *Interpreter, pattern: ast.Pattern, subject: Value, scope: *Scope) Error!bool {
@@ -736,8 +752,14 @@ pub const Interpreter = struct {
                 if (left == .float and right == .float) return .{ .bool = left.float >= right.float };
                 return error.TypeError;
             },
-            .@"and" => return .{ .bool = left.isTruthy() and right.isTruthy() },
-            .@"or" => return .{ .bool = left.isTruthy() or right.isTruthy() },
+            .@"and" => {
+                if (left != .bool or right != .bool) return error.TypeError;
+                return .{ .bool = left.bool and right.bool };
+            },
+            .@"or" => {
+                if (left != .bool or right != .bool) return error.TypeError;
+                return .{ .bool = left.bool or right.bool };
+            },
             .not => return error.TypeError,
         }
     }
@@ -1267,11 +1289,11 @@ pub const Interpreter = struct {
                 switch (s.kind) {
                     .stdout => {
                         self.writeValueToFile(std.fs.File.stdout(), args[1]);
-                        std.fs.File.stdout().writeAll("\n") catch {};
+                        std.fs.File.stdout().writeAll("\n") catch @panic("IO write failed");
                     },
                     .stderr => {
                         self.writeValueToFile(std.fs.File.stderr(), args[1]);
-                        std.fs.File.stderr().writeAll("\n") catch {};
+                        std.fs.File.stderr().writeAll("\n") catch @panic("IO write failed");
                     },
                     .file_write => |*fw| {
                         if (args[1] == .string) {
@@ -1366,7 +1388,7 @@ pub const Interpreter = struct {
                             std.fs.cwd().writeFile(.{
                                 .sub_path = fw.path,
                                 .data = fw.buf.items,
-                            }) catch {};
+                            }) catch @panic("IO write failed");
                         },
                         else => {},
                     }
@@ -1383,23 +1405,23 @@ pub const Interpreter = struct {
         switch (val) {
             .int => |v| {
                 var tmp: [32]u8 = undefined;
-                const s = std.fmt.bufPrint(&tmp, "{d}", .{v}) catch return;
-                file.writeAll(s) catch {};
+                const s = std.fmt.bufPrint(&tmp, "{d}", .{v}) catch @panic("format failed");
+                file.writeAll(s) catch @panic("IO write failed");
             },
             .float => |v| {
                 var tmp: [32]u8 = undefined;
-                const s = std.fmt.bufPrint(&tmp, "{d}", .{v}) catch return;
-                file.writeAll(s) catch {};
+                const s = std.fmt.bufPrint(&tmp, "{d}", .{v}) catch @panic("format failed");
+                file.writeAll(s) catch @panic("IO write failed");
             },
-            .string => |v| file.writeAll(v) catch {},
-            .bool => |v| file.writeAll(if (v) "true" else "false") catch {},
+            .string => |v| file.writeAll(v) catch @panic("IO write failed"),
+            .bool => |v| file.writeAll(if (v) "true" else "false") catch @panic("IO write failed"),
             .tag => |v| {
-                file.writeAll(":") catch {};
-                file.writeAll(v) catch {};
+                file.writeAll(":") catch @panic("IO write failed");
+                file.writeAll(v) catch @panic("IO write failed");
             },
-            .none => file.writeAll("none") catch {},
-            .void => file.writeAll("void") catch {},
-            else => file.writeAll("(...)") catch {},
+            .none => file.writeAll("none") catch @panic("IO write failed"),
+            .void => file.writeAll("void") catch @panic("IO write failed"),
+            else => file.writeAll("(...)") catch @panic("IO write failed"),
         }
     }
 
