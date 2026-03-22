@@ -1,6 +1,6 @@
 process Worker {
 	state {
-		value: int;
+		value: int = 0;
 	}
 
 	receive SetValue(v: int) -> int {
@@ -15,9 +15,9 @@ process Worker {
 
 process App {
 	state {
-		running: bool;
-		worker: int;
-		messages_handled: int;
+		running: bool = false;
+		worker: int = 0;
+		messages_handled: int = 0;
 	}
 
 	receive main() -> int {

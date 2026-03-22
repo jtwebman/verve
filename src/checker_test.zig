@@ -65,7 +65,7 @@ test "valid: process with main function" {
     try expectNoErrors(
         \\process App {
         \\    state {
-        \\        running: bool;
+        \\        running: bool = false;
         \\    }
         \\    receive main(args: list<string>) -> int {
         \\        return 0;
@@ -277,7 +277,7 @@ test "valid: transition in receive handler" {
     try expectNoErrors(
         \\process Counter {
         \\    state {
-        \\        count: int;
+        \\        count: int = 0;
         \\    }
         \\    receive Increment() -> int {
         \\        transition count { count + 1; }
@@ -495,11 +495,27 @@ test "error: duplicate struct field" {
 
 // ── Process state in scope ────────────────────────────────
 
+test "error: state field without default value" {
+    try expectError(
+        \\process Counter {
+        \\    state {
+        \\        count: int;
+        \\    }
+        \\    receive GetCount() -> int {
+        \\        return count;
+        \\    }
+        \\}
+        \\module Main {
+        \\    fn main() -> int { return 0; }
+        \\}
+    , "requires a default value");
+}
+
 test "valid: process state accessible in handler" {
     try expectNoErrors(
         \\process Counter {
         \\    state {
-        \\        count: int;
+        \\        count: int = 0;
         \\    }
         \\    receive GetCount() -> int {
         \\        return count;
@@ -531,7 +547,7 @@ test "valid: full program with module and process" {
         \\
         \\process Ledger {
         \\    state {
-        \\        balance: int;
+        \\        balance: int = 0;
         \\    }
         \\    receive Deposit(amount: int) -> int {
         \\        guard amount > 0;
@@ -974,7 +990,7 @@ test "error: wrong arg count to tell" {
     try expectError(
         \\process Worker {
         \\    state {
-        \\        value: int;
+        \\        value: int = 0;
         \\    }
         \\    receive SetValue(v: int) -> int {
         \\        transition value { v; }
@@ -995,7 +1011,7 @@ test "valid: correct tell" {
     try expectNoErrors(
         \\process Worker {
         \\    state {
-        \\        value: int;
+        \\        value: int = 0;
         \\    }
         \\    receive SetValue(v: int) -> int {
         \\        transition value { v; }
@@ -1038,7 +1054,7 @@ test "error: return println from int function" {
 test "valid: spawn assigned to int" {
     try expectNoErrors(
         \\process Worker {
-        \\    state { value: int; }
+        \\    state { value: int = 0; }
         \\    receive Get() -> int { return value; }
         \\}
         \\module Main {
@@ -1289,7 +1305,7 @@ test "valid: map<string, int> index returns int" {
 test "error: spawn assigned to string" {
     try expectError(
         \\process Worker {
-        \\    state { value: int; }
+        \\    state { value: int = 0; }
         \\    receive Get() -> int { return value; }
         \\}
         \\module Main {

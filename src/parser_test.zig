@@ -361,7 +361,7 @@ test "parse simple process" {
     var p = parse(
         \\process Counter {
         \\    state {
-        \\        count: int;
+        \\        count: int = 0;
         \\    }
         \\    receive Increment() -> Result {
         \\        guard count >= 0;
@@ -388,7 +388,7 @@ test "parse process with memory budget" {
     var p = parse(
         \\process Ledger [memory: 64] {
         \\    state {
-        \\        balance: int;
+        \\        balance: int = 0;
         \\    }
         \\    receive GetBalance() -> int {
         \\        return balance;
@@ -409,7 +409,7 @@ test "parse process with unbounded memory" {
     var p = parse(
         \\process Cache [memory: unbounded] {
         \\    state {
-        \\        count: int;
+        \\        count: int = 0;
         \\    }
         \\    receive Get() -> int {
         \\        return count;
@@ -427,7 +427,7 @@ test "parse process with invariant" {
     var p = parse(
         \\process Ledger {
         \\    state {
-        \\        balance: int;
+        \\        balance: int = 0;
         \\    }
         \\    invariant {
         \\        balance >= 0;
@@ -474,7 +474,7 @@ test "parse file with module and process" {
         \\
         \\process Ledger {
         \\    state {
-        \\        balance: int;
+        \\        balance: int = 0;
         \\    }
         \\    receive GetBalance() -> int {
         \\        return balance;

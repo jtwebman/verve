@@ -151,7 +151,7 @@ test "error: process memory missing keyword" {
     try expectParseError(
         \\process Ledger [size: 64] {
         \\    state {
-        \\        balance: int;
+        \\        balance: int = 0;
         \\    }
         \\}
     , "expected 'memory'");

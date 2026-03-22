@@ -76,6 +76,7 @@ pub const Field = struct {
 pub const StateField = struct {
     name: []const u8,
     type_expr: TypeExpr,
+    default_value: ?Expr,
     span: Span,
 };
 

@@ -208,6 +208,18 @@ pub const Interpreter = struct {
     fn spawnProcess(self: *Interpreter, name: []const u8) Error!Value {
         const decl = self.process_decls.get(name) orelse return error.UndefinedProcess;
         const pid = self.scheduler.spawn(name, decl) catch return error.OutOfMemory;
+
+        // Evaluate explicit default values for state fields
+        if (self.scheduler.getProcess(pid)) |p| {
+            var empty_scope = Scope.init(self.alloc);
+            for (decl.state_fields) |field| {
+                if (field.default_value) |default_expr| {
+                    const val = self.evalExpr(default_expr, &empty_scope) catch continue;
+                    p.setState(field.name, val) catch {};
+                }
+            }
+        }
+
         return .{ .process_id = pid };
     }
 

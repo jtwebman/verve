@@ -148,9 +148,16 @@ pub const Checker = struct {
             );
         }
 
-        // Check state fields have valid types
+        // Check state fields have valid types and default values
         for (p.state_fields) |field| {
             try self.checkTypeExists(field.type_expr);
+            if (field.default_value == null) {
+                try self.addError(
+                    try std.fmt.allocPrint(self.alloc, "state field '{s}' in process '{s}' requires a default value — add = <value>", .{ field.name, p.name }),
+                    0,
+                    0,
+                );
+            }
         }
 
         self.current_module_name = p.name;

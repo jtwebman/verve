@@ -292,7 +292,7 @@ test "compile: File.open success" {
 test "compile: process main handler" {
     const r = try compileAndCapture(
         \\process App {
-        \\    state { x: int; }
+        \\    state { x: int = 0; }
         \\    receive main() -> int {
         \\        println("hello from process");
         \\        return 0;
@@ -306,7 +306,7 @@ test "compile: process main handler" {
 test "compile: process state default zero" {
     const r = try compileAndCapture(
         \\process App {
-        \\    state { count: int; }
+        \\    state { count: int = 0; }
         \\    receive main() -> int {
         \\        println(count);
         \\        return 0;
@@ -320,7 +320,7 @@ test "compile: process state default zero" {
 test "compile: process transition and state read" {
     const r = try compileAndCapture(
         \\process App {
-        \\    state { count: int; }
+        \\    state { count: int = 0; }
         \\    receive main() -> int {
         \\        transition count { count + 5; }
         \\        println(count);
@@ -335,7 +335,7 @@ test "compile: process transition and state read" {
 test "compile: spawn and send" {
     const r = try compileAndCapture(
         \\process Counter {
-        \\    state { count: int; }
+        \\    state { count: int = 0; }
         \\    receive Increment() -> int {
         \\        transition count { count + 1; }
         \\        return count;
@@ -370,7 +370,7 @@ test "compile: spawn and send" {
 test "compile: spawn and tell" {
     const r = try compileAndCapture(
         \\process Counter {
-        \\    state { count: int; }
+        \\    state { count: int = 0; }
         \\    receive Increment() -> int {
         \\        transition count { count + 1; }
         \\        return count;
@@ -400,7 +400,7 @@ test "compile: spawn and tell" {
 test "compile: guard failure" {
     const r = try compileAndCapture(
         \\process Counter {
-        \\    state { count: int; }
+        \\    state { count: int = 0; }
         \\    receive Add(n: int) -> int {
         \\        guard n > 0;
         \\        transition count { count + n; }
@@ -429,7 +429,7 @@ test "compile: guard failure" {
 test "compile: multiple state fields" {
     const r = try compileAndCapture(
         \\process Pair {
-        \\    state { x: int; y: int; }
+        \\    state { x: int = 0; y: int = 0; }
         \\    receive SetX(val: int) -> int {
         \\        transition x { val; }
         \\        return x;
@@ -468,7 +468,7 @@ test "compile: multiple state fields" {
 test "compile: multi-process interaction" {
     const r = try compileAndCapture(
         \\process Adder {
-        \\    state { total: int; }
+        \\    state { total: int = 0; }
         \\    receive Add(n: int) -> int {
         \\        transition total { total + n; }
         \\        return total;

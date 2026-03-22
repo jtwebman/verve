@@ -176,6 +176,10 @@ pub const Formatter = struct {
                 try self.write(field.name);
                 try self.write(": ");
                 try self.formatTypeExpr(field.type_expr);
+                if (field.default_value) |dv| {
+                    try self.write(" = ");
+                    try self.formatExpr(dv);
+                }
                 try self.write(";\n");
             }
             self.indent -= 1;

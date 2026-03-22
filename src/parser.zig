@@ -1206,10 +1206,16 @@ pub const Parser = struct {
                     const fname = try self.parseIdentifier();
                     try self.expectChar(':');
                     const ftype = try self.parseTypeExpr();
+                    var default_val: ?ast.Expr = null;
+                    if (self.peekChar('=')) {
+                        try self.expectChar('=');
+                        default_val = try self.parseExpr();
+                    }
                     try self.expectChar(';');
                     try state_fields.append(self.alloc, .{
                         .name = fname,
                         .type_expr = ftype,
+                        .default_value = default_val,
                         .span = .{ .start = 0, .end = 0 },
                     });
                 }

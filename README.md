@@ -61,11 +61,10 @@ zig build test                               # run all tests
 ```verve
 process Counter {
     state {
-        count: int;
+        count: int = 0;
     }
 
     receive Increment() -> int {
-        guard count >= 0;
         transition count { count + 1; }
         return count;
     }
