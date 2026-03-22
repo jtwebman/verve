@@ -15,7 +15,18 @@ pub const Checker = struct {
     struct_decls: std.StringHashMapUnmanaged(ast.StructDecl),
     type_decls: std.StringHashMapUnmanaged(ast.TypeDecl),
     in_receive_handler: bool,
-    current_scope: std.StringHashMapUnmanaged([]const u8), // name -> type
+    current_scope: std.StringHashMapUnmanaged(?ast.TypeExpr), // name -> type (null = unknown)
+    current_module_name: ?[]const u8,
+    current_fn_name: ?[]const u8,
+    current_return_type: ?ast.TypeExpr,
+    process_var_types: std.StringHashMapUnmanaged([]const u8), // var name -> process decl name
+
+    const FnSignature = struct {
+        name: []const u8,
+        module_name: []const u8,
+        params: []const ast.Param,
+        return_type: ast.TypeExpr,
+    };
 
     pub fn init(alloc: std.mem.Allocator) Checker {
         return .{
@@ -27,6 +38,10 @@ pub const Checker = struct {
             .type_decls = .{},
             .in_receive_handler = false,
             .current_scope = .{},
+            .current_module_name = null,
+            .current_fn_name = null,
+            .current_return_type = null,
+            .process_var_types = .{},
         };
     }
 
@@ -61,6 +76,17 @@ pub const Checker = struct {
     // ── Entry point ───────────────────────────────────────────
 
     fn checkEntryPoint(self: *Checker) !void {
+        // Library files (those with exported declarations) don't need main()
+        var has_exports = false;
+        var mod_iter2 = self.modules.iterator();
+        while (mod_iter2.next()) |entry| {
+            if (entry.value_ptr.exported) has_exports = true;
+        }
+        var proc_iter2 = self.process_decls.iterator();
+        while (proc_iter2.next()) |entry| {
+            if (entry.value_ptr.exported) has_exports = true;
+        }
+
         var found: usize = 0;
 
         var proc_iter = self.process_decls.iterator();
@@ -77,7 +103,7 @@ pub const Checker = struct {
             }
         }
 
-        if (found == 0) {
+        if (found == 0 and !has_exports) {
             try self.addError("no entry point found — add fn main(args: list<string>) -> int", 0, 0);
         } else if (found > 1) {
             try self.addError("multiple entry points found — only one main() is allowed", 0, 0);
@@ -87,6 +113,8 @@ pub const Checker = struct {
     // ── Module checking ───────────────────────────────────────
 
     fn checkModule(self: *Checker, m: ast.ModuleDecl) !void {
+        self.current_module_name = m.name;
+
         // Exported modules must have doc comments
         if (m.exported and m.doc_comment == null) {
             try self.addError(
@@ -104,10 +132,6 @@ pub const Checker = struct {
         }
 
         for (m.functions) |func| {
-            // Add module constants to scope for each function check
-            for (m.constants) |c| {
-                try self.current_scope.put(self.alloc, c.name, if (c.type_expr) |te| self.typeExprName(te) else "unknown");
-            }
             try self.checkFnDecl(func, m.name, m.exported);
         }
     }
@@ -129,6 +153,8 @@ pub const Checker = struct {
             try self.checkTypeExists(field.type_expr);
         }
 
+        self.current_module_name = p.name;
+
         // Check receive handlers
         for (p.receive_handlers) |handler| {
             try self.checkReceiveDecl(handler, p, p.exported);
@@ -149,16 +175,18 @@ pub const Checker = struct {
         defer self.in_receive_handler = false;
 
         self.current_scope = .{};
+        self.current_fn_name = handler.name;
+        self.current_return_type = handler.return_type;
 
         // Add params to scope
         for (handler.params) |param| {
             try self.checkTypeExists(param.type_expr);
-            try self.current_scope.put(self.alloc, param.name, self.typeExprName(param.type_expr));
+            try self.current_scope.put(self.alloc, param.name, param.type_expr);
         }
 
         // Add process state to scope
         for (p.state_fields) |field| {
-            try self.current_scope.put(self.alloc, field.name, self.typeExprName(field.type_expr));
+            try self.current_scope.put(self.alloc, field.name, field.type_expr);
         }
 
         // Check guards
@@ -186,18 +214,23 @@ pub const Checker = struct {
         }
 
         self.current_scope = .{};
+        self.current_fn_name = func.name;
+        self.current_return_type = func.return_type;
 
-        // Add sibling functions to scope (same module)
+        // Add sibling functions and module constants to scope
         if (self.modules.get(module_name)) |mod| {
             for (mod.functions) |sibling| {
-                try self.current_scope.put(self.alloc, sibling.name, "fn");
+                try self.current_scope.put(self.alloc, sibling.name, null);
+            }
+            for (mod.constants) |c| {
+                try self.current_scope.put(self.alloc, c.name, c.type_expr);
             }
         }
 
         // Add params to scope
         for (func.params) |param| {
             try self.checkTypeExists(param.type_expr);
-            try self.current_scope.put(self.alloc, param.name, self.typeExprName(param.type_expr));
+            try self.current_scope.put(self.alloc, param.name, param.type_expr);
         }
 
         // Check return type exists
@@ -246,10 +279,41 @@ pub const Checker = struct {
                 if (a.type_expr) |te| {
                     // Declaration: x: int = 42;
                     try self.checkTypeExists(te);
-                    try self.current_scope.put(self.alloc, a.name, self.typeExprName(te));
+                    try self.current_scope.put(self.alloc, a.name, te);
+
+                    // Type check: inferred value type vs declared type
+                    const inferred = self.inferExprType(a.value);
+                    if (!self.typesCompatible(te, inferred)) {
+                        try self.addError(
+                            try std.fmt.allocPrint(self.alloc, "{s}: type mismatch in '{s}' — cannot assign {s} to {s}", .{ self.locationPrefix(), a.name, self.formatTypeExpr(inferred), self.typeExprName(te) }),
+                            0,
+                            0,
+                        );
+                    }
+
+                    // Track spawn process types
+                    if (a.value == .call) {
+                        if (a.value.call.target.* == .identifier and std.mem.eql(u8, a.value.call.target.identifier, "spawn")) {
+                            if (a.value.call.args.len > 0 and a.value.call.args[0] == .string_literal) {
+                                try self.process_var_types.put(self.alloc, a.name, a.value.call.args[0].string_literal);
+                            }
+                        }
+                    }
                 } else {
                     // Reassignment: x = 43;
-                    if (self.current_scope.get(a.name) == null) {
+                    if (self.current_scope.get(a.name)) |maybe_type| {
+                        // Variable exists — check type compatibility on reassignment
+                        if (maybe_type) |expected_type| {
+                            const inferred = self.inferExprType(a.value);
+                            if (!self.typesCompatible(expected_type, inferred)) {
+                                try self.addError(
+                                    try std.fmt.allocPrint(self.alloc, "{s}: type mismatch in '{s}' — cannot assign {s} to {s}", .{ self.locationPrefix(), a.name, self.formatTypeExpr(inferred), self.typeExprName(expected_type) }),
+                                    0,
+                                    0,
+                                );
+                            }
+                        }
+                    } else {
                         try self.addError(
                             try std.fmt.allocPrint(self.alloc, "variable '{s}' must be declared with a type: {s}: <type> = ...", .{ a.name, a.name }),
                             0,
@@ -261,6 +325,17 @@ pub const Checker = struct {
             .return_stmt => |r| {
                 if (r.value) |val| {
                     try self.checkExpr(val);
+                    // Type check return value against declared return type
+                    if (self.current_return_type) |expected| {
+                        const inferred = self.inferExprType(val);
+                        if (!self.typesCompatible(expected, inferred)) {
+                            try self.addError(
+                                try std.fmt.allocPrint(self.alloc, "{s}: return type mismatch — expected {s}, got {s}", .{ self.locationPrefix(), self.typeExprName(expected), self.formatTypeExpr(inferred) }),
+                                0,
+                                0,
+                            );
+                        }
+                    }
                 }
             },
             .if_stmt => |i| {
@@ -285,14 +360,17 @@ pub const Checker = struct {
                     try self.checkBooleanExhaustiveness(m.arms);
                 }
                 if (m.subject == .identifier) {
-                    if (self.current_scope.get(m.subject.identifier)) |type_name| {
-                        if (std.mem.eql(u8, type_name, "bool")) {
-                            try self.checkBooleanExhaustiveness(m.arms);
-                        }
-                        // Check enum exhaustiveness
-                        if (self.type_decls.get(type_name)) |td| {
-                            if (td.value == .enum_type) {
-                                try self.checkEnumExhaustiveness(td.value.enum_type, m.arms, type_name);
+                    if (self.current_scope.get(m.subject.identifier)) |maybe_type| {
+                        if (maybe_type) |type_expr| {
+                            const type_name = self.typeExprName(type_expr);
+                            if (std.mem.eql(u8, type_name, "bool")) {
+                                try self.checkBooleanExhaustiveness(m.arms);
+                            }
+                            // Check enum exhaustiveness
+                            if (self.type_decls.get(type_name)) |td| {
+                                if (td.value == .enum_type) {
+                                    try self.checkEnumExhaustiveness(td.value.enum_type, m.arms, type_name);
+                                }
                             }
                         }
                     }
@@ -302,7 +380,7 @@ pub const Checker = struct {
                     switch (arm.pattern) {
                         .tag => |t| {
                             for (t.bindings) |binding| {
-                                try self.current_scope.put(self.alloc, binding, "unknown");
+                                try self.current_scope.put(self.alloc, binding, null);
                             }
                         },
                         else => {},
@@ -334,6 +412,34 @@ pub const Checker = struct {
                             0,
                             0,
                         );
+                    }
+                    // Check handler arg count/types if process type is known
+                    if (self.process_var_types.get(name)) |proc_name| {
+                        if (self.process_decls.get(proc_name)) |proc| {
+                            for (proc.receive_handlers) |handler| {
+                                if (std.mem.eql(u8, handler.name, t.handler)) {
+                                    if (t.args.len != handler.params.len) {
+                                        try self.addError(
+                                            try std.fmt.allocPrint(self.alloc, "'{s}.{s}' expects {d} argument(s), got {d}", .{ proc_name, t.handler, handler.params.len, t.args.len }),
+                                            0,
+                                            0,
+                                        );
+                                    } else {
+                                        for (handler.params, t.args) |param, arg| {
+                                            const inferred = self.inferExprType(arg);
+                                            if (!self.typesCompatible(param.type_expr, inferred)) {
+                                                try self.addError(
+                                                    try std.fmt.allocPrint(self.alloc, "argument type mismatch in '{s}.{s}': expected {s}, got {s}", .{ proc_name, t.handler, self.typeExprName(param.type_expr), self.formatTypeExpr(inferred) }),
+                                                    0,
+                                                    0,
+                                                );
+                                            }
+                                        }
+                                    }
+                                    break;
+                                }
+                            }
+                        }
                     }
                 }
                 for (t.args) |arg| try self.checkExpr(arg);
@@ -424,6 +530,28 @@ pub const Checker = struct {
             .call => |c| {
                 try self.checkExpr(c.target.*);
                 for (c.args) |arg| try self.checkExpr(arg);
+                // Check arg count and types against function signature
+                if (self.lookupFnSignature(c.target.*)) |sig| {
+                    const fn_qual = std.fmt.allocPrint(self.alloc, "{s}.{s}", .{ sig.module_name, sig.name }) catch "?";
+                    if (c.args.len != sig.params.len) {
+                        try self.addError(
+                            try std.fmt.allocPrint(self.alloc, "{s}: '{s}' expects {d} argument(s), got {d}", .{ self.locationPrefix(), fn_qual, sig.params.len, c.args.len }),
+                            0,
+                            0,
+                        );
+                    } else {
+                        for (sig.params, c.args) |param, arg| {
+                            const inferred = self.inferExprType(arg);
+                            if (!self.typesCompatible(param.type_expr, inferred)) {
+                                try self.addError(
+                                    try std.fmt.allocPrint(self.alloc, "{s}: argument '{s}' in call to '{s}' — expected {s}, got {s}", .{ self.locationPrefix(), param.name, fn_qual, self.typeExprName(param.type_expr), self.formatTypeExpr(inferred) }),
+                                    0,
+                                    0,
+                                );
+                            }
+                        }
+                    }
+                }
             },
             .struct_literal => |sl| {
                 // Check struct exists
@@ -572,7 +700,8 @@ pub const Checker = struct {
                     "float32", "float64", "decimal",      "string",   "bool",
                     "byte",    "bytes",   "void",         "uuid",     "email",
                     "uri",     "phone",   "utc_datetime", "duration", "Result",
-                    "stream",
+                    "stream",  "list",    "map",          "set",      "stack",
+                    "queue",
                 };
                 for (builtins) |b| {
                     if (std.mem.eql(u8, name, b)) return;
@@ -628,8 +757,296 @@ pub const Checker = struct {
         return switch (t) {
             .simple => |name| name,
             .generic => |g| g.name,
+            .constrained => |c| switch (c.base.*) {
+                .simple => |name| name,
+                else => "unknown",
+            },
             else => "unknown",
         };
+    }
+
+    fn locationPrefix(self: *Checker) []const u8 {
+        if (self.current_module_name) |mod| {
+            if (self.current_fn_name) |fn_name| {
+                return std.fmt.allocPrint(self.alloc, "{s}.{s}", .{ mod, fn_name }) catch "?";
+            }
+            return mod;
+        }
+        return "?";
+    }
+
+    fn formatTypeExpr(self: *Checker, t: ?ast.TypeExpr) []const u8 {
+        if (t) |te| return self.typeExprName(te);
+        return "unknown";
+    }
+
+    // ── Type inference ───────────────────────────────────────────
+
+    fn inferExprType(self: *Checker, expr: ast.Expr) ?ast.TypeExpr {
+        switch (expr) {
+            .int_literal => return .{ .simple = "int" },
+            .float_literal => return .{ .simple = "float" },
+            .string_literal, .string_interp => return .{ .simple = "string" },
+            .bool_literal => return .{ .simple = "bool" },
+            .void_literal => return .{ .simple = "void" },
+            .identifier => |name| {
+                if (self.current_scope.get(name)) |maybe_type| {
+                    return maybe_type;
+                }
+                return null;
+            },
+            .binary_op => |op| {
+                switch (op.op) {
+                    .eq, .neq, .lt, .gt, .lte, .gte, .@"and", .@"or" => return .{ .simple = "bool" },
+                    .add, .sub, .mul, .div, .mod => {
+                        const left_t = self.inferExprType(op.left.*);
+                        const right_t = self.inferExprType(op.right.*);
+                        // String concatenation: string + string = string
+                        if (op.op == .add) {
+                            if (left_t) |lt| {
+                                if (lt == .simple and std.mem.eql(u8, lt.simple, "string")) return .{ .simple = "string" };
+                            }
+                            if (right_t) |rt| {
+                                if (rt == .simple and std.mem.eql(u8, rt.simple, "string")) return .{ .simple = "string" };
+                            }
+                        }
+                        // Float promotion
+                        if (left_t) |lt| {
+                            if (lt == .simple and std.mem.eql(u8, lt.simple, "float")) return .{ .simple = "float" };
+                        }
+                        if (right_t) |rt| {
+                            if (rt == .simple and std.mem.eql(u8, rt.simple, "float")) return .{ .simple = "float" };
+                        }
+                        return .{ .simple = "int" };
+                    },
+                    else => return null,
+                }
+            },
+            .unary_op => |op| {
+                switch (op.op) {
+                    .not => return .{ .simple = "bool" },
+                    .sub => return self.inferExprType(op.operand.*),
+                    else => return null,
+                }
+            },
+            .call => |c| {
+                if (self.lookupFnSignature(c.target.*)) |sig| {
+                    return sig.return_type;
+                }
+                // Built-in function calls
+                if (c.target.* == .identifier) {
+                    const name = c.target.identifier;
+                    if (std.mem.eql(u8, name, "println") or std.mem.eql(u8, name, "print")) {
+                        return .{ .simple = "void" };
+                    }
+                    if (std.mem.eql(u8, name, "spawn")) {
+                        return .{ .simple = "int" };
+                    }
+                }
+                // Built-in module function calls (String.len, Map.has, etc.)
+                if (c.target.* == .field_access) {
+                    return self.inferBuiltinModuleCall(c.target.field_access);
+                }
+                return null;
+            },
+            .struct_literal => |sl| return .{ .simple = sl.name },
+            .field_access => |fa| {
+                const target_type = self.inferExprType(fa.target.*);
+                if (target_type) |tt| {
+                    const type_name = self.typeExprName(tt);
+                    // .len on collections and strings
+                    if (std.mem.eql(u8, fa.field, "len")) {
+                        if (std.mem.eql(u8, type_name, "string") or
+                            std.mem.eql(u8, type_name, "list") or
+                            std.mem.eql(u8, type_name, "map") or
+                            std.mem.eql(u8, type_name, "set") or
+                            std.mem.eql(u8, type_name, "stack") or
+                            std.mem.eql(u8, type_name, "queue"))
+                        {
+                            return .{ .simple = "int" };
+                        }
+                    }
+                    // Struct field access
+                    if (self.struct_decls.get(type_name)) |sd| {
+                        for (sd.fields) |field| {
+                            if (std.mem.eql(u8, field.name, fa.field)) {
+                                return field.type_expr;
+                            }
+                        }
+                    }
+                }
+                return null;
+            },
+            .index_access => |ia| {
+                const target_type = self.inferExprType(ia.target.*);
+                if (target_type) |tt| {
+                    switch (tt) {
+                        .simple => |name| {
+                            if (std.mem.eql(u8, name, "string")) return .{ .simple = "string" };
+                        },
+                        .generic => |g| {
+                            // list<T>[i] -> T
+                            if (std.mem.eql(u8, g.name, "list") and g.args.len > 0) return g.args[0];
+                            // map<K,V>[k] -> V
+                            if (std.mem.eql(u8, g.name, "map") and g.args.len > 1) return g.args[1];
+                        },
+                        else => {},
+                    }
+                }
+                return null;
+            },
+            else => return null,
+        }
+    }
+
+    fn inferBuiltinModuleCall(self: *Checker, fa: ast.FieldAccess) ?ast.TypeExpr {
+        if (fa.target.* != .identifier) return null;
+        const mod = fa.target.identifier;
+        const func = fa.field;
+
+        // Check user modules first — already handled by lookupFnSignature
+        if (self.modules.get(mod) != null) return null;
+
+        if (std.mem.eql(u8, mod, "String")) return inferStringFn(func);
+        if (std.mem.eql(u8, mod, "Map")) return inferMapFn(func);
+        if (std.mem.eql(u8, mod, "Set")) return inferSetFn(func);
+        if (std.mem.eql(u8, mod, "Stack") or std.mem.eql(u8, mod, "Queue")) return inferStackQueueFn(func);
+        if (std.mem.eql(u8, mod, "Stdio")) return .{ .simple = "stream" };
+        if (std.mem.eql(u8, mod, "Stream")) return inferStreamFn(func);
+        return null;
+    }
+
+    fn inferStringFn(func: []const u8) ?ast.TypeExpr {
+        // -> int
+        if (std.mem.eql(u8, func, "len") or
+            std.mem.eql(u8, func, "byte_at") or
+            std.mem.eql(u8, func, "char_len")) return .{ .simple = "int" };
+        // -> bool
+        if (std.mem.eql(u8, func, "contains") or
+            std.mem.eql(u8, func, "starts_with") or
+            std.mem.eql(u8, func, "ends_with") or
+            std.mem.eql(u8, func, "is_alpha") or
+            std.mem.eql(u8, func, "is_digit") or
+            std.mem.eql(u8, func, "is_whitespace") or
+            std.mem.eql(u8, func, "is_alnum")) return .{ .simple = "bool" };
+        // -> string
+        if (std.mem.eql(u8, func, "trim") or
+            std.mem.eql(u8, func, "replace") or
+            std.mem.eql(u8, func, "slice") or
+            std.mem.eql(u8, func, "char_at")) return .{ .simple = "string" };
+        // split, chars -> list<string> (needs generic allocation, skip)
+        return null;
+    }
+
+    fn inferMapFn(func: []const u8) ?ast.TypeExpr {
+        if (std.mem.eql(u8, func, "put")) return .{ .simple = "void" };
+        if (std.mem.eql(u8, func, "has")) return .{ .simple = "bool" };
+        // get, keys, values -> type depends on map params, skip
+        return null;
+    }
+
+    fn inferSetFn(func: []const u8) ?ast.TypeExpr {
+        if (std.mem.eql(u8, func, "add") or std.mem.eql(u8, func, "remove")) return .{ .simple = "void" };
+        if (std.mem.eql(u8, func, "has")) return .{ .simple = "bool" };
+        return null;
+    }
+
+    fn inferStackQueueFn(func: []const u8) ?ast.TypeExpr {
+        if (std.mem.eql(u8, func, "push")) return .{ .simple = "void" };
+        // pop, peek -> element type unknown without generic context
+        return null;
+    }
+
+    fn inferStreamFn(func: []const u8) ?ast.TypeExpr {
+        if (std.mem.eql(u8, func, "write") or
+            std.mem.eql(u8, func, "write_line") or
+            std.mem.eql(u8, func, "close")) return .{ .simple = "void" };
+        // read_line, read_all -> could be string or :eof, skip
+        return null;
+    }
+
+    // ── Type compatibility ────────────────────────────────────────
+
+    fn typesCompatible(self: *Checker, expected: ?ast.TypeExpr, actual: ?ast.TypeExpr) bool {
+        const exp = expected orelse return true;
+        const act = actual orelse return true;
+        return self.typeExprsMatch(exp, act);
+    }
+
+    fn typeExprsMatch(self: *Checker, expected: ast.TypeExpr, actual: ast.TypeExpr) bool {
+        switch (expected) {
+            .simple => |exp_name| {
+                const resolved_exp = self.resolveAlias(exp_name);
+                switch (actual) {
+                    .simple => |act_name| {
+                        const resolved_act = self.resolveAlias(act_name);
+                        return std.mem.eql(u8, resolved_exp, resolved_act);
+                    },
+                    .constrained => |c| return self.typeExprsMatch(expected, c.base.*),
+                    else => return false,
+                }
+            },
+            .generic => |exp_g| {
+                switch (actual) {
+                    .generic => |act_g| {
+                        if (!std.mem.eql(u8, exp_g.name, act_g.name)) return false;
+                        if (exp_g.args.len != act_g.args.len) return false;
+                        for (exp_g.args, act_g.args) |ea, aa| {
+                            if (!self.typeExprsMatch(ea, aa)) return false;
+                        }
+                        return true;
+                    },
+                    else => return false,
+                }
+            },
+            .constrained => |c| return self.typeExprsMatch(c.base.*, actual),
+            else => return true, // optional, enum, union, fn_type — skip for now
+        }
+    }
+
+    fn resolveAlias(self: *Checker, name: []const u8) []const u8 {
+        if (self.type_decls.get(name)) |td| {
+            switch (td.value) {
+                .simple => |resolved| return resolved,
+                else => return name,
+            }
+        }
+        return name;
+    }
+
+    // ── Function signature lookup ─────────────────────────────────
+
+    fn lookupFnSignature(self: *Checker, target: ast.Expr) ?FnSignature {
+        switch (target) {
+            .field_access => |fa| {
+                if (fa.target.* == .identifier) {
+                    const mod_name = fa.target.identifier;
+                    if (self.modules.get(mod_name)) |mod| {
+                        for (mod.functions) |func| {
+                            if (std.mem.eql(u8, func.name, fa.field)) {
+                                return .{ .name = func.name, .module_name = mod_name, .params = func.params, .return_type = func.return_type };
+                            }
+                        }
+                    }
+                    // Built-in modules and processes — return null (skip checking)
+                }
+                return null;
+            },
+            .identifier => |name| {
+                // Bare function call — look up in current module
+                if (self.current_module_name) |mod_name| {
+                    if (self.modules.get(mod_name)) |mod| {
+                        for (mod.functions) |func| {
+                            if (std.mem.eql(u8, func.name, name)) {
+                                return .{ .name = func.name, .module_name = mod_name, .params = func.params, .return_type = func.return_type };
+                            }
+                        }
+                    }
+                }
+                return null;
+            },
+            else => return null,
+        }
     }
 
     // ── Match exhaustiveness ────────────────────────────────────

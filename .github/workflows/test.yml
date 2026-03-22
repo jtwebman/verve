@@ -23,6 +23,13 @@ jobs:
       - name: Run unit tests
         run: zig build test
 
+      - name: Type check all examples
+        run: |
+          for f in examples/*.vv; do
+            echo "Checking $f..."
+            zig build run -- check "$f"
+          done
+
       - name: Run examples
         run: |
           zig build run -- run examples/hello.vv
@@ -30,12 +37,6 @@ jobs:
           zig build run -- run examples/multi.vv
           zig build run -- run examples/supervisor.vv
           zig build run -- run examples/lists.vv
-
-      - name: Type check examples
-        run: |
-          zig build run -- check examples/hello.vv
-          zig build run -- check examples/counter.vv
-          zig build run -- check examples/multi.vv
 
       - name: Run verifier
         run: |

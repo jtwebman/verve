@@ -84,6 +84,18 @@ test "error: no entry point" {
     , "no entry point found");
 }
 
+test "valid: library with exports and no main" {
+    try expectNoErrors(
+        \\/// Math utilities.
+        \\export module Math {
+        \\    /// Add two numbers.
+        \\    fn add(a: int, b: int) -> int {
+        \\        return a + b;
+        \\    }
+        \\}
+    );
+}
+
 test "error: multiple entry points" {
     try expectError(
         \\module App1 {
@@ -785,4 +797,819 @@ test "reports multiple errors" {
     );
     // Should have at least 3 errors: unknown type Foo, int guard, undefined x
     try testing.expect(checker.errors.items.len >= 3);
+}
+
+// ── Call checking ──────────────────────────────────────────
+
+test "error: too many arguments" {
+    try expectError(
+        \\module Math {
+        \\    fn add(a: int, b: int) -> int {
+        \\        return a + b;
+        \\    }
+        \\    fn main() -> int {
+        \\        return add(1, 2, 3);
+        \\    }
+        \\}
+    , "expects 2 argument(s), got 3");
+}
+
+test "error: too few arguments" {
+    try expectError(
+        \\module Math {
+        \\    fn add(a: int, b: int) -> int {
+        \\        return a + b;
+        \\    }
+        \\    fn main() -> int {
+        \\        return add(1);
+        \\    }
+        \\}
+    , "expects 2 argument(s), got 1");
+}
+
+test "error: wrong argument type" {
+    try expectError(
+        \\module Math {
+        \\    fn add(a: int, b: int) -> int {
+        \\        return a + b;
+        \\    }
+        \\    fn main() -> int {
+        \\        return add(1, "hello");
+        \\    }
+        \\}
+    , "argument 'b' in call to 'Math.add'");
+}
+
+test "valid: correct call" {
+    try expectNoErrors(
+        \\module Math {
+        \\    fn add(a: int, b: int) -> int {
+        \\        return a + b;
+        \\    }
+        \\    fn main() -> int {
+        \\        return add(1, 2);
+        \\    }
+        \\}
+    );
+}
+
+test "valid: cross-module call" {
+    try expectNoErrors(
+        \\module Util {
+        \\    fn double(x: int) -> int {
+        \\        return x + x;
+        \\    }
+        \\}
+        \\module Main {
+        \\    fn main() -> int {
+        \\        return Util.double(5);
+        \\    }
+        \\}
+    );
+}
+
+// ── Return type checking ──────────────────────────────────
+
+test "error: return string from int function" {
+    try expectError(
+        \\module Main {
+        \\    fn main() -> int {
+        \\        return "hello";
+        \\    }
+        \\}
+    , "Main.main: return type mismatch");
+}
+
+test "error: return int from string function" {
+    try expectError(
+        \\module Main {
+        \\    fn greet() -> string {
+        \\        return 42;
+        \\    }
+        \\    fn main() -> int { return 0; }
+        \\}
+    , "Main.greet: return type mismatch");
+}
+
+test "valid: matching return type" {
+    try expectNoErrors(
+        \\module Main {
+        \\    fn greet() -> string {
+        \\        return "hello";
+        \\    }
+        \\    fn main() -> int {
+        \\        return 0;
+        \\    }
+        \\}
+    );
+}
+
+// ── Assignment type checking ──────────────────────────────
+
+test "error: assign string to int" {
+    try expectError(
+        \\module Main {
+        \\    fn main() -> int {
+        \\        x: int = "hello";
+        \\        return 0;
+        \\    }
+        \\}
+    , "Main.main: type mismatch in 'x'");
+}
+
+test "error: reassign wrong type" {
+    try expectError(
+        \\module Main {
+        \\    fn main() -> int {
+        \\        x: int = 10;
+        \\        x = "hello";
+        \\        return x;
+        \\    }
+        \\}
+    , "cannot assign string to int");
+}
+
+test "valid: matching assignment" {
+    try expectNoErrors(
+        \\module Main {
+        \\    fn main() -> int {
+        \\        x: int = 42;
+        \\        x = 100;
+        \\        return x;
+        \\    }
+        \\}
+    );
+}
+
+// ── Generics in scope ─────────────────────────────────────
+
+test "valid: list<int> preserved in scope" {
+    try expectNoErrors(
+        \\module Main {
+        \\    fn main(args: list<string>) -> int {
+        \\        nums: list<int> = list(1, 2, 3);
+        \\        return 0;
+        \\    }
+        \\}
+    );
+}
+
+test "error: fn returning int assigned to string var" {
+    try expectError(
+        \\module Math {
+        \\    fn add(a: int, b: int) -> int {
+        \\        return a + b;
+        \\    }
+        \\    fn main() -> int {
+        \\        x: string = add(1, 2);
+        \\        return 0;
+        \\    }
+        \\}
+    , "cannot assign int to string");
+}
+
+// ── Tell arg checking ─────────────────────────────────────
+
+test "error: wrong arg count to tell" {
+    try expectError(
+        \\process Worker {
+        \\    state {
+        \\        value: int;
+        \\    }
+        \\    receive SetValue(v: int) -> int {
+        \\        transition value { v; }
+        \\        return value;
+        \\    }
+        \\}
+        \\module Main {
+        \\    fn main() -> int {
+        \\        w: int = spawn Worker();
+        \\        tell w.SetValue(1, 2);
+        \\        return 0;
+        \\    }
+        \\}
+    , "expects 1 argument(s), got 2");
+}
+
+test "valid: correct tell" {
+    try expectNoErrors(
+        \\process Worker {
+        \\    state {
+        \\        value: int;
+        \\    }
+        \\    receive SetValue(v: int) -> int {
+        \\        transition value { v; }
+        \\        return value;
+        \\    }
+        \\}
+        \\module Main {
+        \\    fn main() -> int {
+        \\        w: int = spawn Worker();
+        \\        tell w.SetValue(42);
+        \\        return 0;
+        \\    }
+        \\}
+    );
+}
+
+// ── Built-in function return types ────────────────────────
+
+test "error: println assigned to int" {
+    try expectError(
+        \\module Main {
+        \\    fn main() -> int {
+        \\        x: int = println("hello");
+        \\        return x;
+        \\    }
+        \\}
+    , "cannot assign void to int");
+}
+
+test "error: return println from int function" {
+    try expectError(
+        \\module Main {
+        \\    fn main() -> int {
+        \\        return println("hi");
+        \\    }
+        \\}
+    , "Main.main: return type mismatch");
+}
+
+test "valid: spawn assigned to int" {
+    try expectNoErrors(
+        \\process Worker {
+        \\    state { value: int; }
+        \\    receive Get() -> int { return value; }
+        \\}
+        \\module Main {
+        \\    fn main() -> int {
+        \\        w: int = spawn Worker();
+        \\        return 0;
+        \\    }
+        \\}
+    );
+}
+
+// ── Built-in module function return types ─────────────────
+
+test "error: String.len assigned to string" {
+    try expectError(
+        \\module Main {
+        \\    fn main() -> int {
+        \\        x: string = String.len("hello");
+        \\        return 0;
+        \\    }
+        \\}
+    , "cannot assign int to string");
+}
+
+test "valid: String.len assigned to int" {
+    try expectNoErrors(
+        \\module Main {
+        \\    fn main() -> int {
+        \\        x: int = String.len("hello");
+        \\        return 0;
+        \\    }
+        \\}
+    );
+}
+
+test "error: String.contains assigned to int" {
+    try expectError(
+        \\module Main {
+        \\    fn main() -> int {
+        \\        x: int = String.contains("hello", "he");
+        \\        return 0;
+        \\    }
+        \\}
+    , "cannot assign bool to int");
+}
+
+test "valid: String.contains assigned to bool" {
+    try expectNoErrors(
+        \\module Main {
+        \\    fn main() -> int {
+        \\        x: bool = String.contains("hello", "he");
+        \\        return 0;
+        \\    }
+        \\}
+    );
+}
+
+test "error: String.trim assigned to int" {
+    try expectError(
+        \\module Main {
+        \\    fn main() -> int {
+        \\        x: int = String.trim("  hello  ");
+        \\        return 0;
+        \\    }
+        \\}
+    , "cannot assign string to int");
+}
+
+test "error: Stdio.out assigned to int" {
+    try expectError(
+        \\module Main {
+        \\    fn main() -> int {
+        \\        x: int = Stdio.out();
+        \\        return 0;
+        \\    }
+        \\}
+    , "cannot assign stream to int");
+}
+
+test "valid: Stdio.out assigned to stream" {
+    try expectNoErrors(
+        \\module Main {
+        \\    fn main() -> int {
+        \\        s: stream = Stdio.out();
+        \\        return 0;
+        \\    }
+        \\}
+    );
+}
+
+test "error: Set.has assigned to string" {
+    try expectError(
+        \\module Main {
+        \\    fn main() -> int {
+        \\        s: set<int> = set();
+        \\        x: string = Set.has(s, 1);
+        \\        return 0;
+        \\    }
+        \\}
+    , "cannot assign bool to string");
+}
+
+test "error: return String.len from string function" {
+    try expectError(
+        \\module Main {
+        \\    fn greet() -> string {
+        \\        return String.len("hi");
+        \\    }
+        \\    fn main() -> int { return 0; }
+        \\}
+    , "Main.greet: return type mismatch");
+}
+
+// ── Field access inference ────────────────────────────────
+
+test "valid: string.len returns int" {
+    try expectNoErrors(
+        \\module Main {
+        \\    fn main() -> int {
+        \\        s: string = "hello";
+        \\        x: int = s.len;
+        \\        return x;
+        \\    }
+        \\}
+    );
+}
+
+test "error: list.len assigned to string" {
+    try expectError(
+        \\module Main {
+        \\    fn main() -> int {
+        \\        nums: list<int> = list(1, 2, 3);
+        \\        x: string = nums.len;
+        \\        return 0;
+        \\    }
+        \\}
+    , "cannot assign int to string");
+}
+
+test "valid: struct field access type" {
+    try expectNoErrors(
+        \\struct Point {
+        \\    x: int;
+        \\    y: int;
+        \\}
+        \\module Main {
+        \\    fn main() -> int {
+        \\        p: Point = Point { x: 1, y: 2 };
+        \\        v: int = p.x;
+        \\        return v;
+        \\    }
+        \\}
+    );
+}
+
+test "error: struct field access wrong type" {
+    try expectError(
+        \\struct Point {
+        \\    x: int;
+        \\    y: int;
+        \\}
+        \\module Main {
+        \\    fn main() -> int {
+        \\        p: Point = Point { x: 1, y: 2 };
+        \\        v: string = p.x;
+        \\        return 0;
+        \\    }
+        \\}
+    , "cannot assign int to string");
+}
+
+// ── Index access inference ────────────────────────────────
+
+test "valid: list<int> index returns int" {
+    try expectNoErrors(
+        \\module Main {
+        \\    fn main() -> int {
+        \\        nums: list<int> = list(1, 2, 3);
+        \\        x: int = nums[0];
+        \\        return x;
+        \\    }
+        \\}
+    );
+}
+
+test "error: list<int> index assigned to string" {
+    try expectError(
+        \\module Main {
+        \\    fn main() -> int {
+        \\        nums: list<int> = list(1, 2, 3);
+        \\        x: string = nums[0];
+        \\        return 0;
+        \\    }
+        \\}
+    , "cannot assign int to string");
+}
+
+test "valid: string index returns string" {
+    try expectNoErrors(
+        \\module Main {
+        \\    fn main() -> int {
+        \\        s: string = "hello";
+        \\        c: string = s[0];
+        \\        return 0;
+        \\    }
+        \\}
+    );
+}
+
+test "error: string index assigned to int" {
+    try expectError(
+        \\module Main {
+        \\    fn main() -> int {
+        \\        s: string = "hello";
+        \\        c: int = s[0];
+        \\        return 0;
+        \\    }
+        \\}
+    , "cannot assign string to int");
+}
+
+test "error: map<string, int> index assigned to string" {
+    try expectError(
+        \\module Main {
+        \\    fn main() -> int {
+        \\        m: map<string, int> = map();
+        \\        x: string = m["key"];
+        \\        return 0;
+        \\    }
+        \\}
+    , "cannot assign int to string");
+}
+
+test "valid: map<string, int> index returns int" {
+    try expectNoErrors(
+        \\module Main {
+        \\    fn main() -> int {
+        \\        m: map<string, int> = map();
+        \\        x: int = m["key"];
+        \\        return x;
+        \\    }
+        \\}
+    );
+}
+
+// ── Additional built-in function coverage ─────────────────
+
+test "error: spawn assigned to string" {
+    try expectError(
+        \\process Worker {
+        \\    state { value: int; }
+        \\    receive Get() -> int { return value; }
+        \\}
+        \\module Main {
+        \\    fn main() -> int {
+        \\        w: string = spawn Worker();
+        \\        return 0;
+        \\    }
+        \\}
+    , "cannot assign int to string");
+}
+
+test "error: print assigned to string" {
+    try expectError(
+        \\module Main {
+        \\    fn main() -> int {
+        \\        x: string = print("hi");
+        \\        return 0;
+        \\    }
+        \\}
+    , "cannot assign void to string");
+}
+
+// ── Additional String module coverage ─────────────────────
+
+test "valid: String.trim assigned to string" {
+    try expectNoErrors(
+        \\module Main {
+        \\    fn main() -> int {
+        \\        x: string = String.trim("  hello  ");
+        \\        return 0;
+        \\    }
+        \\}
+    );
+}
+
+test "error: String.starts_with assigned to int" {
+    try expectError(
+        \\module Main {
+        \\    fn main() -> int {
+        \\        x: int = String.starts_with("hello", "he");
+        \\        return 0;
+        \\    }
+        \\}
+    , "cannot assign bool to int");
+}
+
+test "valid: String.starts_with assigned to bool" {
+    try expectNoErrors(
+        \\module Main {
+        \\    fn main() -> int {
+        \\        x: bool = String.starts_with("hello", "he");
+        \\        return 0;
+        \\    }
+        \\}
+    );
+}
+
+test "valid: String.replace assigned to string" {
+    try expectNoErrors(
+        \\module Main {
+        \\    fn main() -> int {
+        \\        x: string = String.replace("hello", "l", "r");
+        \\        return 0;
+        \\    }
+        \\}
+    );
+}
+
+test "error: String.byte_at assigned to string" {
+    try expectError(
+        \\module Main {
+        \\    fn main() -> int {
+        \\        x: string = String.byte_at("hello", 0);
+        \\        return 0;
+        \\    }
+        \\}
+    , "cannot assign int to string");
+}
+
+// ── Additional Map/Set/Stack/Queue coverage ───────────────
+
+test "valid: Map.has assigned to bool" {
+    try expectNoErrors(
+        \\module Main {
+        \\    fn main() -> int {
+        \\        m: map<string, int> = map();
+        \\        x: bool = Map.has(m, "key");
+        \\        return 0;
+        \\    }
+        \\}
+    );
+}
+
+test "error: Map.put assigned to int" {
+    try expectError(
+        \\module Main {
+        \\    fn main() -> int {
+        \\        m: map<string, int> = map();
+        \\        x: int = Map.put(m, "key", 42);
+        \\        return 0;
+        \\    }
+        \\}
+    , "cannot assign void to int");
+}
+
+test "valid: Set.has assigned to bool" {
+    try expectNoErrors(
+        \\module Main {
+        \\    fn main() -> int {
+        \\        s: set<int> = set();
+        \\        x: bool = Set.has(s, 1);
+        \\        return 0;
+        \\    }
+        \\}
+    );
+}
+
+test "error: Set.add assigned to int" {
+    try expectError(
+        \\module Main {
+        \\    fn main() -> int {
+        \\        s: set<int> = set();
+        \\        x: int = Set.add(s, 1);
+        \\        return 0;
+        \\    }
+        \\}
+    , "cannot assign void to int");
+}
+
+test "error: Stack.push assigned to int" {
+    try expectError(
+        \\module Main {
+        \\    fn main() -> int {
+        \\        s: stack<int> = stack();
+        \\        x: int = Stack.push(s, 1);
+        \\        return 0;
+        \\    }
+        \\}
+    , "cannot assign void to int");
+}
+
+test "error: Queue.push assigned to int" {
+    try expectError(
+        \\module Main {
+        \\    fn main() -> int {
+        \\        q: queue<int> = queue();
+        \\        x: int = Queue.push(q, 1);
+        \\        return 0;
+        \\    }
+        \\}
+    , "cannot assign void to int");
+}
+
+// ── Additional Stream coverage ────────────────────────────
+
+test "error: Stream.write assigned to string" {
+    try expectError(
+        \\module Main {
+        \\    fn main() -> int {
+        \\        s: stream = Stdio.out();
+        \\        x: string = Stream.write(s, "hi");
+        \\        return 0;
+        \\    }
+        \\}
+    , "cannot assign void to string");
+}
+
+test "error: Stream.close assigned to int" {
+    try expectError(
+        \\module Main {
+        \\    fn main() -> int {
+        \\        s: stream = Stdio.out();
+        \\        x: int = Stream.close(s);
+        \\        return 0;
+        \\    }
+        \\}
+    , "cannot assign void to int");
+}
+
+// ── Additional field access coverage ──────────────────────
+
+test "valid: list.len assigned to int" {
+    try expectNoErrors(
+        \\module Main {
+        \\    fn main() -> int {
+        \\        nums: list<int> = list(1, 2, 3);
+        \\        x: int = nums.len;
+        \\        return x;
+        \\    }
+        \\}
+    );
+}
+
+test "valid: map.len assigned to int" {
+    try expectNoErrors(
+        \\module Main {
+        \\    fn main() -> int {
+        \\        m: map<string, int> = map();
+        \\        x: int = m.len;
+        \\        return x;
+        \\    }
+        \\}
+    );
+}
+
+test "error: map.len assigned to bool" {
+    try expectError(
+        \\module Main {
+        \\    fn main() -> int {
+        \\        m: map<string, int> = map();
+        \\        x: bool = m.len;
+        \\        return 0;
+        \\    }
+        \\}
+    , "cannot assign int to bool");
+}
+
+test "valid: struct field with string type" {
+    try expectNoErrors(
+        \\struct Person {
+        \\    name: string;
+        \\    age: int;
+        \\}
+        \\module Main {
+        \\    fn main() -> int {
+        \\        p: Person = Person { name: "Alice", age: 30 };
+        \\        n: string = p.name;
+        \\        a: int = p.age;
+        \\        return 0;
+        \\    }
+        \\}
+    );
+}
+
+test "error: struct string field assigned to int" {
+    try expectError(
+        \\struct Person {
+        \\    name: string;
+        \\    age: int;
+        \\}
+        \\module Main {
+        \\    fn main() -> int {
+        \\        p: Person = Person { name: "Alice", age: 30 };
+        \\        x: int = p.name;
+        \\        return 0;
+        \\    }
+        \\}
+    , "cannot assign string to int");
+}
+
+// ── Cross-module call type mismatches ─────────────────────
+
+test "error: cross-module wrong arg type" {
+    try expectError(
+        \\module Util {
+        \\    fn double(x: int) -> int {
+        \\        return x + x;
+        \\    }
+        \\}
+        \\module Main {
+        \\    fn main() -> int {
+        \\        return Util.double("hello");
+        \\    }
+        \\}
+    , "argument 'x' in call to 'Util.double'");
+}
+
+test "error: cross-module return type mismatch" {
+    try expectError(
+        \\module Util {
+        \\    fn double(x: int) -> int {
+        \\        return x + x;
+        \\    }
+        \\}
+        \\module Main {
+        \\    fn main() -> int {
+        \\        x: string = Util.double(5);
+        \\        return 0;
+        \\    }
+        \\}
+    , "cannot assign int to string");
+}
+
+test "error: cross-module too many args" {
+    try expectError(
+        \\module Util {
+        \\    fn double(x: int) -> int {
+        \\        return x + x;
+        \\    }
+        \\}
+        \\module Main {
+        \\    fn main() -> int {
+        \\        return Util.double(5, 10);
+        \\    }
+        \\}
+    , "expects 1 argument(s), got 2");
+}
+
+// ── Type alias resolution in assignments ──────────────────
+
+test "valid: type alias compatible with base type" {
+    try expectNoErrors(
+        \\type Money = int;
+        \\module Main {
+        \\    fn main() -> int {
+        \\        x: Money = 42;
+        \\        return 0;
+        \\    }
+        \\}
+    );
+}
+
+test "error: type alias incompatible assignment" {
+    try expectError(
+        \\type Money = int;
+        \\module Main {
+        \\    fn main() -> int {
+        \\        x: Money = "hello";
+        \\        return 0;
+        \\    }
+        \\}
+    , "cannot assign string to Money");
 }

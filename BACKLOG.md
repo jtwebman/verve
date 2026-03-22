@@ -69,19 +69,27 @@
 - [x] Duplicate struct field detection
 - [x] Empty match detection
 - [x] While conditions must be boolean
-- [x] Entry point validation (exactly one main())
+- [x] Entry point validation (exactly one main(), skipped for library files with exports)
 - [x] Multiple errors reported in one pass
 - [x] Built-in types and functions recognized
 - [x] Sibling functions in scope
 - [x] Explicit types on all variable declarations (x: int = 42;), checker enforces
-- [ ] Type checking — function signatures, return types match
+- [x] Type checking — function signatures, return types match
 - [ ] Type checking — compile-time generics (monomorphization)
 - [x] Type checking — match exhaustiveness for booleans (true/false, wildcard)
 - [x] Type checking — match exhaustiveness for enums (all variants covered, wildcard)
 - [x] Type checking — send/tell only on process values (tell-on-module caught)
-- [ ] Type checking — constrained types (range, precision, min/max)
+- [ ] Type checking — constrained types (range, precision, min/max) — parser support needed
 - [ ] Type checking — Result<T> and send wrapping
-- [ ] Type checking — function references match signatures
+- [x] Type checking — function references match signatures
+- [x] Type inference — literals, binary/unary ops, calls, field access, index access, built-in modules
+- [x] Type checking — built-in function return types (String, Map, Set, Stack, Queue, Stream, Stdio)
+- [x] Type checking — struct field access types
+- [x] Type checking — collection index types (list<T>[i] -> T, map<K,V>[k] -> V, string[i] -> string)
+- [x] Type checking — string concatenation via + operator
+- [x] Type checking — type alias resolution in assignments
+- [x] Module constants visible in function scope (bug fix)
+- [x] Error messages include module.function context, variable names, parameter names
 - [x] Call graph cycle detection (no recursion — direct, mutual, cross-module)
 
 ## Phase 3 — Verifier

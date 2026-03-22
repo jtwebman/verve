@@ -520,8 +520,8 @@ module Parser {
 
 /// Pretty-print an AST.
 module Printer {
-	/// Print an AST node with indentation.
-	fn print_node(n: AstNode, depth: int) -> void {
+	/// Print a single AST node at the given depth.
+	fn print_one(n: AstNode, depth: int) -> void {
 		indent: string = "";
 		d: int = 0;
 		while d < depth {
@@ -558,16 +558,30 @@ module Printer {
 		} else {
 			println(indent, n.kind, " ", n.name);
 		}
+	}
 
-		// Print children with increased indent
-		ci: int = 0;
-		while ci < n.children.len {
-			child: AstNode = n.children[ci];
-			// Don't re-print params (already printed inline for fn)
-			if n.kind != "fn" {
-				Printer.print_node(child, depth + 1);
+	/// Walk and print an AST tree using an explicit stack (no recursion).
+	fn print_tree(root: AstNode) -> void {
+		// Stack holds {node, depth} pairs — use two parallel stacks
+		node_stack: stack<AstNode> = stack();
+		depth_stack: stack<int> = stack();
+		Stack.push(node_stack, root);
+		Stack.push(depth_stack, 0);
+
+		while node_stack.len > 0 {
+			current: AstNode = Stack.pop(node_stack);
+			current_depth: int = Stack.pop(depth_stack);
+			print_one(current, current_depth);
+
+			// Push children in reverse order so leftmost is processed first
+			if current.kind != "fn" {
+				ci: int = current.children.len - 1;
+				while ci >= 0 {
+					Stack.push(node_stack, current.children[ci]);
+					Stack.push(depth_stack, current_depth + 1);
+					ci = ci - 1;
+				}
 			}
-			ci = ci + 1;
 		}
 	}
 }
@@ -600,7 +614,7 @@ module App {
 				// Print AST
 				i: int = 0;
 				while i < decls.len {
-					Printer.print_node(decls[i], 0);
+					Printer.print_tree(decls[i]);
 					i = i + 1;
 				}
 
