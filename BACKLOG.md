@@ -90,6 +90,15 @@
 - [x] Type checking — type alias resolution in assignments
 - [x] Module constants visible in function scope (bug fix)
 - [x] Error messages include module.function context, variable names, parameter names
+- [x] Match exhaustiveness enforced — wildcard required unless proven (bool, enum, Result ok+error)
+- [x] && and || require bool operands — no implicit truthiness
+- [x] Generic types require type parameters (no bare list/map/set/stack/queue)
+- [x] All struct fields require default values — no implicit zero-initialization
+- [x] Process state is explicit struct with type parameter: process Name<StateStruct>
+- [x] Handlers receive state as first param: receive Handler(state: StateType, ...) -> T
+- [x] State mutation via field assignment: state.field = expr (transition keyword deprecated)
+- [x] Frozen collection mutation gives clear "cannot mutate constant" error
+- [x] Fail fast everywhere — no silent catch {}, IO panics on write failure
 - [x] Call graph cycle detection (no recursion — direct, mutual, cross-module)
 
 ## Phase 3 — Verifier

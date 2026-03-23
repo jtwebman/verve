@@ -538,14 +538,21 @@ pub const Checker = struct {
                         if (self.process_decls.get(proc_name)) |proc| {
                             for (proc.receive_handlers) |handler| {
                                 if (std.mem.eql(u8, handler.name, t.handler)) {
-                                    if (t.args.len != handler.params.len) {
+                                    // Skip the state param (injected by runtime) for new-style processes
+                                    const user_params = if (proc.state_type != null and handler.params.len > 0 and
+                                        std.mem.eql(u8, handler.params[0].name, "state"))
+                                        handler.params[1..]
+                                    else
+                                        handler.params;
+
+                                    if (t.args.len != user_params.len) {
                                         try self.addError(
-                                            try std.fmt.allocPrint(self.alloc, "'{s}.{s}' expects {d} argument(s), got {d}", .{ proc_name, t.handler, handler.params.len, t.args.len }),
+                                            try std.fmt.allocPrint(self.alloc, "'{s}.{s}' expects {d} argument(s), got {d}", .{ proc_name, t.handler, user_params.len, t.args.len }),
                                             0,
                                             0,
                                         );
                                     } else {
-                                        for (handler.params, t.args) |param, arg| {
+                                        for (user_params, t.args) |param, arg| {
                                             const inferred = self.inferExprType(arg);
                                             if (!self.typesCompatible(param.type_expr, inferred)) {
                                                 try self.addError(

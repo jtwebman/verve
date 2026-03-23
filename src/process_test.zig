@@ -33,12 +33,10 @@ fn run(source: []const u8, module_name: []const u8, fn_name: []const u8, args: [
 
 test "spawn process and send message" {
     const val = try runMain(
-        \\process Counter {
-        \\    state {
-        \\        count: int = 0;
-        \\    }
-        \\    receive GetCount() -> int {
-        \\        return count;
+        \\struct CounterState { count: int = 0; }
+        \\process Counter<CounterState> {
+        \\    receive GetCount(state: CounterState) -> int {
+        \\        return state.count;
         \\    }
         \\}
         \\module Main {
@@ -56,13 +54,11 @@ test "spawn process and send message" {
 
 test "spawn process and increment state" {
     const val = try runMain(
-        \\process Counter {
-        \\    state {
-        \\        count: int = 0;
-        \\    }
-        \\    receive Increment() -> int {
-        \\        transition count { count + 1; }
-        \\        return count;
+        \\struct CounterState { count: int = 0; }
+        \\process Counter<CounterState> {
+        \\    receive Increment(state: CounterState) -> int {
+        \\        state.count = state.count + 1;
+        \\        return state.count;
         \\    }
         \\}
         \\module Main {
@@ -83,15 +79,13 @@ test "spawn process and increment state" {
 
 test "process guard fails returns error" {
     const val = try runMain(
-        \\process Account {
-        \\    state {
-        \\        balance: int = 0;
-        \\    }
-        \\    receive Withdraw(amount: int) -> int {
+        \\struct AccountState { balance: int = 0; }
+        \\process Account<AccountState> {
+        \\    receive Withdraw(state: AccountState, amount: int) -> int {
         \\        guard amount > 0;
-        \\        guard balance >= amount;
-        \\        transition balance { balance - amount; }
-        \\        return balance;
+        \\        guard state.balance >= amount;
+        \\        state.balance = state.balance - amount;
+        \\        return state.balance;
         \\    }
         \\}
         \\module Main {
@@ -110,16 +104,14 @@ test "process guard fails returns error" {
 
 test "multiple processes with independent state" {
     const val = try runMain(
-        \\process Counter {
-        \\    state {
-        \\        count: int = 0;
+        \\struct CounterState { count: int = 0; }
+        \\process Counter<CounterState> {
+        \\    receive Add(state: CounterState, n: int) -> int {
+        \\        state.count = state.count + n;
+        \\        return state.count;
         \\    }
-        \\    receive Add(n: int) -> int {
-        \\        transition count { count + n; }
-        \\        return count;
-        \\    }
-        \\    receive GetCount() -> int {
-        \\        return count;
+        \\    receive GetCount(state: CounterState) -> int {
+        \\        return state.count;
         \\    }
         \\}
         \\module Main {
@@ -147,23 +139,21 @@ test "multiple processes with independent state" {
 
 test "process state transition with guard" {
     const val = try runMain(
-        \\process Ledger {
-        \\    state {
-        \\        balance: int = 0;
-        \\    }
-        \\    receive Deposit(amount: int) -> int {
+        \\struct LedgerState { balance: int = 0; }
+        \\process Ledger<LedgerState> {
+        \\    receive Deposit(state: LedgerState, amount: int) -> int {
         \\        guard amount > 0;
-        \\        transition balance { balance + amount; }
-        \\        return balance;
+        \\        state.balance = state.balance + amount;
+        \\        return state.balance;
         \\    }
-        \\    receive Withdraw(amount: int) -> int {
+        \\    receive Withdraw(state: LedgerState, amount: int) -> int {
         \\        guard amount > 0;
-        \\        guard balance >= amount;
-        \\        transition balance { balance - amount; }
-        \\        return balance;
+        \\        guard state.balance >= amount;
+        \\        state.balance = state.balance - amount;
+        \\        return state.balance;
         \\    }
-        \\    receive GetBalance() -> int {
-        \\        return balance;
+        \\    receive GetBalance(state: LedgerState) -> int {
+        \\        return state.balance;
         \\    }
         \\}
         \\module Main {
@@ -185,11 +175,9 @@ test "process state transition with guard" {
 
 test "process entry point with main" {
     const val = try runMain(
-        \\process App {
-        \\    state {
-        \\        count: int = 0;
-        \\    }
-        \\    receive main() -> int {
+        \\struct AppState {}
+        \\process App<AppState> {
+        \\    receive main(state: AppState) -> int {
         \\        return 42;
         \\    }
         \\}
@@ -204,14 +192,12 @@ test "process calls module function" {
         \\        return x * 2;
         \\    }
         \\}
-        \\process Counter {
-        \\    state {
-        \\        count: int = 0;
-        \\    }
-        \\    receive AddDoubled(n: int) -> int {
-        \\        doubled = Math.double(n);
-        \\        transition count { count + doubled; }
-        \\        return count;
+        \\struct CounterState { count: int = 0; }
+        \\process Counter<CounterState> {
+        \\    receive AddDoubled(state: CounterState, n: int) -> int {
+        \\        doubled: int = Math.double(n);
+        \\        state.count = state.count + doubled;
+        \\        return state.count;
         \\    }
         \\}
         \\module Main {
@@ -229,24 +215,19 @@ test "process calls module function" {
 
 test "send to dead process returns error" {
     const val = try runMain(
-        \\process Counter {
-        \\    state {
-        \\        count: int = 0;
-        \\    }
-        \\    receive GetCount() -> int {
-        \\        return count;
+        \\struct CounterState { count: int = 0; }
+        \\process Counter<CounterState> {
+        \\    receive GetCount(state: CounterState) -> int {
+        \\        return state.count;
         \\    }
         \\}
         \\module Main {
         \\    fn main() -> int {
         \\        c = spawn Counter();
-        \\        // First call works
         \\        match c.GetCount() {
         \\            :ok{val} => println("Got: ", val);
         \\            :error{reason} => println("Error");
         \\        }
-        \\        // TODO: kill the process, then send should fail
-        \\        // For now, verify the ok path works
         \\        return 0;
         \\    }
         \\}
@@ -255,28 +236,24 @@ test "send to dead process returns error" {
 }
 
 test "match send handles all three cases" {
-    // Verify the AI pattern: match send always has :ok, :error, :timeout
     const val = try runMain(
-        \\process Ledger {
-        \\    state {
-        \\        balance: int = 0;
+        \\struct LedgerState { balance: int = 0; }
+        \\process Ledger<LedgerState> {
+        \\    receive Withdraw(state: LedgerState, amount: int) -> int {
+        \\        guard state.balance >= amount;
+        \\        state.balance = state.balance - amount;
+        \\        return state.balance;
         \\    }
-        \\    receive Withdraw(amount: int) -> int {
-        \\        guard balance >= amount;
-        \\        transition balance { balance - amount; }
-        \\        return balance;
-        \\    }
-        \\    receive Deposit(amount: int) -> int {
+        \\    receive Deposit(state: LedgerState, amount: int) -> int {
         \\        guard amount > 0;
-        \\        transition balance { balance + amount; }
-        \\        return balance;
+        \\        state.balance = state.balance + amount;
+        \\        return state.balance;
         \\    }
         \\}
         \\module Main {
         \\    fn main() -> int {
         \\        ledger = spawn Ledger();
         \\        ledger.Deposit(100);
-        \\        // This should fail — balance is 100, withdrawing 200
         \\        match ledger.Withdraw(200) {
         \\            :ok{val} => return val;
         \\            :error{reason} => return 1;
@@ -290,46 +267,39 @@ test "match send handles all three cases" {
 
 test "multiple operations with guard success and failure" {
     const val = try runMain(
-        \\process Account {
-        \\    state {
-        \\        balance: int = 0;
-        \\    }
-        \\    receive Deposit(amount: int) -> int {
+        \\struct AccountState { balance: int = 0; }
+        \\process Account<AccountState> {
+        \\    receive Deposit(state: AccountState, amount: int) -> int {
         \\        guard amount > 0;
-        \\        transition balance { balance + amount; }
-        \\        return balance;
+        \\        state.balance = state.balance + amount;
+        \\        return state.balance;
         \\    }
-        \\    receive Withdraw(amount: int) -> int {
+        \\    receive Withdraw(state: AccountState, amount: int) -> int {
         \\        guard amount > 0;
-        \\        guard balance >= amount;
-        \\        transition balance { balance - amount; }
-        \\        return balance;
+        \\        guard state.balance >= amount;
+        \\        state.balance = state.balance - amount;
+        \\        return state.balance;
         \\    }
         \\}
         \\module Main {
         \\    fn main() -> int {
         \\        acc = spawn Account();
-        \\        // Deposit works
         \\        match acc.Deposit(100) {
         \\            :ok{v} => println("Deposited, balance: ", v);
         \\            :error{r} => return 1;
         \\        }
-        \\        // Withdraw within balance works
         \\        match acc.Withdraw(30) {
         \\            :ok{v} => println("Withdrew 30, balance: ", v);
         \\            :error{r} => return 2;
         \\        }
-        \\        // Withdraw over balance fails
         \\        match acc.Withdraw(200) {
         \\            :ok{v} => return 3;
         \\            :error{r} => println("Correctly rejected overdraw");
         \\        }
-        \\        // Deposit zero fails guard
         \\        match acc.Deposit(0) {
         \\            :ok{v} => return 4;
         \\            :error{r} => println("Correctly rejected zero deposit");
         \\        }
-        \\        // Final balance should be 70
         \\        match acc.Withdraw(70) {
         \\            :ok{v} => return v;
         \\            :error{r} => return 5;
@@ -343,20 +313,16 @@ test "multiple operations with guard success and failure" {
 
 test "watch a process" {
     const val = try runMain(
-        \\process Worker {
-        \\    state {
-        \\        value: int;
-        \\    }
-        \\    receive SetValue(v: int) -> int {
-        \\        transition value { v; }
-        \\        return value;
+        \\struct WorkerState { value: int = 0; }
+        \\process Worker<WorkerState> {
+        \\    receive SetValue(state: WorkerState, v: int) -> int {
+        \\        state.value = v;
+        \\        return state.value;
         \\    }
         \\}
-        \\process App {
-        \\    state {
-        \\        count: int = 0;
-        \\    }
-        \\    receive main() -> int {
+        \\struct AppState {}
+        \\process App<AppState> {
+        \\    receive main(state: AppState) -> int {
         \\        w = spawn Worker();
         \\        watch w;
         \\        match w.SetValue(99) {
@@ -370,15 +336,10 @@ test "watch a process" {
 }
 
 test "receive; processes a queued message" {
-    // In single-threaded interpreter, receive; processes from mailbox
-    // This tests the basic pattern — more meaningful in multi-threaded runtime
     const val = try runMain(
-        \\process App {
-        \\    state {
-        \\        count: int = 0;
-        \\    }
-        \\    receive main() -> int {
-        \\        // No messages queued — receive; is no-op in single-threaded
+        \\struct AppState {}
+        \\process App<AppState> {
+        \\    receive main(state: AppState) -> int {
         \\        receive;
         \\        return 0;
         \\    }
@@ -389,15 +350,13 @@ test "receive; processes a queued message" {
 
 test "tell fires and forgets" {
     const val = try runMain(
-        \\process Logger {
-        \\    state {
-        \\        count: int = 0;
+        \\struct LoggerState { count: int = 0; }
+        \\process Logger<LoggerState> {
+        \\    receive Log(state: LoggerState, msg: string) -> void {
+        \\        state.count = state.count + 1;
         \\    }
-        \\    receive Log(msg: string) -> void {
-        \\        transition count { count + 1; }
-        \\    }
-        \\    receive GetCount() -> int {
-        \\        return count;
+        \\    receive GetCount(state: LoggerState) -> int {
+        \\        return state.count;
         \\    }
         \\}
         \\module Main {
@@ -418,18 +377,15 @@ test "tell fires and forgets" {
 
 test "send to process from module function" {
     const val = try runMain(
-        \\process Counter {
-        \\    state {
-        \\        count: int = 0;
-        \\    }
-        \\    receive Increment() -> int {
-        \\        transition count { count + 1; }
-        \\        return count;
+        \\struct CounterState { count: int = 0; }
+        \\process Counter<CounterState> {
+        \\    receive Increment(state: CounterState) -> int {
+        \\        state.count = state.count + 1;
+        \\        return state.count;
         \\    }
         \\}
         \\module Helper {
         \\    fn increment_three_times(c: int) -> int {
-        \\        // TODO: need to pass process reference properly
         \\        return 3;
         \\    }
         \\}

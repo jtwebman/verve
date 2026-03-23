@@ -92,13 +92,17 @@ msg: string = "hello ${name}, 1 + 1 = ${1 + 1}";
 ```
 
 ### Structs
+All fields require default values — no implicit initialization.
 ```
 struct Point {
-    x: int;
-    y: int;
+    x: int = 0;
+    y: int = 0;
 }
 p: Point = Point { x: 10, y: 20 };
 println(p.x);
+
+// Omitted fields use defaults
+origin: Point = Point{};  // x=0, y=0
 ```
 
 ### Modules
@@ -113,28 +117,32 @@ export module Math {
 ```
 
 ### Processes (actor model)
+Process state is an explicit struct with a type parameter. Handlers receive state as their first parameter and mutate it via field assignment.
 ```
-/// A counter that tracks a running total.
-export process Counter {
-    state {
-        count: int;
-    }
+struct CounterState {
+    count: int = 0;
+}
 
+/// A counter that tracks a running total.
+export process Counter<CounterState> {
     /// Increment the counter by the given amount.
-    receive increment(amount: int) -> int {
+    receive Increment(state: CounterState, amount: int) -> int {
         guard amount > 0;
-        transition count { count + amount; }
-        return count;
+        state.count = state.count + amount;
+        return state.count;
     }
 }
 ```
 
 ### Process communication
 ```
-p: process<Counter> = spawn Counter();
-result: Result<int> = send p.increment(5, 1000);  // with timeout
-tell p.increment(1);                                // fire-and-forget
-watch p;                                            // get ProcessDied notification
+counter: int = spawn Counter();
+match counter.Increment(5) {
+    :ok{val} => println("Count: ", val);
+    :error{reason} => println("Error: ", reason);
+}
+tell counter.Increment(1);   // fire-and-forget
+watch counter;               // get ProcessDied notification
 ```
 
 ### Imports

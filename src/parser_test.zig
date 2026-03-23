@@ -541,3 +541,35 @@ test "parse optional type" {
     const t = try p.parseTypeExpr();
     try testing.expectEqualStrings("Account", t.optional.simple);
 }
+
+test "parse process with state type parameter" {
+    var p = parse(
+        \\process Counter<CounterState> {
+        \\    receive Increment(state: CounterState) -> int {
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    _ = p.matchKeyword("process");
+    const decl = try p.parseProcessDecl();
+    try testing.expectEqualStrings("Counter", decl.name);
+    try testing.expectEqualStrings("CounterState", decl.state_type.?);
+    try testing.expectEqual(@as(usize, 0), decl.state_fields.len);
+    try testing.expectEqual(@as(usize, 1), decl.receive_handlers.len);
+    try testing.expectEqualStrings("state", decl.receive_handlers[0].params[0].name);
+}
+
+test "parse struct with default values" {
+    var p = parse(
+        \\struct Point {
+        \\    x: int = 0;
+        \\    y: int = 0;
+        \\}
+    );
+    _ = p.matchKeyword("struct");
+    const decl = try p.parseStructDecl();
+    try testing.expectEqualStrings("Point", decl.name);
+    try testing.expectEqual(@as(usize, 2), decl.fields.len);
+    try testing.expect(decl.fields[0].default_value != null);
+    try testing.expectEqual(@as(i64, 0), decl.fields[0].default_value.?.int_literal);
+}

@@ -22,7 +22,7 @@ See `LANGUAGE.md` for complete syntax, built-in modules, and API reference.
 - `src/interpreter.zig` — tree-walk interpreter with built-in modules
 - `src/value.zig` — runtime value types (int, float, string, list, map, set, stream, struct, tag, poison)
 - `src/process.zig` — process scheduler, mailbox, state management
-- `src/checker.zig` — type checker (undefined vars, recursion detection, doc comment enforcement)
+- `src/checker.zig` — type checker (types, signatures, returns, assignments, built-ins, exhaustiveness, recursion)
 - `src/verifier.zig` — @example, @property, and test block runner
 - `src/formatter.zig` — canonical code formatter
 - `src/loader.zig` — multi-file import resolver
@@ -56,6 +56,10 @@ See `LANGUAGE.md` for complete syntax, built-in modules, and API reference.
 - IO uses opaque `stream` values. Stdio/File return streams, Stream module operates on them
 - Doc comments (`///`) required on all exported modules, processes, and functions
 - No recursion — enforced by call graph cycle detection. Use while loops with explicit stacks
-- Poison values instead of exceptions for arithmetic errors
+- Poison values instead of exceptions for arithmetic errors — propagate through operations
 - Processes communicate via send (returns Result) and tell (fire-and-forget)
+- Process state is an explicit struct with type parameter: `process Counter<CounterState>`
+- Handlers receive state as first param: `receive Increment(state: CounterState) -> int`
+- State mutation via field assignment: `state.count = state.count + 1;` (no transition keyword)
+- All struct fields require default values — no implicit zero-initialization
 - Compiler pipeline: AST → IR (target-independent) → Zig backend → native binary

@@ -63,11 +63,9 @@ test "valid: module with main function" {
 
 test "valid: process with main function" {
     try expectNoErrors(
-        \\process App {
-        \\    state {
-        \\        running: bool = false;
-        \\    }
-        \\    receive main(args: list<string>) -> int {
+        \\struct AppState { running: bool = false; }
+        \\process App<AppState> {
+        \\    receive main(state: AppState, args: list<string>) -> int {
         \\        return 0;
         \\    }
         \\}
@@ -275,13 +273,11 @@ test "error: int literal as guard" {
 
 test "valid: transition in receive handler" {
     try expectNoErrors(
-        \\process Counter {
-        \\    state {
-        \\        count: int = 0;
-        \\    }
-        \\    receive Increment() -> int {
-        \\        transition count { count + 1; }
-        \\        return count;
+        \\struct CounterState { count: int = 0; }
+        \\process Counter<CounterState> {
+        \\    receive Increment(state: CounterState) -> int {
+        \\        state.count = state.count + 1;
+        \\        return state.count;
         \\    }
         \\}
         \\module Main {
@@ -466,9 +462,9 @@ test "valid: match with wildcard is exhaustive" {
 
 test "valid: Result match with ok and error is exhaustive" {
     try expectNoErrors(
-        \\process Counter {
-        \\    state { count: int = 0; }
-        \\    receive Get() -> int { return count; }
+        \\struct CounterState { count: int = 0; }
+        \\process Counter<CounterState> {
+        \\    receive Get(state: CounterState) -> int { return state.count; }
         \\}
         \\module Main {
         \\    fn main() -> int {
@@ -556,12 +552,10 @@ test "error: state field without default value" {
 
 test "valid: process state accessible in handler" {
     try expectNoErrors(
-        \\process Counter {
-        \\    state {
-        \\        count: int = 0;
-        \\    }
-        \\    receive GetCount() -> int {
-        \\        return count;
+        \\struct CounterState { count: int = 0; }
+        \\process Counter<CounterState> {
+        \\    receive GetCount(state: CounterState) -> int {
+        \\        return state.count;
         \\    }
         \\}
         \\module Main {
@@ -588,17 +582,15 @@ test "valid: full program with module and process" {
         \\    }
         \\}
         \\
-        \\process Ledger {
-        \\    state {
-        \\        balance: int = 0;
-        \\    }
-        \\    receive Deposit(amount: int) -> int {
+        \\struct LedgerState { balance: int = 0; }
+        \\process Ledger<LedgerState> {
+        \\    receive Deposit(state: LedgerState, amount: int) -> int {
         \\        guard amount > 0;
-        \\        transition balance { balance + amount; }
-        \\        return balance;
+        \\        state.balance = state.balance + amount;
+        \\        return state.balance;
         \\    }
-        \\    receive GetBalance() -> int {
-        \\        return balance;
+        \\    receive GetBalance(state: LedgerState) -> int {
+        \\        return state.balance;
         \\    }
         \\}
         \\
@@ -1031,13 +1023,11 @@ test "error: fn returning int assigned to string var" {
 
 test "error: wrong arg count to tell" {
     try expectError(
-        \\process Worker {
-        \\    state {
-        \\        value: int = 0;
-        \\    }
-        \\    receive SetValue(v: int) -> int {
-        \\        transition value { v; }
-        \\        return value;
+        \\struct WorkerState { value: int = 0; }
+        \\process Worker<WorkerState> {
+        \\    receive SetValue(state: WorkerState, v: int) -> int {
+        \\        state.value = v;
+        \\        return state.value;
         \\    }
         \\}
         \\module Main {
@@ -1052,13 +1042,11 @@ test "error: wrong arg count to tell" {
 
 test "valid: correct tell" {
     try expectNoErrors(
-        \\process Worker {
-        \\    state {
-        \\        value: int = 0;
-        \\    }
-        \\    receive SetValue(v: int) -> int {
-        \\        transition value { v; }
-        \\        return value;
+        \\struct WorkerState { value: int = 0; }
+        \\process Worker<WorkerState> {
+        \\    receive SetValue(state: WorkerState, v: int) -> int {
+        \\        state.value = v;
+        \\        return state.value;
         \\    }
         \\}
         \\module Main {
@@ -1096,9 +1084,9 @@ test "error: return println from int function" {
 
 test "valid: spawn assigned to int" {
     try expectNoErrors(
-        \\process Worker {
-        \\    state { value: int = 0; }
-        \\    receive Get() -> int { return value; }
+        \\struct WorkerState { value: int = 0; }
+        \\process Worker<WorkerState> {
+        \\    receive Get(state: WorkerState) -> int { return state.value; }
         \\}
         \\module Main {
         \\    fn main() -> int {
@@ -1347,9 +1335,9 @@ test "valid: map<string, int> index returns int" {
 
 test "error: spawn assigned to string" {
     try expectError(
-        \\process Worker {
-        \\    state { value: int = 0; }
-        \\    receive Get() -> int { return value; }
+        \\struct WorkerState { value: int = 0; }
+        \\process Worker<WorkerState> {
+        \\    receive Get(state: WorkerState) -> int { return state.value; }
         \\}
         \\module Main {
         \\    fn main() -> int {
