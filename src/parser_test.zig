@@ -37,9 +37,9 @@ test "parse enum type" {
 test "parse simple struct" {
     var p = parse(
         \\struct Account {
-        \\    id: uuid;
-        \\    name: string;
-        \\    active: bool;
+        \\    id: uuid = "";
+        \\    name: string = "";
+        \\    active: bool = false;
         \\}
     );
     _ = p.matchKeyword("struct");
@@ -56,8 +56,8 @@ test "parse simple struct" {
 test "parse generic struct" {
     var p = parse(
         \\struct Queue<T> {
-        \\    head: int;
-        \\    tail: int;
+        \\    head: int = 0;
+        \\    tail: int = 0;
         \\}
     );
     _ = p.matchKeyword("struct");
@@ -454,10 +454,10 @@ test "parse complete file with types and struct" {
         \\type Currency = enum { USD, EUR, GBP };
         \\
         \\struct Account {
-        \\    id: AccountId;
-        \\    name: string;
-        \\    currency: Currency;
-        \\    active: bool;
+        \\    id: AccountId = "";
+        \\    name: string = "";
+        \\    currency: Currency = :USD;
+        \\    active: bool = false;
         \\}
     );
     const file = try p.parseFile();

@@ -168,12 +168,12 @@ test "valid: function parameter in scope" {
 test "valid: built-in types" {
     try expectNoErrors(
         \\struct Record {
-        \\    a: int;
-        \\    b: string;
-        \\    c: bool;
-        \\    d: float;
-        \\    e: uuid;
-        \\    f: void;
+        \\    a: int = 0;
+        \\    b: string = "";
+        \\    c: bool = false;
+        \\    d: float = 0.0;
+        \\    e: uuid = "";
+        \\    f: void = void;
         \\}
         \\module Main {
         \\    fn main() -> int { return 0; }
@@ -185,7 +185,7 @@ test "valid: user-defined type" {
     try expectNoErrors(
         \\type Money = decimal;
         \\struct Account {
-        \\    balance: Money;
+        \\    balance: Money = 0;
         \\}
         \\module Main {
         \\    fn main() -> int { return 0; }
@@ -196,7 +196,7 @@ test "valid: user-defined type" {
 test "error: unknown type in struct field" {
     try expectError(
         \\struct Account {
-        \\    balance: Dollars;
+        \\    balance: Dollars = 0;
         \\}
         \\module Main {
         \\    fn main() -> int { return 0; }
@@ -515,8 +515,8 @@ test "error: string condition in while" {
 test "valid: struct with unique fields" {
     try expectNoErrors(
         \\struct Point {
-        \\    x: int;
-        \\    y: int;
+        \\    x: int = 0;
+        \\    y: int = 0;
         \\}
         \\module Main {
         \\    fn main() -> int { return 0; }
@@ -527,8 +527,8 @@ test "valid: struct with unique fields" {
 test "error: duplicate struct field" {
     try expectError(
         \\struct Point {
-        \\    x: int;
-        \\    x: int;
+        \\    x: int = 0;
+        \\    x: int = 0;
         \\}
         \\module Main {
         \\    fn main() -> int { return 0; }
@@ -577,9 +577,9 @@ test "valid: full program with module and process" {
         \\type AccountId = uuid;
         \\
         \\struct Account {
-        \\    id: AccountId;
-        \\    name: string;
-        \\    active: bool;
+        \\    id: AccountId = "";
+        \\    name: string = "";
+        \\    active: bool = false;
         \\}
         \\
         \\module Pricing {
@@ -1240,8 +1240,8 @@ test "error: list.len assigned to string" {
 test "valid: struct field access type" {
     try expectNoErrors(
         \\struct Point {
-        \\    x: int;
-        \\    y: int;
+        \\    x: int = 0;
+        \\    y: int = 0;
         \\}
         \\module Main {
         \\    fn main() -> int {
@@ -1256,8 +1256,8 @@ test "valid: struct field access type" {
 test "error: struct field access wrong type" {
     try expectError(
         \\struct Point {
-        \\    x: int;
-        \\    y: int;
+        \\    x: int = 0;
+        \\    y: int = 0;
         \\}
         \\module Main {
         \\    fn main() -> int {
@@ -1569,8 +1569,8 @@ test "error: map.len assigned to bool" {
 test "valid: struct field with string type" {
     try expectNoErrors(
         \\struct Person {
-        \\    name: string;
-        \\    age: int;
+        \\    name: string = "";
+        \\    age: int = 0;
         \\}
         \\module Main {
         \\    fn main() -> int {
@@ -1586,8 +1586,8 @@ test "valid: struct field with string type" {
 test "error: struct string field assigned to int" {
     try expectError(
         \\struct Person {
-        \\    name: string;
-        \\    age: int;
+        \\    name: string = "";
+        \\    age: int = 0;
         \\}
         \\module Main {
         \\    fn main() -> int {

@@ -18,7 +18,8 @@ pub const Process = struct {
     id: ProcessId,
     name: []const u8,
     decl: ast.ProcessDecl,
-    state: std.StringHashMapUnmanaged(Value),
+    state: std.StringHashMapUnmanaged(Value), // old syntax
+    state_value: ?Value, // new syntax: struct value
     mailbox: std.ArrayListUnmanaged(Message),
     mailbox_capacity: usize,
     watchers: std.ArrayListUnmanaged(ProcessId),
@@ -31,6 +32,7 @@ pub const Process = struct {
             .name = name,
             .decl = decl,
             .state = .{},
+            .state_value = null,
             .mailbox = .{},
             .mailbox_capacity = MAILBOX_CAPACITY,
             .watchers = .{},

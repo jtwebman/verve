@@ -59,18 +59,18 @@ zig build test                               # run all tests
 ## Example
 
 ```verve
-process Counter {
-    state {
-        count: int = 0;
+struct CounterState {
+    count: int = 0;
+}
+
+process Counter<CounterState> {
+    receive Increment(state: CounterState) -> int {
+        state.count = state.count + 1;
+        return state.count;
     }
 
-    receive Increment() -> int {
-        transition count { count + 1; }
-        return count;
-    }
-
-    receive GetCount() -> int {
-        return count;
+    receive GetCount(state: CounterState) -> int {
+        return state.count;
     }
 }
 

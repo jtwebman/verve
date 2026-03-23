@@ -7,6 +7,7 @@ pub const Interpreter = struct {
     alloc: std.mem.Allocator,
     modules: std.StringHashMapUnmanaged(ast.ModuleDecl),
     process_decls: std.StringHashMapUnmanaged(ast.ProcessDecl),
+    struct_decls: std.StringHashMapUnmanaged(ast.StructDecl),
     module_constants: std.StringHashMapUnmanaged(std.StringHashMapUnmanaged(Value)),
     scheduler: proc.Scheduler,
     current_process: ?proc.ProcessId,
@@ -48,6 +49,7 @@ pub const Interpreter = struct {
             .alloc = alloc,
             .modules = .{},
             .process_decls = .{},
+            .struct_decls = .{},
             .module_constants = .{},
             .scheduler = proc.Scheduler.init(alloc),
             .current_process = null,
@@ -65,7 +67,7 @@ pub const Interpreter = struct {
                 .module_decl => |m| try self.modules.put(self.alloc, m.name, m),
                 .process_decl => |p| try self.process_decls.put(self.alloc, p.name, p),
                 .type_decl => {},
-                .struct_decl => {},
+                .struct_decl => |s| try self.struct_decls.put(self.alloc, s.name, s),
             }
         }
         // Initialize module-level constants
@@ -175,10 +177,23 @@ pub const Interpreter = struct {
 
         var scope = Scope.init(self.alloc);
 
-        // Bind parameters
-        for (handler.params, 0..) |param, i| {
-            if (i < args.len) {
-                try scope.set(param.name, args[i]);
+        // For new-style processes, prepend state as first param
+        const p = self.scheduler.getProcess(pid);
+        if (p != null and p.?.decl.state_type != null and p.?.state_value != null) {
+            // Bind state as the first parameter
+            try scope.set("state", p.?.state_value.?);
+            // Bind remaining args to params starting from index 1
+            for (handler.params[1..], 0..) |param, i| {
+                if (i < args.len) {
+                    try scope.set(param.name, args[i]);
+                }
+            }
+        } else {
+            // Old syntax: bind all args to params directly
+            for (handler.params, 0..) |param, i| {
+                if (i < args.len) {
+                    try scope.set(param.name, args[i]);
+                }
             }
         }
 
@@ -210,18 +225,45 @@ pub const Interpreter = struct {
         const decl = self.process_decls.get(name) orelse return error.UndefinedProcess;
         const pid = self.scheduler.spawn(name, decl) catch return error.OutOfMemory;
 
-        // Evaluate explicit default values for state fields
         if (self.scheduler.getProcess(pid)) |p| {
-            var empty_scope = Scope.init(self.alloc);
-            for (decl.state_fields) |field| {
-                if (field.default_value) |default_expr| {
-                    const val = try self.evalExpr(default_expr, &empty_scope);
-                    p.setState(field.name, val) catch return error.OutOfMemory;
+            if (decl.state_type) |st| {
+                // New syntax: create struct value from defaults
+                const struct_val = try self.createStructFromDefaults(st);
+                p.state_value = struct_val;
+            } else {
+                // Old syntax: evaluate explicit default values for state fields
+                var empty_scope = Scope.init(self.alloc);
+                for (decl.state_fields) |field| {
+                    if (field.default_value) |default_expr| {
+                        const val = try self.evalExpr(default_expr, &empty_scope);
+                        p.setState(field.name, val) catch return error.OutOfMemory;
+                    }
                 }
             }
         }
 
         return .{ .process_id = pid };
+    }
+
+    fn createStructFromDefaults(self: *Interpreter, struct_name: []const u8) Error!Value {
+        const sd = self.struct_decls.get(struct_name) orelse return error.UndefinedProcess;
+        var field_names: std.ArrayListUnmanaged([]const u8) = .{};
+        var field_values: std.ArrayListUnmanaged(Value) = .{};
+        var empty_scope = Scope.init(self.alloc);
+        for (sd.fields) |field| {
+            try field_names.append(self.alloc, field.name);
+            if (field.default_value) |dv| {
+                const val = try self.evalExpr(dv, &empty_scope);
+                try field_values.append(self.alloc, val);
+            } else {
+                try field_values.append(self.alloc, .{ .none = {} });
+            }
+        }
+        return .{ .struct_val = .{
+            .name = struct_name,
+            .field_names = field_names.toOwnedSlice(self.alloc) catch return error.OutOfMemory,
+            .field_values = field_values.toOwnedSlice(self.alloc) catch return error.OutOfMemory,
+        } };
     }
 
     // ── Send a message to a process ───────────────────────────
@@ -331,6 +373,36 @@ pub const Interpreter = struct {
                 const val = try self.evalExpr(a.value, scope);
                 try scope.set(a.name, val);
                 return .{ .value = val, .returned = false };
+            },
+            .field_assign => |fa| {
+                // state.field = value; — mutate struct field and write back to process
+                if (fa.target == .field_access) {
+                    const field_name = fa.target.field_access.field;
+                    const target_name = if (fa.target.field_access.target.* == .identifier) fa.target.field_access.target.identifier else "";
+                    const new_val = try self.evalExpr(fa.value, scope);
+
+                    // Get the struct value from scope, update the field, write back
+                    if (scope.get(target_name)) |struct_val| {
+                        if (struct_val == .struct_val) {
+                            // Mutate the field in the struct
+                            for (struct_val.struct_val.field_names, 0..) |fn_name, idx| {
+                                if (std.mem.eql(u8, fn_name, field_name)) {
+                                    struct_val.struct_val.field_values[idx] = new_val;
+                                    break;
+                                }
+                            }
+                            // Write back to process state if this is the state param
+                            if (std.mem.eql(u8, target_name, "state")) {
+                                if (self.current_process) |pid| {
+                                    if (self.scheduler.getProcess(pid)) |p| {
+                                        p.state_value = struct_val;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                return .{ .value = .{ .void = {} }, .returned = false };
             },
             .return_stmt => |r| {
                 const val = if (r.value) |v| try self.evalExpr(v, scope) else Value{ .void = {} };

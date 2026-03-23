@@ -2,21 +2,21 @@
 /// Demonstrates self-hosting capability.
 
 struct Token {
-	kind: string;
-	value: string;
-	pos: int;
+	kind: string = "";
+	value: string = "";
+	pos: int = 0;
 }
 
 struct AstNode {
-	kind: string;
-	name: string;
-	value: string;
-	children: list<AstNode>;
+	kind: string = "";
+	name: string = "";
+	value: string = "";
+	children: list<AstNode> = list();
 }
 
 struct ParseResult {
-	pos: int;
-	node: AstNode;
+	pos: int = 0;
+	node: AstNode = AstNode{};
 }
 
 /// Tokenizer — breaks source text into tokens.

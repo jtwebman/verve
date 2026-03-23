@@ -185,7 +185,7 @@ test "compile: print multiple" {
 
 test "compile: struct" {
     try testing.expectEqual(@as(u8, 42), try compileAndRun(
-        \\struct P { x: int; y: int; }
+        \\struct P { x: int = 0; y: int = 0; }
         \\module App { fn main(args: list<string>) -> int { p: P = P { x: 35, y: 7 }; return p.x + p.y; } }
     ));
 }

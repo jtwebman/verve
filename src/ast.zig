@@ -44,7 +44,8 @@ pub const MemoryBudget = union(enum) {
 pub const ProcessDecl = struct {
     name: []const u8,
     memory: ?MemoryBudget,
-    state_fields: []const StateField,
+    state_type: ?[]const u8, // struct name for process state (new syntax)
+    state_fields: []const StateField, // inline state (old syntax, to be removed)
     receive_handlers: []const ReceiveDecl,
     invariants: []const Expr,
     exported: bool,
@@ -70,6 +71,7 @@ pub const StructDecl = struct {
 pub const Field = struct {
     name: []const u8,
     type_expr: TypeExpr,
+    default_value: ?Expr,
     span: Span,
 };
 
@@ -156,6 +158,7 @@ pub const UnionVariant = struct {
 // Statements
 pub const Stmt = union(enum) {
     assign: Assign,
+    field_assign: FieldAssign, // state.field = expr;
     transition: Transition,
     append: Append,
     match_stmt: MatchStmt,
@@ -180,6 +183,12 @@ pub const WatchStmt = struct {
 pub const Assign = struct {
     name: []const u8,
     type_expr: ?TypeExpr, // null for reassignment, set for declaration
+    value: Expr,
+    span: Span,
+};
+
+pub const FieldAssign = struct {
+    target: Expr, // field_access expression (e.g., state.count)
     value: Expr,
     span: Span,
 };

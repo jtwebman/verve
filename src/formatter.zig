@@ -71,6 +71,10 @@ pub const Formatter = struct {
             try self.write(field.name);
             try self.write(": ");
             try self.formatTypeExpr(field.type_expr);
+            if (field.default_value) |dv| {
+                try self.write(" = ");
+                try self.formatExpr(dv);
+            }
             try self.write(";\n");
         }
         self.indent -= 1;
@@ -154,6 +158,11 @@ pub const Formatter = struct {
         if (p.exported) try self.write("export ");
         try self.write("process ");
         try self.write(p.name);
+        if (p.state_type) |st| {
+            try self.write("<");
+            try self.write(st);
+            try self.write(">");
+        }
         if (p.memory) |mem| {
             switch (mem) {
                 .sized => |expr| {
@@ -574,6 +583,13 @@ pub const Formatter = struct {
             .expr_stmt => |e| {
                 try self.writeIndent();
                 try self.formatExpr(e);
+                try self.write(";\n");
+            },
+            .field_assign => |fa| {
+                try self.writeIndent();
+                try self.formatExpr(fa.target);
+                try self.write(" = ");
+                try self.formatExpr(fa.value);
                 try self.write(";\n");
             },
             .send_stmt => {},

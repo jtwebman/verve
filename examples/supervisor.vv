@@ -1,26 +1,26 @@
-process Worker {
-	state {
-		value: int = 0;
+struct WorkerState {
+	value: int = 0;
+}
+
+process Worker<WorkerState> {
+	receive SetValue(state: WorkerState, v: int) -> int {
+		state.value = v;
+		return state.value;
 	}
 
-	receive SetValue(v: int) -> int {
-		transition value { v; }
-		return value;
-	}
-
-	receive GetValue() -> int {
-		return value;
+	receive GetValue(state: WorkerState) -> int {
+		return state.value;
 	}
 }
 
-process App {
-	state {
-		running: bool = false;
-		worker: int = 0;
-		messages_handled: int = 0;
-	}
+struct AppState {
+	running: bool = false;
+	worker: int = 0;
+	messages_handled: int = 0;
+}
 
-	receive main() -> int {
+process App<AppState> {
+	receive main(state: AppState) -> int {
 		// Spawn and watch a worker
 		worker: int = spawn Worker();
 		watch worker;

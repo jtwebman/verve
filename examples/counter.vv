@@ -1,21 +1,21 @@
-process Counter {
-	state {
-		count: int = 0;
+struct CounterState {
+	count: int = 0;
+}
+
+process Counter<CounterState> {
+	receive Increment(state: CounterState) -> int {
+		state.count = state.count + 1;
+		return state.count;
 	}
 
-	receive Increment() -> int {
-		transition count { count + 1; }
-		return count;
+	receive GetCount(state: CounterState) -> int {
+		return state.count;
 	}
 
-	receive GetCount() -> int {
-		return count;
-	}
-
-	receive Add(n: int) -> int {
+	receive Add(state: CounterState, n: int) -> int {
 		guard n > 0;
-		transition count { count + n; }
-		return count;
+		state.count = state.count + n;
+		return state.count;
 	}
 }
 

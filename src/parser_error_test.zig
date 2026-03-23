@@ -333,7 +333,7 @@ test "error on line 5 reports line 5" {
         \\type X = int;
         \\type Y = string;
         \\struct Foo {
-        \\    a: int;
+        \\    a: int = 0;
         \\    b: ;
         \\}
     , std.heap.page_allocator);

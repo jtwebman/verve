@@ -159,14 +159,13 @@ pub const Parser = struct {
     // ── Identifiers & Literals ────────────────────────────────
 
     const reserved_words = [_][]const u8{
-        "fn",         "module",   "process", "struct",
-        "type",       "state",    "receive", "guard",
-        "match",      "while",    "return",  "send",
-        "tell",       "spawn",    "watch",   "connect",
-        "transition", "append",   "use",     "invariant",
-        "enum",       "union",    "import",  "export",
-        "break",      "continue", "if",      "else",
-        "assert",     "test",
+        "fn",     "module",    "process", "struct",
+        "type",   "receive",   "guard",   "match",
+        "while",  "return",    "send",    "tell",
+        "spawn",  "watch",     "connect", "append",
+        "use",    "invariant", "enum",    "union",
+        "import", "export",    "break",   "continue",
+        "if",     "else",      "assert",  "test",
     };
 
     fn isReserved(word: []const u8) bool {
@@ -435,7 +434,7 @@ pub const Parser = struct {
                     const fname = try self.parseIdentifier();
                     try self.expectChar(':');
                     const ftype = try self.parseTypeExpr();
-                    try fields.append(self.alloc, .{ .name = fname, .type_expr = ftype, .span = .{ .start = 0, .end = 0 } });
+                    try fields.append(self.alloc, .{ .name = fname, .type_expr = ftype, .default_value = null, .span = .{ .start = 0, .end = 0 } });
                     if (self.peekChar(';')) try self.expectChar(';');
                 }
                 try self.expectChar('}');
@@ -832,23 +831,27 @@ pub const Parser = struct {
             }
         }
 
-        // Reassignment: name = value;
+        // Reassignment: name = value; or state.field = value;
         if (self.peekChar('=')) {
             self.skipWhitespaceAndComments();
             if (self.pos + 1 < self.source.len and self.source[self.pos + 1] != '=') {
                 try self.expectChar('=');
                 const value = try self.parseExpr();
                 try self.expectChar(';');
-                const name = switch (expr) {
-                    .identifier => |id| id,
-                    else => return self.fail("left side of assignment must be an identifier", .{}),
-                };
-                return .{ .assign = .{
-                    .name = name,
-                    .type_expr = null,
-                    .value = value,
-                    .span = .{ .start = start, .end = self.pos },
-                } };
+                switch (expr) {
+                    .identifier => |id| return .{ .assign = .{
+                        .name = id,
+                        .type_expr = null,
+                        .value = value,
+                        .span = .{ .start = start, .end = self.pos },
+                    } },
+                    .field_access => return .{ .field_assign = .{
+                        .target = expr,
+                        .value = value,
+                        .span = .{ .start = start, .end = self.pos },
+                    } },
+                    else => return self.fail("left side of assignment must be an identifier or field access", .{}),
+                }
             }
         }
 
@@ -1178,6 +1181,14 @@ pub const Parser = struct {
     pub fn parseProcessDecl(self: *Parser) Error!ast.ProcessDecl {
         const name = try self.parseIdentifier();
 
+        // Parse optional state type: process Counter<CounterState>
+        var state_type: ?[]const u8 = null;
+        if (self.peekChar('<')) {
+            try self.expectChar('<');
+            state_type = try self.parseIdentifier();
+            try self.expectChar('>');
+        }
+
         // Parse optional memory budget: [memory: 64MB] or [memory: unbounded]
         var memory: ?ast.MemoryBudget = null;
         if (self.peekChar('[')) {
@@ -1201,6 +1212,9 @@ pub const Parser = struct {
         while (!self.peekChar('}')) {
             const doc = try self.parseDocComment();
             if (self.matchKeyword("state")) {
+                if (state_type != null) {
+                    return self.fail("process '{s}' uses <{s}> for state — 'state' block is not allowed", .{ name, state_type.? });
+                }
                 try self.expectChar('{');
                 while (!self.peekChar('}')) {
                     const fname = try self.parseIdentifier();
@@ -1238,6 +1252,7 @@ pub const Parser = struct {
         return .{
             .name = name,
             .memory = memory,
+            .state_type = state_type,
             .state_fields = try state_fields.toOwnedSlice(self.alloc),
             .receive_handlers = try receive_handlers.toOwnedSlice(self.alloc),
             .invariants = try invariants.toOwnedSlice(self.alloc),
@@ -1285,8 +1300,13 @@ pub const Parser = struct {
             const fname = try self.parseIdentifier();
             try self.expectChar(':');
             const ftype = try self.parseTypeExpr();
+            var field_default: ?ast.Expr = null;
+            if (self.peekChar('=')) {
+                try self.expectChar('=');
+                field_default = try self.parseExpr();
+            }
             try self.expectChar(';');
-            try fields.append(self.alloc, .{ .name = fname, .type_expr = ftype, .span = .{ .start = 0, .end = 0 } });
+            try fields.append(self.alloc, .{ .name = fname, .type_expr = ftype, .default_value = field_default, .span = .{ .start = 0, .end = 0 } });
         }
         try self.expectChar('}');
 

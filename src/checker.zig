@@ -148,7 +148,18 @@ pub const Checker = struct {
             );
         }
 
-        // Check state fields have valid types and default values
+        // New syntax: validate state_type references a known struct
+        if (p.state_type) |st| {
+            if (self.struct_decls.get(st) == null) {
+                try self.addError(
+                    try std.fmt.allocPrint(self.alloc, "process '{s}' state type '{s}' is not a known struct", .{ p.name, st }),
+                    0,
+                    0,
+                );
+            }
+        }
+
+        // Old syntax: check state fields have valid types and default values
         for (p.state_fields) |field| {
             try self.checkTypeExists(field.type_expr);
             if (field.default_value == null) {
@@ -191,7 +202,24 @@ pub const Checker = struct {
             try self.current_scope.put(self.alloc, param.name, param.type_expr);
         }
 
-        // Add process state to scope
+        // New syntax: validate state param and add to scope
+        if (p.state_type) |st| {
+            if (handler.params.len == 0 or !std.mem.eql(u8, handler.params[0].name, "state")) {
+                try self.addError(
+                    try std.fmt.allocPrint(self.alloc, "handler '{s}.{s}' must have 'state: {s}' as first parameter", .{ p.name, handler.name, st }),
+                    0,
+                    0,
+                );
+            } else if (!std.mem.eql(u8, self.typeExprName(handler.params[0].type_expr), st)) {
+                try self.addError(
+                    try std.fmt.allocPrint(self.alloc, "handler '{s}.{s}' state parameter must be typed '{s}'", .{ p.name, handler.name, st }),
+                    0,
+                    0,
+                );
+            }
+        }
+
+        // Old syntax: add process state fields to scope
         for (p.state_fields) |field| {
             try self.current_scope.put(self.alloc, field.name, field.type_expr);
         }
@@ -262,10 +290,17 @@ pub const Checker = struct {
     // ── Struct checking ───────────────────────────────────────
 
     fn checkStruct(self: *Checker, s: ast.StructDecl) !void {
-        // Check field types exist
+        // Check field types exist and defaults are provided
         var seen_fields: std.StringHashMapUnmanaged(void) = .{};
         for (s.fields) |field| {
             try self.checkTypeExists(field.type_expr);
+            if (field.default_value == null) {
+                try self.addError(
+                    try std.fmt.allocPrint(self.alloc, "struct field '{s}' in '{s}' requires a default value — add = <value>", .{ field.name, s.name }),
+                    0,
+                    0,
+                );
+            }
             if (seen_fields.get(field.name) != null) {
                 try self.addError(
                     try std.fmt.allocPrint(self.alloc, "duplicate field '{s}' in struct '{s}'", .{ field.name, s.name }),
@@ -543,6 +578,10 @@ pub const Checker = struct {
             },
             .watch_stmt => |w| {
                 try self.checkExpr(w.target);
+            },
+            .field_assign => |fa| {
+                try self.checkExpr(fa.target);
+                try self.checkExpr(fa.value);
             },
             .send_stmt => {},
         }
@@ -1321,6 +1360,10 @@ pub const Checker = struct {
             .expr_stmt => |e| try self.collectCallsFromExpr(e, current_module, callees),
             .watch_stmt => |w| try self.collectCallsFromExpr(w.target, current_module, callees),
             .assert_stmt => |a| try self.collectCallsFromExpr(a.condition, current_module, callees),
+            .field_assign => |fa| {
+                try self.collectCallsFromExpr(fa.target, current_module, callees);
+                try self.collectCallsFromExpr(fa.value, current_module, callees);
+            },
             .break_stmt, .continue_stmt, .receive_stmt, .send_stmt => {},
         }
     }
