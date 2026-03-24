@@ -1,6 +1,6 @@
 # Verve Backlog
 
-## Phase 1 — Parser & Interpreter (get the language running)
+## Phase 1 — Parser & Interpreter ✅
 
 - [x] Set up Zig project structure
 - [x] Hand-written recursive descent parser (no separate lexer, no parser generator)
@@ -14,147 +14,139 @@
   - [x] Function type expressions: fn(T, T) -> T
   - [x] Tagged unions
   - [x] Optional types (T?)
-- [x] Parser error messages with line/col and clear context (40 tests)
+- [x] Parser error messages with line/col and clear context (42 tests)
 - [x] Reserved word detection
 - [x] Double semicolon detection
 - [x] Tree-walk interpreter — basic expressions, math, strings
-- [x] Interpreter — match, while, guards
+- [x] Interpreter — match, while, guards, if/else with chaining
 - [x] Interpreter — module functions, cross-module calls
 - [x] Interpreter — process scheduler (single-threaded, synchronous)
 - [x] Interpreter — send messaging (synchronous, returns Result<T>)
 - [x] Interpreter — spawn processes with state initialization
-- [x] Interpreter — state transitions
+- [x] Interpreter — state transitions (deprecated — now field assignment)
 - [x] Interpreter — poison values (overflow, div_zero, out_of_bounds)
 - [x] Interpreter — guard failure returns :error{:guard_failed}
 - [x] CLI — `verve run file.vv`
 - [x] CLI — `verve check file.vv`
-- [x] First program: hello world
-- [x] Second program: process with state (counter)
 - [x] Import system — `import "./file.vv";`
 - [x] Export system — `export module`, `export process`, `export struct`, `export type`
 - [x] Loader — recursive import resolution, circular import detection
 - [x] Non-exported declarations hidden from importers
 - [x] Multi-file example working (math.vv + multi.vv)
 - [x] Entry point: fn main() in any module or process
-- [x] tell statement execution (fire-and-forget — handler runs, result ignored)
+- [x] tell statement execution (fire-and-forget)
 - [x] watch statement (registers watcher for ProcessDied)
 - [x] receive; statement (processes one message from mailbox)
-- [x] spawn keyword in parser
 - [x] append statement execution
-- [x] list and map value types in interpreter (mutable, with .len, index, append)
+- [x] list, map, set, stack, queue value types with operations
 - [x] Pass command line args to main() as list<string>
-- [x] @example parsing and extraction (done in verifier)
-- [x] @property parsing and extraction (done in verifier)
+- [x] @example and @property parsing and extraction
 - [x] Struct literal creation and field access in interpreter
+- [x] String operations — split, contains, starts_with, ends_with, trim, replace, slice, byte_at, char_at, chars, is_alpha, is_digit, is_whitespace, is_alnum
+- [x] String interpolation — `${expr}` syntax
+- [x] String indexing — `s[i]` returns single-byte string
+- [x] String pattern matching in match arms
+- [x] Stream-based IO — Stdio (out/err/in), File (open), Stream (write/write_line/read_line/read_all/close)
+- [x] Module-level constants — frozen after initialization, collections deeply immutable
+- [x] Collection initializers — `list(1, 2, 3)`, `set("a", "b")`, `map("k", v)`
+- [x] `break` and `continue` in while loops
+- [x] `&&` and `||` logical operators with correct precedence
+- [x] Doc comment enforcement — required on exported modules, processes, and functions
+- [x] Self-hosting tokenizer — parser.vv tokenizes and parses Verve source in Verve
 
-## Phase 1.5 — Formatter
+## Phase 1.5 — Formatter ✅
 
 - [x] AST pretty printer (canonical output from parsed AST)
 - [x] Tabs for indentation, non-configurable
-- [x] One space around binary operators
-- [x] One space after commas
+- [x] One space around binary operators, one space after commas
 - [x] One blank line between functions/handlers
 - [x] Opening brace on same line
 - [x] CLI — `verve fmt file.vv` (format in place)
 - [x] CLI — `verve fmt --check file.vv` (fail if not formatted, for CI)
 - [x] Max 120 chars per line, wrap params one-per-line
 
-## Phase 2 — Type Checker
+## Phase 2 — Type Checker (122 tests)
+
+### Done
 
 - [x] Undefined variable detection
 - [x] Unknown type detection (struct fields, params, return types, generics)
-- [x] Guards must be boolean expressions
-- [x] Transitions only in receive handlers
+- [x] Guards/while/if/assert must be boolean expressions
 - [x] receive; only in processes
 - [x] Duplicate struct field detection
 - [x] Empty match detection
-- [x] While conditions must be boolean
 - [x] Entry point validation (exactly one main(), skipped for library files with exports)
 - [x] Multiple errors reported in one pass
 - [x] Built-in types and functions recognized
-- [x] Sibling functions in scope
-- [x] Explicit types on all variable declarations (x: int = 42;), checker enforces
-- [x] Type checking — function signatures, return types match
-- [ ] Type checking — compile-time generics (monomorphization)
-- [x] Type checking — match exhaustiveness for booleans (true/false, wildcard)
-- [x] Type checking — match exhaustiveness for enums (all variants covered, wildcard)
-- [x] Type checking — send/tell only on process values (tell-on-module caught)
-- [ ] Type checking — constrained types (range, precision, min/max) — parser support needed
-- [ ] Type checking — Result<T> and send wrapping
+- [x] Sibling functions and module constants in scope
+- [x] Explicit types on all variable declarations
+- [x] Type checking — function signatures, return types, assignments
+- [x] Type checking — match exhaustiveness (booleans, enums, Result ok+error, wildcard required)
+- [x] Type checking — send/tell only on process values
+- [x] Type checking — tell handler arg count and types (skips injected state param)
 - [x] Type checking — function references match signatures
 - [x] Type inference — literals, binary/unary ops, calls, field access, index access, built-in modules
 - [x] Type checking — built-in function return types (String, Map, Set, Stack, Queue, Stream, Stdio)
 - [x] Type checking — struct field access types
-- [x] Type checking — collection index types (list<T>[i] -> T, map<K,V>[k] -> V, string[i] -> string)
+- [x] Type checking — collection index types (list<T>[i] → T, map<K,V>[k] → V, string[i] → string)
 - [x] Type checking — string concatenation via + operator
 - [x] Type checking — type alias resolution in assignments
-- [x] Module constants visible in function scope (bug fix)
-- [x] Error messages include module.function context, variable names, parameter names
-- [x] Match exhaustiveness enforced — wildcard required unless proven (bool, enum, Result ok+error)
 - [x] && and || require bool operands — no implicit truthiness
 - [x] Generic types require type parameters (no bare list/map/set/stack/queue)
 - [x] All struct fields require default values — no implicit zero-initialization
-- [x] Process state is explicit struct with type parameter: process Name<StateStruct>
-- [x] Handlers receive state as first param: receive Handler(state: StateType, ...) -> T
-- [x] State mutation via field assignment: state.field = expr (transition keyword deprecated)
+- [x] Process state is explicit struct with type parameter: `process Name<StateStruct>`
+- [x] Handlers receive state as first param: `receive Handler(state: StateType, ...) -> T`
+- [x] State mutation via field assignment: `state.field = expr;`
 - [x] Frozen collection mutation gives clear "cannot mutate constant" error
-- [x] Fail fast everywhere — no silent catch {}, IO panics on write failure
+- [x] Fail fast everywhere — no silent error swallowing, IO panics on write failure
 - [x] Call graph cycle detection (no recursion — direct, mutual, cross-module)
+- [x] Error messages include module.function context, variable names, parameter names
+
+### Remaining
+
+- [ ] Type checking — compile-time generics (monomorphization)
+- [ ] Type checking — constrained types (range, precision, min/max) — parser support needed
+- [ ] Type checking — Result<T> and send wrapping
+- [ ] Remove old `state {}` block and `transition` keyword from parser (deprecated, still parses for compiler backward compat)
 
 ## Phase 3 — Verifier
+
+### Done
 
 - [x] @example — parse from doc comments, run as tests, compare results
 - [x] Verifier signals — VALID, INVALID(reason), INCOMPLETE
 - [x] CLI — `verve test file.vv`
 - [x] @property — fuzz testing with 100 random inputs per property, deterministic seed
-- [ ] Invariant checking after receive handlers
 - [x] Poison value warnings (literal division by zero detected at compile time)
 - [x] Guard consistency checks (always-false, self-comparison)
 - [x] DIVERGENT signal (while true with no return detected)
 
-## Under-engineered (address before or during Phase 4)
+### Remaining
 
-High-impact gaps identified by AI self-review:
-
-- [x] String operations in interpreter — split, contains, starts_with, ends_with, trim, replace, slice
-- [x] Map creation and operations in interpreter — map(), Map.put, Map.get, Map.keys, Map.has, index access
-- [x] Set creation and operations in interpreter — set(), Set.add, Set.has, Set.remove, Set.values
-- [x] Runtime error context — line numbers and descriptive messages on interpreter errors (RuntimeErrorInfo with line/col/message)
-- [x] `break` statement in while loops
-- [x] `continue` statement in while loops
-- [x] Interpreter runtime error messages should match parser error quality (line, col, what went wrong)
-- [x] Process state should support map, list, and set types properly (auto-initialized on spawn)
-- [x] String interpolation — `"hello {name}, x = {x + 1}"` syntax with auto-conversion to string
-- [x] Stream-based IO — `stream` value type, Stdio module (out/err/in), File module (open), Stream module (write/write_line/read_line/read_all/close)
-- [x] String character access — byte_at, char_at, char_len, chars, is_alpha, is_digit, is_whitespace, is_alnum
-- [x] String indexing — `s[i]` returns single-byte string
-- [x] `if/else` statements with `else if` chaining
-- [x] `&&` and `||` logical operators with correct precedence
-- [x] String interpolation changed to `${expr}` — plain `{` and `$` are just characters
-- [x] String pattern matching in match arms
-- [x] Module-level constants — frozen after initialization, collections deeply immutable
-- [x] Collection initializers — `list(1, 2, 3)`, `set("a", "b")`, `map("k", v)`
-- [x] `stack<T>` — LIFO data structure with push/pop/peek
-- [x] `queue<T>` — FIFO data structure with push/pop/peek
-- [x] Doc comment enforcement — required on exported modules, processes, and functions
-- [x] Self-hosting tokenizer — parser.vv tokenizes Verve source in Verve (3700+ tokens on itself)
-- [ ] Collection copy — `List.copy`, `Map.copy`, etc. (shallow copy, returns mutable)
+- [ ] Invariant checking after receive handlers
 - [ ] Real test blocks — `test "name" { ... }` in addition to @example
-- [ ] `verve doc` CLI — generate reference docs from doc comments
 
-## Phase 4 — Native Compilation (x86_64)
+## Phase 4 — Native Compilation (Zig backend)
+
+### Done
 
 - [x] Design Verve IR (target-agnostic, SSA-style)
 - [x] Lower typed AST to Verve IR
-- [ ] x86_64 instruction selection
+- [x] Zig backend — emits Zig source from IR, compiles via zig build-exe
+- [x] CLI — `verve build file.vv`
+- [x] Process runtime — spawn/watch/ProcessDied (cooperative single-threaded)
+- [x] Process runtime — pre-allocated state memory
+
+### Remaining
+
+- [ ] Compiler support for new process<StateStruct> syntax (lowerer + backend)
+- [ ] Compiler support for field_assign (state.field = expr)
+- [ ] x86_64 direct instruction selection (bypass Zig backend)
 - [ ] Register allocator
 - [ ] ELF binary emission (Linux)
 - [ ] Process runtime — multi-threaded scheduler
 - [ ] Process runtime — message queues with fixed capacity
-- [x] Process runtime — spawn/watch/ProcessDied
 - [ ] Process runtime — send with actual timeout
-- [x] Process runtime — pre-allocated state memory (cooperative single-threaded)
-- [x] CLI — `verve build file.vv`
 - [ ] Benchmark: message passing throughput
 
 ## Phase 5 — arm64 & Cross-compilation
@@ -165,13 +157,21 @@ High-impact gaps identified by AI self-review:
 
 ## Phase 6 — Standard Library & IO
 
+### Done
+
+- [x] IO — File (open, read, write via streams)
+- [x] IO — Stdio (out, err, in via streams)
+- [x] module String (len, contains, starts_with, ends_with, trim, replace, split, slice, byte_at, char_at, char_len, chars, is_alpha, is_digit, is_whitespace, is_alnum)
+
+### Remaining — IO (will become process-based with Result types)
+
 - [ ] IO process — Tcp
 - [ ] IO process — Udp
-- [x] IO — File (open, read, write via streams)
 - [ ] IO process — Timer
-- [x] IO — Stdio (out, err, in via streams)
 - [ ] IO process — Signal
-- [x] module String (partial — len, contains, starts_with, ends_with, trim, replace, split, slice, byte_at, char_at, char_len, chars, is_alpha, is_digit, is_whitespace, is_alnum)
+
+### Remaining — Standard modules
+
 - [ ] module Bytes
 - [ ] module Math
 - [ ] module Time
@@ -188,10 +188,17 @@ High-impact gaps identified by AI self-review:
 - [ ] module System
 - [ ] module Dns
 
+### Remaining — Utilities
+
+- [ ] Collection copy — `List.copy`, `Map.copy`, etc. (shallow copy, returns mutable)
+- [ ] `verve doc` CLI — generate reference docs from doc comments
+
 ## Phase 7 — Package Management
 
+Libraries ship as signed source code (not binaries) — enables tree shaking, AI audit, and modification.
+
 - [ ] `verve.pkg` parser
-- [ ] `verve.trust` parser
+- [ ] `verve.trust` parser (trusted signers)
 - [ ] Package download (HTTP GET static files)
 - [ ] Signature verification (ed25519)
 - [ ] Hash verification (sha256)
