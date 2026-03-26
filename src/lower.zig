@@ -119,6 +119,25 @@ pub const Lower = struct {
                             self.program.entry_module = m.name;
                         }
                     }
+                    // Lower test blocks as functions named __test_N
+                    for (m.tests, 0..) |t, ti| {
+                        const test_fn = ast.FnDecl{
+                            .name = std.fmt.allocPrint(self.alloc, "__test_{d}", .{ti}) catch "test",
+                            .params = &.{},
+                            .return_type = .{ .simple = "int" },
+                            .guards = &.{},
+                            .body = t.body,
+                            .doc_comment = null,
+                            .examples = &.{},
+                            .properties = &.{},
+                            .span = t.span,
+                        };
+                        try self.lowerFunction(m.name, test_fn);
+                        // Track test info for the test runner
+                        try self.program.test_names.append(self.alloc, t.name);
+                        try self.program.test_modules.append(self.alloc, m.name);
+                        try self.program.test_fn_names.append(self.alloc, test_fn.name);
+                    }
                 },
                 .process_decl => |p| {
                     self.current_module = p.name;
@@ -455,6 +474,16 @@ pub const Lower = struct {
             },
             .expr_stmt => |e| {
                 _ = self.lowerExpr(e);
+            },
+            .assert_stmt => |a| {
+                // assert expr; → check condition, call assert_fail builtin if false
+                const cond_reg = self.lowerExpr(a.condition);
+                const dest = func.newReg();
+                self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = "assert_check", .args = blk: {
+                    const args = self.alloc.alloc(ir.Reg, 1) catch break :blk &.{};
+                    args[0] = cond_reg;
+                    break :blk args;
+                } } });
             },
             else => {},
         }

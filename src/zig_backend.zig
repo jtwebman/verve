@@ -199,6 +199,120 @@ pub const ZigBackend = struct {
         }
     }
 
+    /// Emit a test runner program — calls each test function, reports pass/fail.
+    pub fn emitTestRunner(self: *ZigBackend, program: ir.Program) void {
+        self.program = program;
+        self.line("const std = @import(\"std\");");
+        self.line("const rt = @import(\"verve_runtime.zig\");");
+        self.line("");
+
+        // Emit struct definitions (needed for typed JSON tests etc.)
+        for (program.struct_decls.items) |sd| {
+            self.writeFmt("const VerveStruct_{s} = struct {{\n", .{sd.name});
+            self.indent += 1;
+            for (sd.fields) |f| {
+                self.writeIndent();
+                if (std.mem.eql(u8, f.type_name, "int")) self.writeFmt("{s}: i64 = 0,\n", .{f.name}) else if (std.mem.eql(u8, f.type_name, "float")) self.writeFmt("{s}: f64 = 0.0,\n", .{f.name}) else if (std.mem.eql(u8, f.type_name, "bool")) self.writeFmt("{s}: bool = false,\n", .{f.name}) else if (std.mem.eql(u8, f.type_name, "string")) self.writeFmt("{s}: []const u8 = \"\",\n", .{f.name}) else self.writeFmt("{s}: i64 = 0,\n", .{f.name});
+            }
+            self.indent -= 1;
+            self.line("};");
+            self.line("");
+        }
+
+        // Emit dispatch init if processes exist
+        if (program.process_decls.items.len > 0) {
+            for (program.process_decls.items, 0..) |pd, pdi| {
+                self.writeFmt("fn verve_dispatch_{d}(handler_id: i64, args_ptr: [*]const i64, arg_count: i64) i64 {{\n", .{pdi});
+                self.indent += 1;
+                self.line("_ = arg_count;");
+                self.line("_ = &args_ptr;");
+                self.line("return switch (handler_id) {");
+                self.indent += 1;
+                for (pd.handler_names, 0..) |hname, hi| {
+                    self.writeIndent();
+                    self.writeFmt("{d} => verve_{s}_{s}(", .{ hi, pd.name, hname });
+                    var param_count: usize = 0;
+                    for (program.functions.items) |f| {
+                        if (std.mem.eql(u8, f.module, pd.name) and std.mem.eql(u8, f.name, hname)) {
+                            param_count = f.params.len;
+                            break;
+                        }
+                    }
+                    for (0..param_count) |pi| {
+                        if (pi > 0) self.write(", ");
+                        self.writeFmt("args_ptr[{d}]", .{pi});
+                    }
+                    self.write("),\n");
+                }
+                self.line("else => rt.makeTagged(1, 0),");
+                self.indent -= 1;
+                self.line("};");
+                self.indent -= 1;
+                self.line("}");
+                self.line("");
+            }
+            self.line("fn verve_init_dispatch() void {");
+            self.indent += 1;
+            self.lineFmt("rt.ensureProcessCapacity({d});", .{program.process_decls.items.len});
+            for (program.process_decls.items, 0..) |_, pdi| {
+                self.writeFmt("    rt.dispatch_table[{d}] = &verve_dispatch_{d};\n", .{ pdi, pdi });
+            }
+            self.indent -= 1;
+            self.line("}");
+            self.line("");
+        }
+
+        // Emit all functions (including test functions)
+        for (program.functions.items) |func| {
+            self.emitFunction(func, false);
+            self.line("");
+        }
+
+        // Emit test runner main
+        self.line("pub fn main() void {");
+        self.indent += 1;
+        self.line("rt.verve_runtime_init();");
+        if (program.process_decls.items.len > 0) {
+            self.line("verve_init_dispatch();");
+        }
+        self.lineFmt("var passed: i64 = 0;", .{});
+        self.lineFmt("var failed: i64 = 0;", .{});
+
+        for (program.test_names.items, 0..) |test_name, ti| {
+            const module = program.test_modules.items[ti];
+            const fn_name = program.test_fn_names.items[ti];
+            // Reset assert counter
+            self.line("rt.assert_fail_count = 0;");
+            // Call test function
+            self.writeFmt("    _ = verve_{s}_{s}();\n", .{ module, fn_name });
+            // Check results
+            self.line("if (rt.assert_fail_count == 0) {");
+            self.indent += 1;
+            self.writeFmt("rt.verve_write(1, \"PASS: {s}\\n\", {d});\n", .{ test_name, test_name.len + 7 });
+            self.line("passed += 1;");
+            self.indent -= 1;
+            self.line("} else {");
+            self.indent += 1;
+            self.writeFmt("rt.verve_write(1, \"FAIL: {s}\\n\", {d});\n", .{ test_name, test_name.len + 7 });
+            self.line("failed += 1;");
+            self.indent -= 1;
+            self.line("}");
+        }
+
+        // Print summary
+        self.line("{");
+        self.indent += 1;
+        self.line("var buf: [128]u8 = undefined;");
+        self.line("const s = std.fmt.bufPrint(&buf, \"\\n{d} passed, {d} failed\\n\", .{passed, failed}) catch \"?\";");
+        self.line("rt.verve_write(1, s.ptr, @intCast(s.len));");
+        self.indent -= 1;
+        self.line("}");
+        self.line("if (failed > 0) std.process.exit(1);");
+
+        self.indent -= 1;
+        self.line("}");
+    }
+
     fn emitFunction(self: *ZigBackend, func: ir.Function, is_entry: bool) void {
         if (is_entry) {
             self.line("pub fn main() void {");
@@ -734,6 +848,9 @@ pub const ZigBackend = struct {
             if (args.len >= 2) {
                 self.lineFmt("{s} = rt.{s}({s}, {s});", .{ self.regName(dest), name, self.regName(args[0]), self.regName(args[1]) });
             }
+        } else if (std.mem.eql(u8, name, "assert_check")) {
+            if (args.len >= 1) self.lineFmt("rt.assert_check({s});", .{self.regName(args[0])});
+            self.lineFmt("{s} = 0;", .{self.regName(dest)});
         } else if (std.mem.eql(u8, name, "process_exit")) {
             self.line("rt.verve_exit_self();");
             self.lineFmt("{s} = 0;", .{self.regName(dest)});

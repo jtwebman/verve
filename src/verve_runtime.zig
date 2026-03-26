@@ -1435,6 +1435,18 @@ pub fn http_build_response_len(status: i64, content_type_ptr: i64, content_type_
     return last_response_len;
 }
 
+// ── Testing ────────────────────────────────────────
+
+pub var assert_fail_count: i64 = 0;
+
+/// Check an assertion. If false, increment fail count and print failure.
+pub fn assert_check(cond: i64) void {
+    if (cond == 0) {
+        assert_fail_count += 1;
+        _ = std.posix.write(std.posix.STDERR_FILENO, "ASSERT FAILED\n") catch 0;
+    }
+}
+
 // ── Arena allocator ────────────────────────────────
 
 const ARENA_PAGE_SIZE = 64 * 1024; // 64KB per page

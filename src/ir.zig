@@ -219,6 +219,9 @@ pub const Program = struct {
     functions: std.ArrayListUnmanaged(Function),
     process_decls: std.ArrayListUnmanaged(ProcessInfo),
     struct_decls: std.ArrayListUnmanaged(StructInfo),
+    test_names: std.ArrayListUnmanaged([]const u8), // "addition works"
+    test_modules: std.ArrayListUnmanaged([]const u8), // "Math"
+    test_fn_names: std.ArrayListUnmanaged([]const u8), // "__test_0"
     entry_module: []const u8,
     entry_function: []const u8,
     alloc: std.mem.Allocator,
@@ -228,6 +231,9 @@ pub const Program = struct {
             .functions = .{},
             .process_decls = .{},
             .struct_decls = .{},
+            .test_names = .{},
+            .test_modules = .{},
+            .test_fn_names = .{},
             .entry_module = "",
             .entry_function = "main",
             .alloc = alloc,

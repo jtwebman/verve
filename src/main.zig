@@ -122,47 +122,59 @@ pub fn main() !void {
             else => std.process.exit(1),
         }
     } else if (std.mem.eql(u8, command, "test")) {
+        // verve test = compile test blocks + run
         const file_path = args.next() orelse {
             std.debug.print("Error: no file specified\n", .{});
             return;
         };
-        var loader = Loader.init(alloc);
-        const merged = loader.loadFile(file_path) catch |err| {
-            switch (err) {
-                error.FileNotFound => std.debug.print("Error: file not found: {s}\n", .{file_path}),
-                error.ParseFailed => std.debug.print("Parse error in {s}\n", .{file_path}),
-                else => std.debug.print("Error: {}\n", .{err}),
-            }
+
+        const source = std.fs.cwd().readFileAlloc(alloc, file_path, 10 * 1024 * 1024) catch |err| {
+            std.debug.print("Error reading {s}: {}\n", .{ file_path, err });
             return;
         };
 
-        var interp = Interpreter.init(alloc);
-        interp.load(merged) catch |err| {
-            std.debug.print("Load error: {}\n", .{err});
+        var parser = Parser.init(source, alloc);
+        const file = parser.parseFile() catch {
+            std.debug.print("Parse error in {s}\n", .{file_path});
             return;
         };
 
-        const Vfy = @import("verifier.zig").Verifier;
-        var verifier = Vfy.init(alloc, &interp);
-        const vresult = verifier.verify(merged) catch {
-            std.debug.print("Verifier error\n", .{});
+        var lower = Lower.init(alloc);
+        const program = lower.lowerFile(file) catch |err| {
+            std.debug.print("Lowering error: {}\n", .{err});
             return;
         };
 
-        const total_passed = vresult.examples_passed + vresult.properties_passed + vresult.tests_passed;
-        const total_failed = vresult.examples_failed + vresult.properties_failed + vresult.tests_failed;
+        if (program.test_names.items.len == 0) {
+            std.debug.print("No test blocks found in {s}\n", .{file_path});
+            return;
+        }
 
-        if (total_failed == 0 and total_passed > 0) {
-            std.debug.print("VALID — {d} examples, {d} properties, {d} tests passed\n", .{ vresult.examples_passed, vresult.properties_passed, vresult.tests_passed });
-        } else if (total_passed == 0 and total_failed == 0) {
-            std.debug.print("INCOMPLETE — no @example, @property, or test blocks found\n", .{});
-        } else {
-            std.debug.print("INVALID — {d} passed, {d} failed\n", .{ total_passed, total_failed });
-            for (vresult.failures.items) |failure| {
-                std.debug.print("  FAIL {s}: {s}\n", .{ failure.function, failure.example });
-                std.debug.print("    expected: {s}\n", .{failure.expected});
-                std.debug.print("    got:      {s}\n", .{failure.got});
-            }
+        // Generate a test runner main that calls each test function
+        const ZigBackend = @import("zig_backend.zig").ZigBackend;
+        var backend = ZigBackend.init(alloc);
+        backend.emitTestRunner(program);
+
+        const tmp_path = "/tmp/verve_test_runner";
+        backend.build(tmp_path, "/home/jt/.local/zig/zig") catch |err| {
+            std.debug.print("Build error: {}\n", .{err});
+            return;
+        };
+
+        // Run the test binary
+        var child = std.process.Child.init(&.{tmp_path}, alloc);
+        child.stderr_behavior = .Inherit;
+        child.stdout_behavior = .Inherit;
+        try child.spawn();
+        const term = try child.wait();
+
+        std.fs.cwd().deleteFile(tmp_path) catch {};
+
+        switch (term) {
+            .Exited => |code| {
+                if (code != 0) std.process.exit(code);
+            },
+            else => std.process.exit(1),
         }
     } else if (std.mem.eql(u8, command, "fmt")) {
         const file_path = args.next() orelse {
