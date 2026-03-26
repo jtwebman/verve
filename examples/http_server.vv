@@ -1,34 +1,58 @@
-/// HTTP/1.1 server. Listens on port 8080, serves JSON and text responses.
+/// HTTP/1.1 server with process-based connection handling.
+/// Accept loop dispatches to a handler process via tell (fire-and-forget).
+/// Handler process owns the connection lifecycle.
+/// When multi-threading arrives: spawn process per connection for true parallelism.
+
+struct HandlerState {
+	handled: int = 0;
+}
+
+/// Handles HTTP connections dispatched from the accept loop.
+process ConnectionHandler<HandlerState> {
+	/// Process one HTTP request and respond.
+	receive Handle(state: HandlerState, client_fd: int, request_num: int) -> int {
+		data: string = Stream.read_bytes(client_fd, 4096);
+		if String.len(data) > 0 {
+			req: int = Http.parse_request(data);
+			path: string = Http.req_path(req);
+			response: string = "";
+			if path == "/json" {
+				b: int = Json.build_object();
+				Json.build_add_string(b, "status", "ok");
+				Json.build_add_int(b, "request", request_num);
+				body: string = Json.build_end(b);
+				response = Http.respond(200, "application/json", body);
+			} else {
+				if path == "/health" {
+					response = Http.respond(200, "text/plain", "ok");
+				} else {
+					response = Http.respond(200, "text/plain", "Hello from Verve!");
+				}
+			}
+			Stream.write(client_fd, response);
+		}
+		Stream.close(client_fd);
+		state.handled = state.handled + 1;
+		return state.handled;
+	}
+}
+
+/// Accept loop — dispatches connections to handler process.
 module Main {
 	fn main() -> int {
 		match Tcp.listen("127.0.0.1", 8080) {
 			:ok{listener} => {
-				println("HTTP server listening on http://127.0.0.1:8080");
+				println("HTTP server on http://127.0.0.1:8080 (process-per-connection)");
+				handler: int = spawn ConnectionHandler();
 				i: int = 0;
-				while i < 100 {
+				while i < 100000 {
 					match Tcp.accept(listener) {
-						:ok{client} => {
-							data: string = Stream.read_bytes(client, 4096);
-							req: int = Http.parse_request(data);
-							path: string = Http.req_path(req);
-							response: string = "";
-							if path == "/json" {
-								b: int = Json.build_object();
-								Json.build_add_string(b, "status", "ok");
-								Json.build_add_int(b, "request", i);
-								body: string = Json.build_end(b);
-								response = Http.respond(200, "application/json", body);
-							} else {
-								if path == "/health" {
-									response = Http.respond(200, "text/plain", "ok");
-								} else {
-									response = Http.respond(200, "text/plain", "Hello from Verve!");
-								}
-							}
-							Stream.write(client, response);
-							Stream.close(client);
+						:ok{client_fd} => {
+							tell handler.Handle(client_fd, i);
 						}
-						:error{e} => println("Accept failed");
+						:error{e} => {
+							i = i;
+						}
 					}
 					i = i + 1;
 				}

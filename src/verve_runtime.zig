@@ -1574,10 +1574,25 @@ fn pidx(pid: i64) usize {
 // ── Process operations ─────────────────────────────
 
 pub fn verve_spawn(process_type: i64) i64 {
-    process_count += 1;
-    const idx = pidx(process_count);
+    // Find a slot: prefer recycling dead processes, then use new slot
+    var idx: usize = MAX_PROCESSES; // sentinel: not found
+    // Scan for dead process to recycle
+    for (&process_table, 0..) |*p, i| {
+        if (!p.alive and p.id != 0) {
+            p.arena.freeAll(); // free old arena before reuse
+            idx = i;
+            break;
+        }
+    }
+    // No dead slot — try new slot
+    if (idx == MAX_PROCESSES) {
+        const next: usize = @intCast(@as(u64, @bitCast(process_count)));
+        if (next >= MAX_PROCESSES) return 0;
+        idx = next;
+        process_count += 1;
+    }
     process_table[idx] = .{
-        .id = process_count,
+        .id = @intCast(idx + 1),
         .alive = true,
         .process_type = process_type,
         .state = @splat(0),
