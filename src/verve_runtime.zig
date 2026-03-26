@@ -2,7 +2,7 @@ const std = @import("std");
 
 // ── Constants ──────────────────────────────────────
 pub const MAILBOX_CAPACITY = 64;
-pub const MAX_PROCESSES = 256;
+pub const MAX_PROCESSES = 256; // initial capacity, grows dynamically
 pub const MAX_STATE_FIELDS = 16;
 pub const MAX_WATCHERS = 64;
 pub const MAX_MSG_ARGS = 8;
@@ -18,6 +18,9 @@ pub const HTTP_MAX_METHOD_SIZE = 16; // longest standard method
 /// Must be called at program startup. Ignores SIGPIPE so writing to a closed
 /// socket returns an error instead of killing the process.
 pub fn verve_runtime_init() void {
+    // Initialize dynamic process table
+    ensureProcessCapacity(MAX_PROCESSES);
+
     const act = std.posix.Sigaction{
         .handler = .{ .handler = std.posix.SIG.IGN },
         .mask = std.posix.sigemptyset(),
@@ -1488,7 +1491,7 @@ var global_arena: Arena = .{};
 pub fn currentArena() *Arena {
     if (current_process_id > 0) {
         const idx = pidx(current_process_id);
-        return &process_table[idx].arena;
+        if (idx < process_table.len) return &process_table[idx].arena;
     }
     return &global_arena;
 }
@@ -1543,10 +1546,26 @@ pub const VerveProcess = struct {
 
 pub const DispatchFn = *const fn (i64, [*]const i64, i64) i64;
 
-pub var process_table: [MAX_PROCESSES]VerveProcess = blk: {
-    var t: [MAX_PROCESSES]VerveProcess = undefined;
-    for (&t) |*p| {
-        p.* = .{
+/// Dynamic process table — heap-allocated, grows by doubling.
+/// Supports millions of lightweight processes.
+pub var process_table: []VerveProcess = &.{};
+pub var process_count: i64 = 0;
+pub var current_process_id: i64 = 0;
+pub var dispatch_table: []DispatchFn = &.{};
+
+pub fn ensureProcessCapacity(min_count: usize) void {
+    if (min_count <= process_table.len) return;
+    const new_cap = @max(min_count, if (process_table.len == 0) MAX_PROCESSES else process_table.len * 2);
+    const new_table = std.heap.page_allocator.alloc(VerveProcess, new_cap) catch return;
+    const new_dispatch = std.heap.page_allocator.alloc(DispatchFn, new_cap) catch return;
+    // Copy existing
+    if (process_table.len > 0) {
+        @memcpy(new_table[0..process_table.len], process_table);
+        @memcpy(new_dispatch[0..dispatch_table.len], dispatch_table);
+    }
+    // Init new slots
+    for (process_table.len..new_cap) |i| {
+        new_table[i] = .{
             .id = 0,
             .alive = false,
             .process_type = 0,
@@ -1556,12 +1575,11 @@ pub var process_table: [MAX_PROCESSES]VerveProcess = blk: {
             .watcher_count = 0,
             .arena = .{},
         };
+        new_dispatch[i] = &dispatch_noop;
     }
-    break :blk t;
-};
-pub var process_count: i64 = 0;
-pub var current_process_id: i64 = 0;
-pub var dispatch_table: [MAX_PROCESSES]DispatchFn = @splat(&dispatch_noop);
+    process_table = new_table;
+    dispatch_table = new_dispatch;
+}
 
 fn dispatch_noop(_: i64, _: [*]const i64, _: i64) i64 {
     return makeTagged(1, 0);
@@ -1574,20 +1592,20 @@ fn pidx(pid: i64) usize {
 // ── Process operations ─────────────────────────────
 
 pub fn verve_spawn(process_type: i64) i64 {
+    ensureProcessCapacity(1); // ensure table exists
     // Find a slot: prefer recycling dead processes, then use new slot
-    var idx: usize = MAX_PROCESSES; // sentinel: not found
-    // Scan for dead process to recycle
-    for (&process_table, 0..) |*p, i| {
+    var idx: usize = process_table.len; // sentinel: not found
+    for (process_table, 0..) |*p, i| {
         if (!p.alive and p.id != 0) {
-            p.arena.freeAll(); // free old arena before reuse
+            p.arena.freeAll();
             idx = i;
             break;
         }
     }
-    // No dead slot — try new slot
-    if (idx == MAX_PROCESSES) {
+    if (idx == process_table.len) {
+        // No dead slot — use next available
         const next: usize = @intCast(@as(u64, @bitCast(process_count)));
-        if (next >= MAX_PROCESSES) return 0;
+        ensureProcessCapacity(next + 1); // grow if needed
         idx = next;
         process_count += 1;
     }

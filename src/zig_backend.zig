@@ -155,6 +155,7 @@ pub const ZigBackend = struct {
             // Register dispatch functions in runtime table
             self.line("fn verve_init_dispatch() void {");
             self.indent += 1;
+            self.lineFmt("rt.ensureProcessCapacity({d});", .{program.process_decls.items.len});
             for (program.process_decls.items, 0..) |_, pdi| {
                 self.writeFmt("    rt.dispatch_table[{d}] = &verve_dispatch_{d};\n", .{ pdi, pdi });
             }
