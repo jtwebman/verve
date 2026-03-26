@@ -118,6 +118,49 @@ pub const Lower = struct {
                         if (std.mem.eql(u8, func.name, "main")) {
                             self.program.entry_module = m.name;
                         }
+                        // Extract @example from doc comments → generate test functions
+                        if (func.doc_comment) |doc| {
+                            var example_idx: usize = 0;
+                            var line_start: usize = 0;
+                            while (line_start < doc.len) {
+                                // Find end of line
+                                var line_end = line_start;
+                                while (line_end < doc.len and doc[line_end] != '\n') line_end += 1;
+                                const line = doc[line_start..line_end];
+                                // Check for @example
+                                if (std.mem.indexOf(u8, line, "@example ")) |idx| {
+                                    const example_text = std.mem.trim(u8, line[idx + 9 ..], " \t\r");
+                                    if (example_text.len > 0) {
+                                        // Parse the example as an assert statement
+                                        const assert_src = std.fmt.allocPrint(self.alloc, "assert {s};", .{example_text}) catch "";
+                                        var example_parser = @import("parser.zig").Parser.init(assert_src, self.alloc);
+                                        if (example_parser.parseStmt()) |stmt| {
+                                            const test_name = std.fmt.allocPrint(self.alloc, "@example {s}.{s} #{d}", .{ m.name, func.name, example_idx }) catch "example";
+                                            const test_fn_name = std.fmt.allocPrint(self.alloc, "__example_{s}_{d}", .{ func.name, example_idx }) catch "example";
+                                            const body = self.alloc.alloc(ast.Stmt, 1) catch continue;
+                                            body[0] = stmt;
+                                            const example_fn = ast.FnDecl{
+                                                .name = test_fn_name,
+                                                .params = &.{},
+                                                .return_type = .{ .simple = "int" },
+                                                .guards = &.{},
+                                                .body = body,
+                                                .doc_comment = null,
+                                                .examples = &.{},
+                                                .properties = &.{},
+                                                .span = .{ .start = 0, .end = 0 },
+                                            };
+                                            self.lowerFunction(m.name, example_fn) catch {};
+                                            self.program.test_names.append(self.alloc, test_name) catch {};
+                                            self.program.test_modules.append(self.alloc, m.name) catch {};
+                                            self.program.test_fn_names.append(self.alloc, test_fn_name) catch {};
+                                            example_idx += 1;
+                                        } else |_| {}
+                                    }
+                                }
+                                line_start = if (line_end < doc.len) line_end + 1 else line_end;
+                            }
+                        }
                     }
                     // Lower test blocks as functions named __test_N
                     for (m.tests, 0..) |t, ti| {
