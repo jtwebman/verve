@@ -1,6 +1,6 @@
 # Verve
 
-Process-oriented language with no exceptions, no recursion, no nulls. Written in Zig 0.15. Tree-walk interpreter + native compiler via Zig backend.
+Process-oriented language with no exceptions, no recursion, no implicit nulls. Written in Zig 0.15. Native compiler via Zig backend.
 
 ## Before every commit
 

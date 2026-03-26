@@ -1,6 +1,6 @@
 # Verve Language Reference
 
-Verve is a process-oriented language with no exceptions, no recursion, and no nulls. Written in Zig, currently runs as a tree-walk interpreter. Designed for building reliable concurrent systems.
+Verve is a process-oriented language with no exceptions, no recursion, and no implicit nulls. Written in Zig with a native compiler via Zig backend. Designed for building reliable concurrent systems.
 
 ## Types
 
@@ -304,7 +304,7 @@ Precedence: `||` < `&&` < comparison < `+`/`-` < `*`/`/`/`%` < unary
 ## Key constraints
 - **No recursion** — use while loops with explicit stacks
 - **No exceptions** — use Result<T> and poison values
-- **No null** — use `none` with optional types
+- **No implicit null** — use `none` with explicit optional types (`T?`). A value is never null unless the type says so.
 - **Explicit types** — all variable declarations must have type annotations
 - **Doc comments required** — on all exported modules, processes, and functions
 
