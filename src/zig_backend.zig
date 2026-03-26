@@ -668,6 +668,21 @@ pub const ZigBackend = struct {
             if (args.len >= 2) {
                 self.lineFmt("{s} = rt.{s}({s}, {s});", .{ self.regName(dest), name, self.regName(args[0]), self.regName(args[1]) });
             }
+        } else if (std.mem.eql(u8, name, "json_build_object")) {
+            self.lineFmt("{s} = rt.json_build_object();", .{self.regName(dest)});
+        } else if (std.mem.eql(u8, name, "json_build_end")) {
+            if (args.len >= 1) self.lineFmt("{s} = rt.json_build_end({s});", .{ self.regName(dest), self.regName(args[0]) });
+        } else if (std.mem.eql(u8, name, "json_build_end_len")) {
+            if (args.len >= 1) self.lineFmt("{s} = rt.json_build_end_len({s});", .{ self.regName(dest), self.regName(args[0]) });
+        } else if (std.mem.eql(u8, name, "json_build_add_string")) {
+            if (args.len >= 5) self.lineFmt("rt.json_build_add_string({s}, {s}, {s}, {s}, {s});", .{ self.regName(args[0]), self.regName(args[1]), self.regName(args[2]), self.regName(args[3]), self.regName(args[4]) });
+            self.lineFmt("{s} = 0;", .{self.regName(dest)});
+        } else if (std.mem.eql(u8, name, "json_build_add_int")) {
+            if (args.len >= 4) self.lineFmt("rt.json_build_add_int({s}, {s}, {s}, {s});", .{ self.regName(args[0]), self.regName(args[1]), self.regName(args[2]), self.regName(args[3]) });
+            self.lineFmt("{s} = 0;", .{self.regName(dest)});
+        } else if (std.mem.eql(u8, name, "json_build_add_bool")) {
+            if (args.len >= 4) self.lineFmt("rt.json_build_add_bool({s}, {s}, {s}, {s});", .{ self.regName(args[0]), self.regName(args[1]), self.regName(args[2]), self.regName(args[3]) });
+            self.lineFmt("{s} = 0;", .{self.regName(dest)});
         } else if (std.mem.eql(u8, name, "tcp_open")) {
             if (args.len >= 3) {
                 self.lineFmt("{s} = rt.tcp_open({s}, {s}, {s});", .{ self.regName(dest), self.regName(args[0]), self.regName(args[1]), self.regName(args[2]) });

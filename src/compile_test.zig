@@ -1666,6 +1666,121 @@ test "compile: json to_int and to_bool leaf extraction" {
     try testing.expectEqualStrings("42\n-7\n1\n0\n", r.stdout);
 }
 
+test "compile: json build simple object" {
+    const r = try compileAndCapture(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        b: int = Json.build_object();
+        \\        Json.build_add_string(b, "name", "verve");
+        \\        Json.build_add_int(b, "version", 1);
+        \\        result: string = Json.build_end(b);
+        \\        println(result);
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("{\"name\":\"verve\",\"version\":1}\n", r.stdout);
+}
+
+test "compile: json build with bool" {
+    const r = try compileAndCapture(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        b: int = Json.build_object();
+        \\        Json.build_add_bool(b, "yes", true);
+        \\        Json.build_add_bool(b, "no", false);
+        \\        result: string = Json.build_end(b);
+        \\        println(result);
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("{\"yes\":true,\"no\":false}\n", r.stdout);
+}
+
+test "compile: json build empty object" {
+    const r = try compileAndCapture(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        b: int = Json.build_object();
+        \\        result: string = Json.build_end(b);
+        \\        println(result);
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("{}\n", r.stdout);
+}
+
+test "compile: json build then parse roundtrip" {
+    const r = try compileAndCapture(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        b: int = Json.build_object();
+        \\        Json.build_add_string(b, "msg", "hello");
+        \\        Json.build_add_int(b, "num", 42);
+        \\        json: string = Json.build_end(b);
+        \\        msg: string = Json.get_string(json, "msg");
+        \\        num: int = Json.get_int(json, "num");
+        \\        println(msg);
+        \\        println(num);
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("hello\n42\n", r.stdout);
+}
+
+test "compile: json build with special chars in string" {
+    const r = try compileAndCapture(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        b: int = Json.build_object();
+        \\        Json.build_add_string(b, "msg", "hello world!");
+        \\        result: string = Json.build_end(b);
+        \\        println(result);
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("{\"msg\":\"hello world!\"}\n", r.stdout);
+}
+
+test "compile: json array length" {
+    const r = try compileAndCapture(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        data: string = "{\"items\": [1, 2, 3, 4, 5]}";
+        \\        count: int = Json.get_array_len(data, "items");
+        \\        println(count);
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("5\n", r.stdout);
+}
+
+test "compile: json empty array length" {
+    const r = try compileAndCapture(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        data: string = "{\"items\": []}";
+        \\        count: int = Json.get_array_len(data, "items");
+        \\        println(count);
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("0\n", r.stdout);
+}
+
 // ── TCP tests ──────────────────────────────────────
 
 test "compile: tcp listen and connect loopback" {

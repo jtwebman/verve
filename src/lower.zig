@@ -932,6 +932,49 @@ pub const Lower = struct {
                                 }
                                 return dest;
                             }
+                            if (std.mem.eql(u8, fn_name, "build_object")) {
+                                self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = "json_build_object", .args = &.{} } });
+                                return dest;
+                            }
+                            if (std.mem.eql(u8, fn_name, "build_end")) {
+                                // Returns string — track length
+                                self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = "json_build_end", .args = args } });
+                                const len_dest = func.newReg();
+                                self.appendInst(.{ .call_builtin = .{ .dest = len_dest, .name = "json_build_end_len", .args = args } });
+                                self.string_lens.put(self.alloc, dest, len_dest) catch {};
+                                return dest;
+                            }
+                            if (std.mem.eql(u8, fn_name, "build_add_string")) {
+                                // (builder, key, value) — need key_ptr+len, val_ptr+len
+                                var ba = std.ArrayListUnmanaged(ir.Reg){};
+                                if (c.args.len >= 1) ba.append(self.alloc, self.lowerExpr(c.args[0])) catch {};
+                                if (c.args.len >= 2) {
+                                    const k = self.lowerExpr(c.args[1]);
+                                    ba.append(self.alloc, k) catch {};
+                                    ba.append(self.alloc, self.getStringLen(func, k)) catch {};
+                                }
+                                if (c.args.len >= 3) {
+                                    const v = self.lowerExpr(c.args[2]);
+                                    ba.append(self.alloc, v) catch {};
+                                    ba.append(self.alloc, self.getStringLen(func, v)) catch {};
+                                }
+                                self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = "json_build_add_string", .args = ba.toOwnedSlice(self.alloc) catch &.{} } });
+                                return dest;
+                            }
+                            if (std.mem.eql(u8, fn_name, "build_add_int") or std.mem.eql(u8, fn_name, "build_add_bool")) {
+                                // (builder, key, value) — need key_ptr+len, value as i64
+                                var ba = std.ArrayListUnmanaged(ir.Reg){};
+                                if (c.args.len >= 1) ba.append(self.alloc, self.lowerExpr(c.args[0])) catch {};
+                                if (c.args.len >= 2) {
+                                    const k = self.lowerExpr(c.args[1]);
+                                    ba.append(self.alloc, k) catch {};
+                                    ba.append(self.alloc, self.getStringLen(func, k)) catch {};
+                                }
+                                if (c.args.len >= 3) ba.append(self.alloc, self.lowerExpr(c.args[2])) catch {};
+                                const bname = std.fmt.allocPrint(self.alloc, "json_{s}", .{fn_name}) catch fn_name;
+                                self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = bname, .args = ba.toOwnedSlice(self.alloc) catch &.{} } });
+                                return dest;
+                            }
                             const builtin_name = std.fmt.allocPrint(self.alloc, "json_{s}", .{fn_name}) catch fn_name;
                             self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = builtin_name, .args = args } });
                             return dest;

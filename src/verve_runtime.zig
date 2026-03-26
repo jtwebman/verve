@@ -964,14 +964,150 @@ fn json_split_array(src: []const u8, start: usize, end: usize) i64 {
     return @intCast(@intFromPtr(list));
 }
 
-/// Build a JSON string from key-value pairs. Simple object stringifier.
-pub fn json_stringify_int(key_ptr: i64, key_len: i64, val: i64) i64 {
-    const key = sliceFromPtr(key_ptr, key_len);
-    var buf: [128]u8 = undefined;
-    const s = std.fmt.bufPrint(&buf, "\"{s}\":{d}", .{ key, val }) catch return 0;
-    const result = arena_alloc(s.len) orelse return 0;
-    @memcpy(result[0..s.len], s);
-    return @intCast(@intFromPtr(result));
+// ── JSON builder (stringify) ───────────────────────
+
+/// A growable JSON string buffer allocated in the arena.
+const JsonBuilder = struct {
+    buf: [*]u8,
+    len: usize,
+    cap: usize,
+
+    fn init() JsonBuilder {
+        const initial_cap: usize = 256;
+        const mem = arena_alloc(initial_cap) orelse return .{ .buf = undefined, .len = 0, .cap = 0 };
+        return .{ .buf = mem, .len = 0, .cap = initial_cap };
+    }
+
+    fn append(self: *JsonBuilder, data: []const u8) void {
+        if (self.cap == 0) return;
+        // Simple: if it fits, copy. Otherwise truncate (arena can't realloc easily).
+        const remaining = self.cap - self.len;
+        const to_copy = @min(data.len, remaining);
+        @memcpy(self.buf[self.len .. self.len + to_copy], data[0..to_copy]);
+        self.len += to_copy;
+    }
+
+    fn appendByte(self: *JsonBuilder, b: u8) void {
+        if (self.len < self.cap) {
+            self.buf[self.len] = b;
+            self.len += 1;
+        }
+    }
+
+    fn appendInt(self: *JsonBuilder, val: i64) void {
+        var tmp: [32]u8 = undefined;
+        const s = std.fmt.bufPrint(&tmp, "{d}", .{val}) catch return;
+        self.append(s);
+    }
+
+    fn appendFloat(self: *JsonBuilder, val: f64) void {
+        var tmp: [64]u8 = undefined;
+        const s = std.fmt.bufPrint(&tmp, "{d}", .{val}) catch return;
+        self.append(s);
+    }
+
+    fn appendQuotedString(self: *JsonBuilder, str: []const u8) void {
+        self.appendByte('"');
+        for (str) |c| {
+            switch (c) {
+                '"' => self.append("\\\""),
+                '\\' => self.append("\\\\"),
+                '\n' => self.append("\\n"),
+                '\t' => self.append("\\t"),
+                '\r' => self.append("\\r"),
+                else => self.appendByte(c),
+            }
+        }
+        self.appendByte('"');
+    }
+
+    fn result(self: *JsonBuilder) struct { ptr: i64, len: i64 } {
+        return .{ .ptr = @intCast(@intFromPtr(self.buf)), .len = @intCast(self.len) };
+    }
+};
+
+/// Start building a JSON object. Returns a builder handle (pointer to JsonBuilder in arena).
+pub fn json_build_object() i64 {
+    const mem = arena_alloc(@sizeOf(JsonBuilder)) orelse return 0;
+    const b = @as(*JsonBuilder, @ptrCast(@alignCast(mem)));
+    b.* = JsonBuilder.init();
+    b.appendByte('{');
+    return @intCast(@intFromPtr(b));
+}
+
+/// Add a string field to a JSON builder.
+pub fn json_build_add_string(builder_ptr: i64, key_ptr: i64, key_len: i64, val_ptr: i64, val_len: i64) void {
+    if (builder_ptr == 0) return;
+    const b = @as(*JsonBuilder, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(builder_ptr))))));
+    if (b.len > 1) b.appendByte(','); // comma between fields
+    b.appendQuotedString(sliceFromPtr(key_ptr, key_len));
+    b.appendByte(':');
+    b.appendQuotedString(sliceFromPtr(val_ptr, val_len));
+}
+
+/// Add an int field to a JSON builder.
+pub fn json_build_add_int(builder_ptr: i64, key_ptr: i64, key_len: i64, val: i64) void {
+    if (builder_ptr == 0) return;
+    const b = @as(*JsonBuilder, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(builder_ptr))))));
+    if (b.len > 1) b.appendByte(',');
+    b.appendQuotedString(sliceFromPtr(key_ptr, key_len));
+    b.appendByte(':');
+    b.appendInt(val);
+}
+
+/// Add a float field to a JSON builder.
+pub fn json_build_add_float(builder_ptr: i64, key_ptr: i64, key_len: i64, val: i64) void {
+    if (builder_ptr == 0) return;
+    const b = @as(*JsonBuilder, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(builder_ptr))))));
+    if (b.len > 1) b.appendByte(',');
+    b.appendQuotedString(sliceFromPtr(key_ptr, key_len));
+    b.appendByte(':');
+    b.appendFloat(f64_from_i64(val));
+}
+
+/// Add a bool field to a JSON builder.
+pub fn json_build_add_bool(builder_ptr: i64, key_ptr: i64, key_len: i64, val: i64) void {
+    if (builder_ptr == 0) return;
+    const b = @as(*JsonBuilder, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(builder_ptr))))));
+    if (b.len > 1) b.appendByte(',');
+    b.appendQuotedString(sliceFromPtr(key_ptr, key_len));
+    b.appendByte(':');
+    b.append(if (val != 0) "true" else "false");
+}
+
+/// Add a null field to a JSON builder.
+pub fn json_build_add_null(builder_ptr: i64, key_ptr: i64, key_len: i64) void {
+    if (builder_ptr == 0) return;
+    const b = @as(*JsonBuilder, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(builder_ptr))))));
+    if (b.len > 1) b.appendByte(',');
+    b.appendQuotedString(sliceFromPtr(key_ptr, key_len));
+    b.appendByte(':');
+    b.append("null");
+}
+
+/// Add a raw JSON value (sub-object, sub-array) to a JSON builder.
+pub fn json_build_add_raw(builder_ptr: i64, key_ptr: i64, key_len: i64, val_ptr: i64, val_len: i64) void {
+    if (builder_ptr == 0) return;
+    const b = @as(*JsonBuilder, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(builder_ptr))))));
+    if (b.len > 1) b.appendByte(',');
+    b.appendQuotedString(sliceFromPtr(key_ptr, key_len));
+    b.appendByte(':');
+    b.append(sliceFromPtr(val_ptr, val_len));
+}
+
+/// Finish building a JSON object. Returns the JSON string pointer.
+pub fn json_build_end(builder_ptr: i64) i64 {
+    if (builder_ptr == 0) return 0;
+    const b = @as(*JsonBuilder, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(builder_ptr))))));
+    b.appendByte('}');
+    return b.result().ptr;
+}
+
+/// Get the length of a finished JSON builder result.
+pub fn json_build_end_len(builder_ptr: i64) i64 {
+    if (builder_ptr == 0) return 0;
+    const b = @as(*JsonBuilder, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(builder_ptr))))));
+    return b.result().len;
 }
 
 // ── Arena allocator ────────────────────────────────
