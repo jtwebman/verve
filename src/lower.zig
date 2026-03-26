@@ -13,6 +13,8 @@ pub const Lower = struct {
     var_types: std.StringHashMapUnmanaged([]const u8),
     string_vars: std.StringHashMapUnmanaged(void), // variables known to be strings
     string_lens: std.AutoHashMapUnmanaged(ir.Reg, ir.Reg),
+    float_regs: std.AutoHashMapUnmanaged(ir.Reg, void), // registers holding float values
+    float_vars: std.StringHashMapUnmanaged(void), // variables known to be floats
     loop_cond_block: ?ir.BlockId,
     loop_exit_block: ?ir.BlockId,
     // Process support
@@ -31,6 +33,8 @@ pub const Lower = struct {
             .var_types = .{},
             .string_lens = .{},
             .string_vars = .{},
+            .float_regs = .{},
+            .float_vars = .{},
             .loop_cond_block = null,
             .loop_exit_block = null,
             .process_decls = .{},
@@ -64,8 +68,18 @@ pub const Lower = struct {
             switch (decl) {
                 .process_decl => |p| {
                     var state_fields = std.ArrayListUnmanaged(ir.StateFieldInfo){};
-                    for (p.state_fields) |sf| {
-                        try state_fields.append(self.alloc, .{ .name = sf.name });
+                    if (p.state_type) |st| {
+                        // New syntax: process<StateStruct> — get fields from struct decl
+                        if (self.struct_decls.get(st)) |sd| {
+                            for (sd.fields) |f| {
+                                try state_fields.append(self.alloc, .{ .name = f.name });
+                            }
+                        }
+                    } else {
+                        // Old syntax: inline state fields
+                        for (p.state_fields) |sf| {
+                            try state_fields.append(self.alloc, .{ .name = sf.name });
+                        }
                     }
                     var handler_names = std.ArrayListUnmanaged([]const u8){};
                     for (p.receive_handlers) |h| {
@@ -115,6 +129,8 @@ pub const Lower = struct {
         // Reset per-function state BEFORE processing params
         self.string_lens = .{};
         self.string_vars = .{};
+        self.float_regs = .{};
+        self.float_vars = .{};
 
         var params = std.ArrayListUnmanaged(ir.Function.Param){};
         for (func.params) |p| {
@@ -123,6 +139,7 @@ pub const Lower = struct {
                 .simple => |tn| {
                     if (self.struct_decls.get(tn) != null) self.var_types.put(self.alloc, p.name, tn) catch {};
                     if (std.mem.eql(u8, tn, "string")) self.string_vars.put(self.alloc, p.name, {}) catch {};
+                    if (std.mem.eql(u8, tn, "float")) self.float_vars.put(self.alloc, p.name, {}) catch {};
                 },
                 else => {},
             }
@@ -149,7 +166,10 @@ pub const Lower = struct {
         self.string_vars = .{};
 
         var params = std.ArrayListUnmanaged(ir.Function.Param){};
-        for (handler.params) |p| {
+        const skip_state = proc_decl.state_type != null and handler.params.len > 0 and
+            std.mem.eql(u8, handler.params[0].name, "state");
+        const user_params = if (skip_state) handler.params[1..] else handler.params;
+        for (user_params) |p| {
             try params.append(self.alloc, .{ .name = p.name, .type_ = resolveType(p.type_expr) });
         }
         f.params = try params.toOwnedSlice(self.alloc);
@@ -230,6 +250,10 @@ pub const Lower = struct {
                 const reg = self.lowerExpr(a.value);
                 self.appendInst(.{ .store_local = .{ .name = a.name, .src = reg } });
                 // Store string length if the value has one tracked
+                // Propagate float tracking from register to variable
+                if (self.float_regs.get(reg) != null) {
+                    self.float_vars.put(self.alloc, a.name, {}) catch {};
+                }
                 if (self.string_lens.get(reg)) |len_reg| {
                     const len_name = std.fmt.allocPrint(self.alloc, "{s}__len", .{a.name}) catch a.name;
                     self.appendInst(.{ .store_local = .{ .name = len_name, .src = len_reg } });
@@ -239,6 +263,7 @@ pub const Lower = struct {
                         .simple => |tn| {
                             if (self.struct_decls.get(tn) != null) self.var_types.put(self.alloc, a.name, tn) catch {};
                             if (std.mem.eql(u8, tn, "string")) self.string_vars.put(self.alloc, a.name, {}) catch {};
+                            if (std.mem.eql(u8, tn, "float")) self.float_vars.put(self.alloc, a.name, {}) catch {};
                         },
                         else => {},
                     }
@@ -405,6 +430,29 @@ pub const Lower = struct {
                 self.appendInst(.{ .jump = .{ .target = merge_id } });
                 self.current_block_id = merge_id;
             },
+            .field_assign => |fa| {
+                // state.field = expr; → process_state_set
+                if (fa.target == .field_access) {
+                    const field_name = fa.target.field_access.field;
+                    if (fa.target.field_access.target.* == .identifier and
+                        std.mem.eql(u8, fa.target.field_access.target.identifier, "state"))
+                    {
+                        if (self.current_process_decl) |pdecl| {
+                            if (pdecl.state_type) |st| {
+                                if (self.struct_decls.get(st)) |sd| {
+                                    for (sd.fields, 0..) |f, fi| {
+                                        if (std.mem.eql(u8, f.name, field_name)) {
+                                            const val_reg = self.lowerExpr(fa.value);
+                                            self.appendInst(.{ .process_state_set = .{ .field_index = @intCast(fi), .src = val_reg } });
+                                            return;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
             .expr_stmt => |e| {
                 _ = self.lowerExpr(e);
             },
@@ -426,6 +474,7 @@ pub const Lower = struct {
             .float_literal => |v| {
                 const dest = func.newReg();
                 self.appendInst(.{ .const_float = .{ .dest = dest, .value = v } });
+                self.float_regs.put(self.alloc, dest, {}) catch {};
                 return dest;
             },
             .bool_literal => |v| {
@@ -461,6 +510,9 @@ pub const Lower = struct {
                     self.appendInst(.{ .load_local = .{ .dest = len_reg, .name = len_name } });
                     self.string_lens.put(self.alloc, dest, len_reg) catch {};
                 }
+                if (self.float_vars.get(name) != null) {
+                    self.float_regs.put(self.alloc, dest, {}) catch {};
+                }
                 return dest;
             },
             .binary_op => |op| {
@@ -490,7 +542,26 @@ pub const Lower = struct {
                 const lhs = self.lowerExpr(op.left.*);
                 const rhs = self.lowerExpr(op.right.*);
                 const dest = func.newReg();
-                const inst: ir.Inst = switch (op.op) {
+                const is_float = self.float_regs.get(lhs) != null or self.float_regs.get(rhs) != null or
+                    (op.left.* == .float_literal) or (op.right.* == .float_literal) or
+                    (op.left.* == .identifier and self.float_vars.get(op.left.identifier) != null) or
+                    (op.right.* == .identifier and self.float_vars.get(op.right.identifier) != null);
+                const inst: ir.Inst = if (is_float) switch (op.op) {
+                    .add => .{ .add_f64 = .{ .dest = dest, .lhs = lhs, .rhs = rhs } },
+                    .sub => .{ .sub_f64 = .{ .dest = dest, .lhs = lhs, .rhs = rhs } },
+                    .mul => .{ .mul_f64 = .{ .dest = dest, .lhs = lhs, .rhs = rhs } },
+                    .div => .{ .div_f64 = .{ .dest = dest, .lhs = lhs, .rhs = rhs } },
+                    .mod => .{ .mod_f64 = .{ .dest = dest, .lhs = lhs, .rhs = rhs } },
+                    .eq => .{ .eq_f64 = .{ .dest = dest, .lhs = lhs, .rhs = rhs } },
+                    .neq => .{ .neq_f64 = .{ .dest = dest, .lhs = lhs, .rhs = rhs } },
+                    .lt => .{ .lt_f64 = .{ .dest = dest, .lhs = lhs, .rhs = rhs } },
+                    .gt => .{ .gt_f64 = .{ .dest = dest, .lhs = lhs, .rhs = rhs } },
+                    .lte => .{ .lte_f64 = .{ .dest = dest, .lhs = lhs, .rhs = rhs } },
+                    .gte => .{ .gte_f64 = .{ .dest = dest, .lhs = lhs, .rhs = rhs } },
+                    .@"and" => .{ .and_bool = .{ .dest = dest, .lhs = lhs, .rhs = rhs } },
+                    .@"or" => .{ .or_bool = .{ .dest = dest, .lhs = lhs, .rhs = rhs } },
+                    .not => .{ .not_bool = .{ .dest = dest, .operand = lhs } },
+                } else switch (op.op) {
                     .add => .{ .add_i64 = .{ .dest = dest, .lhs = lhs, .rhs = rhs } },
                     .sub => .{ .sub_i64 = .{ .dest = dest, .lhs = lhs, .rhs = rhs } },
                     .mul => .{ .mul_i64 = .{ .dest = dest, .lhs = lhs, .rhs = rhs } },
@@ -507,14 +578,30 @@ pub const Lower = struct {
                     .not => .{ .not_bool = .{ .dest = dest, .operand = lhs } },
                 };
                 self.appendInst(inst);
+                // Float arithmetic produces float results
+                if (is_float and op.op != .eq and op.op != .neq and op.op != .lt and
+                    op.op != .gt and op.op != .lte and op.op != .gte)
+                {
+                    self.float_regs.put(self.alloc, dest, {}) catch {};
+                }
                 return dest;
             },
             .unary_op => |op| {
                 const operand = self.lowerExpr(op.operand.*);
                 const dest = func.newReg();
+                const is_float_op = self.float_regs.get(operand) != null or
+                    (op.operand.* == .float_literal) or
+                    (op.operand.* == .identifier and self.float_vars.get(op.operand.identifier) != null);
                 switch (op.op) {
                     .not => self.appendInst(.{ .not_bool = .{ .dest = dest, .operand = operand } }),
-                    .sub => self.appendInst(.{ .neg_i64 = .{ .dest = dest, .operand = operand } }),
+                    .sub => {
+                        if (is_float_op) {
+                            self.appendInst(.{ .neg_f64 = .{ .dest = dest, .operand = operand } });
+                            self.float_regs.put(self.alloc, dest, {}) catch {};
+                        } else {
+                            self.appendInst(.{ .neg_i64 = .{ .dest = dest, .operand = operand } });
+                        }
+                    },
                     else => {},
                 }
                 return dest;
@@ -636,7 +723,153 @@ pub const Lower = struct {
                             return dest;
                         }
                         if (std.mem.eql(u8, mod_name, "Stream")) {
+                            if (std.mem.eql(u8, fn_name, "write") or std.mem.eql(u8, fn_name, "write_line")) {
+                                // Stream.write(stream, data) — need stream_ptr, data_ptr, data_len
+                                var stream_args = std.ArrayListUnmanaged(ir.Reg){};
+                                if (c.args.len >= 1) {
+                                    stream_args.append(self.alloc, self.lowerExpr(c.args[0])) catch {};
+                                }
+                                if (c.args.len >= 2) {
+                                    const data_reg = self.lowerExpr(c.args[1]);
+                                    stream_args.append(self.alloc, data_reg) catch {};
+                                    // Add string length
+                                    const len_reg = self.getStringLen(func, data_reg);
+                                    stream_args.append(self.alloc, len_reg) catch {};
+                                }
+                                const builtin_name = std.fmt.allocPrint(self.alloc, "stream_{s}", .{fn_name}) catch fn_name;
+                                self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = builtin_name, .args = stream_args.toOwnedSlice(self.alloc) catch &.{} } });
+                                return dest;
+                            }
+                            if (std.mem.eql(u8, fn_name, "read_line")) {
+                                // Stream.read_line returns a string — track its length
+                                self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = "stream_read_line", .args = args } });
+                                // Compute string length of the result
+                                const len_reg = func.newReg();
+                                self.appendInst(.{ .string_len = .{ .dest = len_reg, .str = dest } });
+                                self.string_lens.put(self.alloc, dest, len_reg) catch {};
+                                return dest;
+                            }
                             const builtin_name = std.fmt.allocPrint(self.alloc, "stream_{s}", .{fn_name}) catch fn_name;
+                            self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = builtin_name, .args = args } });
+                            return dest;
+                        }
+                        if (std.mem.eql(u8, mod_name, "Math")) {
+                            const builtin_name = std.fmt.allocPrint(self.alloc, "math_{s}", .{fn_name}) catch fn_name;
+                            self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = builtin_name, .args = args } });
+                            return dest;
+                        }
+                        if (std.mem.eql(u8, mod_name, "Env")) {
+                            if (std.mem.eql(u8, fn_name, "get")) {
+                                // Env.get(name) — need name ptr + len
+                                var env_args = std.ArrayListUnmanaged(ir.Reg){};
+                                if (c.args.len >= 1) {
+                                    const name_reg = self.lowerExpr(c.args[0]);
+                                    env_args.append(self.alloc, name_reg) catch {};
+                                    if (c.args[0] == .string_literal) {
+                                        const lr = func.newReg();
+                                        self.appendInst(.{ .const_int = .{ .dest = lr, .value = @intCast(c.args[0].string_literal.len) } });
+                                        env_args.append(self.alloc, lr) catch {};
+                                    } else {
+                                        const lr = func.newReg();
+                                        self.appendInst(.{ .string_len = .{ .dest = lr, .str = name_reg } });
+                                        env_args.append(self.alloc, lr) catch {};
+                                    }
+                                }
+                                self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = "env_get", .args = env_args.toOwnedSlice(self.alloc) catch &.{} } });
+                                // Track result as string
+                                const len_reg = func.newReg();
+                                self.appendInst(.{ .string_len = .{ .dest = len_reg, .str = dest } });
+                                self.string_lens.put(self.alloc, dest, len_reg) catch {};
+                                return dest;
+                            }
+                            const builtin_name = std.fmt.allocPrint(self.alloc, "env_{s}", .{fn_name}) catch fn_name;
+                            self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = builtin_name, .args = args } });
+                            return dest;
+                        }
+                        if (std.mem.eql(u8, mod_name, "System")) {
+                            const builtin_name = std.fmt.allocPrint(self.alloc, "system_{s}", .{fn_name}) catch fn_name;
+                            self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = builtin_name, .args = args } });
+                            return dest;
+                        }
+                        if (std.mem.eql(u8, mod_name, "Convert")) {
+                            if (std.mem.eql(u8, fn_name, "to_string")) {
+                                self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = "int_to_string", .args = args } });
+                                const len_reg = func.newReg();
+                                self.appendInst(.{ .string_len = .{ .dest = len_reg, .str = dest } });
+                                self.string_lens.put(self.alloc, dest, len_reg) catch {};
+                                return dest;
+                            }
+                            if (std.mem.eql(u8, fn_name, "to_int")) {
+                                // Convert.to_int(str) — need ptr + len
+                                var conv_args = std.ArrayListUnmanaged(ir.Reg){};
+                                if (c.args.len >= 1) {
+                                    const str_reg = self.lowerExpr(c.args[0]);
+                                    conv_args.append(self.alloc, str_reg) catch {};
+                                    const lr = self.getStringLen(func, str_reg);
+                                    conv_args.append(self.alloc, lr) catch {};
+                                }
+                                self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = "string_to_int", .args = conv_args.toOwnedSlice(self.alloc) catch &.{} } });
+                                return dest;
+                            }
+                            if (std.mem.eql(u8, fn_name, "to_float")) {
+                                self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = "convert_to_float", .args = args } });
+                                return dest;
+                            }
+                            if (std.mem.eql(u8, fn_name, "to_int_f")) {
+                                self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = "convert_to_int_f", .args = args } });
+                                return dest;
+                            }
+                            if (std.mem.eql(u8, fn_name, "float_to_string")) {
+                                self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = "float_to_string", .args = args } });
+                                const len_reg = func.newReg();
+                                self.appendInst(.{ .string_len = .{ .dest = len_reg, .str = dest } });
+                                self.string_lens.put(self.alloc, dest, len_reg) catch {};
+                                return dest;
+                            }
+                            if (std.mem.eql(u8, fn_name, "string_to_float")) {
+                                var conv_args = std.ArrayListUnmanaged(ir.Reg){};
+                                if (c.args.len >= 1) {
+                                    const str_reg = self.lowerExpr(c.args[0]);
+                                    conv_args.append(self.alloc, str_reg) catch {};
+                                    const lr = self.getStringLen(func, str_reg);
+                                    conv_args.append(self.alloc, lr) catch {};
+                                }
+                                self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = "string_to_float", .args = conv_args.toOwnedSlice(self.alloc) catch &.{} } });
+                                return dest;
+                            }
+                        }
+                        if (std.mem.eql(u8, mod_name, "Tcp")) {
+                            // Tcp.connect(host, port), Tcp.listen(host, port), Tcp.accept(listener)
+                            if (std.mem.eql(u8, fn_name, "open") or std.mem.eql(u8, fn_name, "listen")) {
+                                // Need host ptr + host len + port
+                                var tcp_args = std.ArrayListUnmanaged(ir.Reg){};
+                                if (c.args.len >= 1) {
+                                    const host_reg = self.lowerExpr(c.args[0]);
+                                    tcp_args.append(self.alloc, host_reg) catch {};
+                                    // Add host string length
+                                    if (c.args[0] == .string_literal) {
+                                        const lr = func.newReg();
+                                        self.appendInst(.{ .const_int = .{ .dest = lr, .value = @intCast(c.args[0].string_literal.len) } });
+                                        tcp_args.append(self.alloc, lr) catch {};
+                                    } else {
+                                        const lr = func.newReg();
+                                        self.appendInst(.{ .string_len = .{ .dest = lr, .str = host_reg } });
+                                        tcp_args.append(self.alloc, lr) catch {};
+                                    }
+                                }
+                                if (c.args.len >= 2) {
+                                    tcp_args.append(self.alloc, self.lowerExpr(c.args[1])) catch {};
+                                }
+                                const builtin_name = std.fmt.allocPrint(self.alloc, "tcp_{s}", .{fn_name}) catch fn_name;
+                                self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = builtin_name, .args = tcp_args.toOwnedSlice(self.alloc) catch &.{} } });
+                                return dest;
+                            }
+                            if (std.mem.eql(u8, fn_name, "accept")) {
+                                // Tcp.accept(listener_stream) — pass stream ptr directly
+                                self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = "tcp_accept", .args = args } });
+                                return dest;
+                            }
+                            const builtin_name = std.fmt.allocPrint(self.alloc, "tcp_{s}", .{fn_name}) catch fn_name;
                             self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = builtin_name, .args = args } });
                             return dest;
                         }
@@ -730,6 +963,22 @@ pub const Lower = struct {
             .field_access => |fa| {
                 if (fa.target.* == .identifier) {
                     const target_name = fa.target.identifier;
+                    // Process state field access: state.field → process_state_get
+                    if (std.mem.eql(u8, target_name, "state")) {
+                        if (self.current_process_decl) |pdecl| {
+                            if (pdecl.state_type) |st| {
+                                if (self.struct_decls.get(st)) |sd| {
+                                    for (sd.fields, 0..) |f, fi| {
+                                        if (std.mem.eql(u8, f.name, fa.field)) {
+                                            const dest = func.newReg();
+                                            self.appendInst(.{ .process_state_get = .{ .dest = dest, .field_index = @intCast(fi) } });
+                                            return dest;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                     if (self.var_types.get(target_name)) |type_name| {
                         if (self.struct_decls.get(type_name)) |sd| {
                             for (sd.fields, 0..) |f, fi| {

@@ -1,0 +1,34 @@
+struct CounterState {
+	count: int = 0;
+}
+
+/// A counter that tracks a running total via messages.
+process Counter<CounterState> {
+	/// Increment the counter by one.
+	receive Increment(state: CounterState) -> int {
+		state.count = state.count + 1;
+		return state.count;
+	}
+
+	/// Get the current count.
+	receive GetCount(state: CounterState) -> int {
+		return state.count;
+	}
+}
+
+/// Benchmark: send 10000 tell messages and verify final count.
+module App {
+	fn main() -> int {
+		c: int = spawn Counter();
+		i: int = 0;
+		while i < 10000 {
+			tell c.Increment();
+			i = i + 1;
+		}
+		match c.GetCount() {
+			:ok{val} => println("Messages delivered: ", val);
+			:error{e} => println("Error");
+		}
+		return 0;
+	}
+}

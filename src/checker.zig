@@ -650,7 +650,12 @@ pub const Checker = struct {
                         std.mem.eql(u8, name, "Queue") or
                         std.mem.eql(u8, name, "Stdio") or
                         std.mem.eql(u8, name, "File") or
-                        std.mem.eql(u8, name, "Stream")) return;
+                        std.mem.eql(u8, name, "Stream") or
+                        std.mem.eql(u8, name, "Tcp") or
+                        std.mem.eql(u8, name, "Math") or
+                        std.mem.eql(u8, name, "Env") or
+                        std.mem.eql(u8, name, "System") or
+                        std.mem.eql(u8, name, "Convert")) return;
                 }
                 try self.checkExpr(fa.target.*);
             },

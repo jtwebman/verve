@@ -248,6 +248,42 @@ Map indexing: `m["key"]` returns value or `none`. `.len` returns entry count.
 | `Stream.read_all(s)` | `stream -> string or :eof` | Read remaining content |
 | `Stream.close(s)` | `stream -> void` | Close (flushes file writes) |
 
+### Tcp
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `Tcp.open(host, port)` | `string, int -> Result<stream>` | Connect to remote host |
+| `Tcp.listen(host, port)` | `string, int -> Result<stream>` | Bind and listen on port |
+| `Tcp.accept(listener)` | `stream -> Result<stream>` | Accept connection |
+| `Tcp.port(listener)` | `stream -> int` | Get assigned port number |
+
+### Math
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `Math.abs(x)` | `int -> int` | Absolute value |
+| `Math.min(a, b)` | `int, int -> int` | Minimum of two values |
+| `Math.max(a, b)` | `int, int -> int` | Maximum of two values |
+| `Math.clamp(x, lo, hi)` | `int, int, int -> int` | Clamp to range |
+| `Math.pow(base, exp)` | `int, int -> int` | Integer exponentiation |
+| `Math.sqrt(x)` | `int -> int` | Integer square root |
+| `Math.log2(x)` | `int -> int` | Floor of log base 2 |
+
+### Env
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `Env.get(name)` | `string -> string` | Get environment variable (empty if not set) |
+
+### System
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `System.exit(code)` | `int -> void` | Exit process with code |
+| `System.time_ms()` | `-> int` | Current time in milliseconds |
+
+### Convert
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `Convert.to_string(n)` | `int -> string` | Integer to string |
+| `Convert.to_int(s)` | `string -> int` | String to integer (0 on failure) |
+
 ### Global functions
 | Function | Description |
 |----------|-------------|

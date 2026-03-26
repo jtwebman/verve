@@ -52,167 +52,16 @@ pub const ZigBackend = struct {
 
     // ── Emit program ─────────────────────────────────────────
 
+    const runtime_source = @embedFile("verve_runtime.zig");
+
     pub fn emit(self: *ZigBackend, program: ir.Program) void {
         self.program = program;
-        // Preamble
+        // Import runtime
         self.line("const std = @import(\"std\");");
+        self.line("const rt = @import(\"verve_runtime.zig\");");
         self.line("");
-        self.line("// ── Runtime helpers ──────────────────────────────");
-        self.line("fn verve_write(fd: i64, ptr: [*]const u8, len: i64) void {");
-        self.indent += 1;
-        self.line("const f = std.posix.STDOUT_FILENO;");
-        self.line("_ = fd;");
-        self.line("const actual_len: usize = if (len > 0) @intCast(@as(u64, @bitCast(len))) else blk: { var l: usize = 0; while (ptr[l] != 0) l += 1; break :blk l; };");
-        self.line("const slice = ptr[0..actual_len];");
-        self.line("_ = std.posix.write(f, slice) catch 0;");
-        self.indent -= 1;
-        self.line("}");
-        self.line("");
-        self.line("const List = struct {");
-        self.indent += 1;
-        self.line("items: [*]i64,");
-        self.line("len: i64,");
-        self.line("cap: i64,");
-        self.line("pub fn init() List {");
-        self.indent += 1;
-        self.line("const mem = std.heap.page_allocator.alloc(i64, 256) catch return .{ .items = undefined, .len = 0, .cap = 0 };");
-        self.line("return .{ .items = @constCast(mem.ptr), .len = 0, .cap = 256 };");
-        self.indent -= 1;
-        self.line("}");
-        self.line("pub fn append(self: *List, val: i64) void {");
-        self.indent += 1;
-        self.line("const idx: usize = @intCast(@as(u64, @bitCast(self.len)));");
-        self.line("self.items[idx] = val;");
-        self.line("self.len += 1;");
-        self.indent -= 1;
-        self.line("}");
-        self.line("pub fn get(self: *const List, idx: i64) i64 {");
-        self.indent += 1;
-        self.line("return self.items[@intCast(@as(u64, @bitCast(idx)))];");
-        self.indent -= 1;
-        self.line("}");
-        self.indent -= 1;
-        self.line("};");
-        self.line("");
-        // Tagged values: tag_id (0=ok, 1=error, 2=eof), value
-        self.line("const Tagged = struct { tag: i64, value: i64 };");
-        self.line("fn makeTagged(tag: i64, value: i64) i64 {");
-        self.indent += 1;
-        self.line("const t = std.heap.page_allocator.create(Tagged) catch return 0;");
-        self.line("t.* = .{ .tag = tag, .value = value };");
-        self.line("return @intCast(@intFromPtr(t));");
-        self.indent -= 1;
-        self.line("}");
-        self.line("fn getTag(ptr: i64) i64 {");
-        self.indent += 1;
-        self.line("if (ptr == 0) return -1;");
-        self.line("return @as(*const Tagged, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(ptr)))))).tag;");
-        self.indent -= 1;
-        self.line("}");
-        self.line("fn getTagValue(ptr: i64) i64 {");
-        self.indent += 1;
-        self.line("if (ptr == 0) return 0;");
-        self.line("return @as(*const Tagged, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(ptr)))))).value;");
-        self.indent -= 1;
-        self.line("}");
-        self.line("");
-        self.line("fn fileOpen(path_ptr: i64, path_len: i64) i64 {");
-        self.indent += 1;
-        self.line("const ptr = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(path_ptr))))));");
-        self.line("const len: usize = if (path_len > 0) @intCast(@as(u64, @bitCast(path_len))) else blk: { var l: usize = 0; while (ptr[l] != 0) l += 1; break :blk l; };");
-        self.line("const path = ptr[0..len];");
-        self.line("const data = std.fs.cwd().readFileAlloc(std.heap.page_allocator, path, 10 * 1024 * 1024) catch return makeTagged(1, 0);");
-        self.line("// Store data ptr and len as a stream (two i64s)");
-        self.line("const stream = std.heap.page_allocator.alloc(i64, 3) catch return makeTagged(1, 0);");
-        self.line("stream[0] = @intCast(@intFromPtr(data.ptr));");
-        self.line("stream[1] = @intCast(data.len);");
-        self.line("stream[2] = 0; // read position");
-        self.line("return makeTagged(0, @intCast(@intFromPtr(stream.ptr)));");
-        self.indent -= 1;
-        self.line("}");
-        self.line("");
-        self.line("fn streamReadAll(stream_ptr: i64) i64 {");
-        self.indent += 1;
-        self.line("const s = @as([*]i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(stream_ptr))))));");
-        self.line("return s[0]; // return data ptr");
-        self.indent -= 1;
-        self.line("}");
-        self.line("fn streamReadAllLen(stream_ptr: i64) i64 {");
-        self.indent += 1;
-        self.line("const s = @as([*]i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(stream_ptr))))));");
-        self.line("return s[1]; // return data len");
-        self.indent -= 1;
-        self.line("}");
-        self.line("");
-
-        self.line("fn strEql(a: [*]const u8, a_len: i64, b: [*]const u8, b_len: i64) bool {");
-        self.indent += 1;
-        self.line("if (a_len != b_len) return false;");
-        self.line("const len: usize = @intCast(@as(u64, @bitCast(a_len)));");
-        self.line("return std.mem.eql(u8, a[0..len], b[0..len]);");
-        self.indent -= 1;
-        self.line("}");
-        self.line("");
-
-        // ── Process runtime ──────────────────────────────────
+        // Emit per-process dispatch functions + register in dispatch table
         if (program.process_decls.items.len > 0) {
-            self.line("// ── Process runtime ──────────────────────────────");
-            self.line("const VerveProcess = struct {");
-            self.indent += 1;
-            self.line("id: i64,");
-            self.line("alive: bool,");
-            self.line("process_type: i64,");
-            self.line("state: [16]i64,");
-            self.line("watcher_pids: [64]i64,");
-            self.line("watcher_count: usize,");
-            self.indent -= 1;
-            self.line("};");
-            self.line("");
-            self.line("var process_table: [256]VerveProcess = blk: {");
-            self.indent += 1;
-            self.line("var t: [256]VerveProcess = undefined;");
-            self.line("for (&t) |*p| { p.* = .{ .id = 0, .alive = false, .process_type = 0, .state = @splat(0), .watcher_pids = @splat(0), .watcher_count = 0 }; }");
-            self.line("break :blk t;");
-            self.indent -= 1;
-            self.line("};");
-            self.line("var process_count: i64 = 0;");
-            self.line("var current_process_id: i64 = 0;");
-            self.line("var handler_error: bool = false;");
-            self.line("");
-            self.line("fn verve_spawn(process_type: i64) i64 {");
-            self.indent += 1;
-            self.line("process_count += 1;");
-            self.line("const idx: usize = @intCast(@as(u64, @bitCast(process_count - 1)));");
-            self.line("process_table[idx] = .{ .id = process_count, .alive = true, .process_type = process_type, .state = @splat(0), .watcher_pids = @splat(0), .watcher_count = 0 };");
-            self.line("return process_count;");
-            self.indent -= 1;
-            self.line("}");
-            self.line("");
-            self.line("fn verve_state_get(field_index: i64) i64 {");
-            self.indent += 1;
-            self.line("const idx: usize = @intCast(@as(u64, @bitCast(current_process_id - 1)));");
-            self.line("return process_table[idx].state[@intCast(@as(u64, @bitCast(field_index)))];");
-            self.indent -= 1;
-            self.line("}");
-            self.line("");
-            self.line("fn verve_state_set(field_index: i64, value: i64) void {");
-            self.indent += 1;
-            self.line("const idx: usize = @intCast(@as(u64, @bitCast(current_process_id - 1)));");
-            self.line("process_table[idx].state[@intCast(@as(u64, @bitCast(field_index)))] = value;");
-            self.indent -= 1;
-            self.line("}");
-            self.line("");
-            self.line("fn verve_watch(target_pid: i64) void {");
-            self.indent += 1;
-            self.line("const idx: usize = @intCast(@as(u64, @bitCast(target_pid - 1)));");
-            self.line("const wc = process_table[idx].watcher_count;");
-            self.line("process_table[idx].watcher_pids[wc] = current_process_id;");
-            self.line("process_table[idx].watcher_count = wc + 1;");
-            self.indent -= 1;
-            self.line("}");
-            self.line("");
-
-            // Emit per-process dispatch functions
             for (program.process_decls.items, 0..) |pd, pdi| {
                 self.writeFmt("fn verve_dispatch_{d}(handler_id: i64, args: [*]const i64, arg_count: i64) i64 {{\n", .{pdi});
                 self.indent += 1;
@@ -223,7 +72,6 @@ pub const ZigBackend = struct {
                 for (pd.handler_names, 0..) |hname, hi| {
                     self.writeIndent();
                     self.writeFmt("{d} => verve_{s}_{s}(", .{ hi, pd.name, hname });
-                    // Find the handler param count from the program's functions
                     var param_count: usize = 0;
                     for (program.functions.items) |f| {
                         if (std.mem.eql(u8, f.module, pd.name) and std.mem.eql(u8, f.name, hname)) {
@@ -237,7 +85,7 @@ pub const ZigBackend = struct {
                     }
                     self.write("),\n");
                 }
-                self.line("else => makeTagged(1, 0),");
+                self.line("else => rt.makeTagged(1, 0),");
                 self.indent -= 1;
                 self.line("};");
                 self.indent -= 1;
@@ -245,28 +93,12 @@ pub const ZigBackend = struct {
                 self.line("");
             }
 
-            // Top-level dispatch
-            self.line("fn verve_send(target_pid: i64, handler_id: i64, args: [*]const i64, arg_count: i64) i64 {");
-            self.indent += 1;
-            self.line("const idx: usize = @intCast(@as(u64, @bitCast(target_pid - 1)));");
-            self.line("const proc = &process_table[idx];");
-            self.line("if (!proc.alive) return makeTagged(1, 0);");
-            self.line("const saved = current_process_id;");
-            self.line("current_process_id = target_pid;");
-            // Dispatch by process type
-            self.write("    const result = switch (proc.process_type) {\n");
+            // Register dispatch functions in runtime table
+            self.line("fn verve_init_dispatch() void {");
             self.indent += 1;
             for (program.process_decls.items, 0..) |_, pdi| {
-                self.lineFmt("{d} => verve_dispatch_{d}(handler_id, args, arg_count),", .{ pdi, pdi });
+                self.writeFmt("    rt.dispatch_table[{d}] = &verve_dispatch_{d};\n", .{ pdi, pdi });
             }
-            self.line("else => makeTagged(1, 0),");
-            self.indent -= 1;
-            self.line("};");
-            self.line("current_process_id = saved;");
-            self.line("// If handler returned an error tag, pass through without wrapping");
-            self.line("// Tagged pointers are heap addresses (large values); normal returns are small ints");
-            self.line("if (result > 0x10000 and getTag(result) == 1) return result;");
-            self.line("return makeTagged(0, result);");
             self.indent -= 1;
             self.line("}");
             self.line("");
@@ -311,8 +143,13 @@ pub const ZigBackend = struct {
         if (is_entry) {
             self.line("pub fn main() void {");
             self.indent += 1;
+            self.line("rt.verve_runtime_init();");
+            // Initialize process dispatch table
+            if (self.program.process_decls.items.len > 0) {
+                self.line("verve_init_dispatch();");
+            }
             // Build command-line args as list of null-terminated string pointers
-            self.line("var verve_args_list = List.init();");
+            self.line("var verve_args_list = rt.List.init();");
             self.line("var proc_args = std.process.argsWithAllocator(std.heap.page_allocator) catch return;");
             self.line("_ = proc_args.skip(); // skip program name");
             self.line("while (proc_args.next()) |arg| {");
@@ -431,11 +268,14 @@ pub const ZigBackend = struct {
     fn emitProcessMainWrapper(self: *ZigBackend, func: ir.Function) void {
         self.line("pub fn main() void {");
         self.indent += 1;
+        self.line("rt.verve_runtime_init();");
+        // Initialize process dispatch table
+        self.line("verve_init_dispatch();");
         // Find process type index
         for (self.program.process_decls.items, 0..) |pd, pdi| {
             if (std.mem.eql(u8, pd.name, func.module)) {
-                self.lineFmt("const pid = verve_spawn({d});", .{pdi});
-                self.line("current_process_id = pid;");
+                self.lineFmt("const pid = rt.verve_spawn({d});", .{pdi});
+                self.line("rt.current_process_id = pid;");
                 break;
             }
         }
@@ -478,7 +318,10 @@ pub const ZigBackend = struct {
                 }
                 self.write("\")));\n");
             },
-            .const_float => {},
+            .const_float => |cf| {
+                // Store float as bit-cast i64 — all runtime functions expect i64
+                self.lineFmt("{s} = @bitCast(@as(f64, {d}));", .{ self.regName(cf.dest), cf.value });
+            },
 
             .add_i64 => |op| self.lineFmt("{s} = {s} +% {s};", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
             .sub_i64 => |op| self.lineFmt("{s} = {s} -% {s};", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
@@ -486,6 +329,22 @@ pub const ZigBackend = struct {
             .div_i64 => |op| self.lineFmt("{s} = @divTrunc({s}, {s});", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
             .mod_i64 => |op| self.lineFmt("{s} = @mod({s}, {s});", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
             .neg_i64 => |op| self.lineFmt("{s} = -%({s});", .{ self.regName(op.dest), self.regName(op.operand) }),
+
+            // Float arithmetic — bitcast i64 <-> f64, let Zig handle the math
+            .add_f64 => |op| self.lineFmt("{s} = @bitCast(@as(f64, @bitCast({s})) + @as(f64, @bitCast({s})));", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
+            .sub_f64 => |op| self.lineFmt("{s} = @bitCast(@as(f64, @bitCast({s})) - @as(f64, @bitCast({s})));", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
+            .mul_f64 => |op| self.lineFmt("{s} = @bitCast(@as(f64, @bitCast({s})) * @as(f64, @bitCast({s})));", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
+            .div_f64 => |op| self.lineFmt("{s} = @bitCast(@as(f64, @bitCast({s})) / @as(f64, @bitCast({s})));", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
+            .mod_f64 => |op| self.lineFmt("{s} = @bitCast(@mod(@as(f64, @bitCast({s})), @as(f64, @bitCast({s}))));", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
+            .neg_f64 => |op| self.lineFmt("{s} = @bitCast(-@as(f64, @bitCast({s})));", .{ self.regName(op.dest), self.regName(op.operand) }),
+
+            // Float comparison — returns bool as i64 (0 or 1)
+            .eq_f64 => |op| self.lineFmt("{s} = if (@as(f64, @bitCast({s})) == @as(f64, @bitCast({s}))) @as(i64, 1) else @as(i64, 0);", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
+            .neq_f64 => |op| self.lineFmt("{s} = if (@as(f64, @bitCast({s})) != @as(f64, @bitCast({s}))) @as(i64, 1) else @as(i64, 0);", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
+            .lt_f64 => |op| self.lineFmt("{s} = if (@as(f64, @bitCast({s})) < @as(f64, @bitCast({s}))) @as(i64, 1) else @as(i64, 0);", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
+            .gt_f64 => |op| self.lineFmt("{s} = if (@as(f64, @bitCast({s})) > @as(f64, @bitCast({s}))) @as(i64, 1) else @as(i64, 0);", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
+            .lte_f64 => |op| self.lineFmt("{s} = if (@as(f64, @bitCast({s})) <= @as(f64, @bitCast({s}))) @as(i64, 1) else @as(i64, 0);", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
+            .gte_f64 => |op| self.lineFmt("{s} = if (@as(f64, @bitCast({s})) >= @as(f64, @bitCast({s}))) @as(i64, 1) else @as(i64, 0);", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
 
             .eq_i64 => |op| self.lineFmt("{s} = if ({s} == {s}) @as(i64, 1) else @as(i64, 0);", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
             .neq_i64 => |op| self.lineFmt("{s} = if ({s} != {s}) @as(i64, 1) else @as(i64, 0);", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
@@ -548,24 +407,24 @@ pub const ZigBackend = struct {
             },
 
             .list_new => |ln| {
-                self.lineFmt("var list_{d} = List.init();", .{ln.dest});
+                self.lineFmt("var list_{d} = rt.List.init();", .{ln.dest});
                 self.lineFmt("{s} = @intCast(@intFromPtr(&list_{d}));", .{ self.regName(ln.dest), ln.dest });
             },
             .list_append => |la| {
-                self.lineFmt("@as(*List, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s})))))).append({s});", .{ self.regName(la.list), self.regName(la.value) });
+                self.lineFmt("@as(*rt.List, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s})))))).append({s});", .{ self.regName(la.list), self.regName(la.value) });
             },
             .list_len => |ll| {
-                self.lineFmt("{s} = @as(*const List, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s})))))).len;", .{ self.regName(ll.dest), self.regName(ll.list) });
+                self.lineFmt("{s} = @as(*const rt.List, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s})))))).len;", .{ self.regName(ll.dest), self.regName(ll.list) });
             },
             .list_get => |lg| {
-                self.lineFmt("{s} = @as(*const List, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s})))))).get({s});", .{ self.regName(lg.dest), self.regName(lg.list), self.regName(lg.index) });
+                self.lineFmt("{s} = @as(*const rt.List, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s})))))).get({s});", .{ self.regName(lg.dest), self.regName(lg.list), self.regName(lg.index) });
             },
 
             .tag_get => |tg| {
-                self.lineFmt("{s} = getTag({s});", .{ self.regName(tg.dest), self.regName(tg.tagged) });
+                self.lineFmt("{s} = rt.getTag({s});", .{ self.regName(tg.dest), self.regName(tg.tagged) });
             },
             .tag_value => |tv| {
-                self.lineFmt("{s} = getTagValue({s});", .{ self.regName(tv.dest), self.regName(tv.tagged) });
+                self.lineFmt("{s} = rt.getTagValue({s});", .{ self.regName(tv.dest), self.regName(tv.tagged) });
             },
 
             .string_byte_at => |sb| {
@@ -583,11 +442,11 @@ pub const ZigBackend = struct {
                 self.lineFmt("{s} = @intCast(@intFromPtr(@as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s})))))) + @as(usize, @intCast(@as(u64, @bitCast({s}))))));", .{ self.regName(si.dest), self.regName(si.str), self.regName(si.index) });
             },
             .string_len => |sl| {
-                // Compute string length using strlen (null-terminated fallback)
-                self.lineFmt("{{ const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s})))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; {s} = @intCast(sl); }}", .{ self.regName(sl.str), self.regName(sl.dest) });
+                // Compute string length using strlen (null-safe)
+                self.lineFmt("if ({s} == 0) {{ {s} = 0; }} else {{ const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s})))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; {s} = @intCast(sl); }}", .{ self.regName(sl.str), self.regName(sl.dest), self.regName(sl.str), self.regName(sl.dest) });
             },
             .string_eq => |se| {
-                self.lineFmt("{s} = if (strEql(@ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s}))))), {s}, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s}))))), {s})) @as(i64, 1) else @as(i64, 0);", .{
+                self.lineFmt("{s} = if (rt.strEql(@ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s}))))), {s}, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s}))))), {s})) @as(i64, 1) else @as(i64, 0);", .{
                     self.regName(se.dest),
                     self.regName(se.lhs),
                     self.regName(se.lhs_len),
@@ -597,7 +456,7 @@ pub const ZigBackend = struct {
             },
 
             .process_spawn => |ps| {
-                self.lineFmt("{s} = verve_spawn({d});", .{ self.regName(ps.dest), ps.process_type });
+                self.lineFmt("{s} = rt.verve_spawn({d});", .{ self.regName(ps.dest), ps.process_type });
             },
             .process_send => |ps| {
                 // Build args array, call verve_send
@@ -608,9 +467,9 @@ pub const ZigBackend = struct {
                         if (i > 0) self.write(", ");
                         self.write(self.regName(arg));
                     }
-                    self.writeFmt(" }}; {s} = verve_send({s}, {d}, &send_args, {d}); }}\n", .{ self.regName(ps.dest), self.regName(ps.target), ps.handler_index, ps.args.len });
+                    self.writeFmt(" }}; {s} = rt.verve_send({s}, {d}, &send_args, {d}); }}\n", .{ self.regName(ps.dest), self.regName(ps.target), ps.handler_index, ps.args.len });
                 } else {
-                    self.lineFmt("{{ const send_args = [_]i64{{0}}; {s} = verve_send({s}, {d}, &send_args, 0); }}", .{ self.regName(ps.dest), self.regName(ps.target), ps.handler_index });
+                    self.lineFmt("{{ const send_args = [_]i64{{0}}; {s} = rt.verve_send({s}, {d}, &send_args, 0); }}", .{ self.regName(ps.dest), self.regName(ps.target), ps.handler_index });
                 }
             },
             .process_tell => |pt| {
@@ -621,19 +480,32 @@ pub const ZigBackend = struct {
                         if (i > 0) self.write(", ");
                         self.write(self.regName(arg));
                     }
-                    self.writeFmt(" }}; _ = verve_send({s}, {d}, &tell_args, {d}); }}\n", .{ self.regName(pt.target), pt.handler_index, pt.args.len });
+                    self.writeFmt(" }}; rt.verve_tell({s}, {d}, &tell_args, {d}); }}\n", .{ self.regName(pt.target), pt.handler_index, pt.args.len });
                 } else {
-                    self.lineFmt("{{ const tell_args = [_]i64{{0}}; _ = verve_send({s}, {d}, &tell_args, 0); }}", .{ self.regName(pt.target), pt.handler_index });
+                    self.lineFmt("{{ const tell_args = [_]i64{{0}}; rt.verve_tell({s}, {d}, &tell_args, 0); }}", .{ self.regName(pt.target), pt.handler_index });
                 }
             },
             .process_state_get => |sg| {
-                self.lineFmt("{s} = verve_state_get({d});", .{ self.regName(sg.dest), sg.field_index });
+                self.lineFmt("{s} = rt.verve_state_get({d});", .{ self.regName(sg.dest), sg.field_index });
             },
             .process_state_set => |ss| {
-                self.lineFmt("verve_state_set({d}, {s});", .{ ss.field_index, self.regName(ss.src) });
+                self.lineFmt("rt.verve_state_set({d}, {s});", .{ ss.field_index, self.regName(ss.src) });
             },
             .process_watch => |pw| {
-                self.lineFmt("verve_watch({s});", .{self.regName(pw.target)});
+                self.lineFmt("rt.verve_watch({s});", .{self.regName(pw.target)});
+            },
+            .process_send_timeout => |ps| {
+                if (ps.args.len > 0) {
+                    self.writeIndent();
+                    self.writeFmt("{{ const send_args = [_]i64{{ ", .{});
+                    for (ps.args, 0..) |arg, i| {
+                        if (i > 0) self.write(", ");
+                        self.write(self.regName(arg));
+                    }
+                    self.writeFmt(" }}; {s} = rt.verve_send_timeout({s}, {d}, &send_args, {d}, {s}); }}\n", .{ self.regName(ps.dest), self.regName(ps.target), ps.handler_index, ps.args.len, self.regName(ps.timeout_ms) });
+                } else {
+                    self.lineFmt("{{ const send_args = [_]i64{{0}}; {s} = rt.verve_send_timeout({s}, {d}, &send_args, 0, {s}); }}", .{ self.regName(ps.dest), self.regName(ps.target), ps.handler_index, self.regName(ps.timeout_ms) });
+                }
             },
 
             .break_loop, .continue_loop => {},
@@ -646,11 +518,11 @@ pub const ZigBackend = struct {
             var i: usize = 0;
             while (i + 1 < args.len) {
                 // If len == -1, it's an integer — format it. Otherwise it's a string.
-                self.lineFmt("if ({s} == -1) {{ var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, \"{{d}}\", .{{{s}}}) catch \"?\"; verve_write(1, s.ptr, @intCast(s.len)); }} else {{ verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s}))))), {s}); }}", .{ self.regName(args[i + 1]), self.regName(args[i]), self.regName(args[i]), self.regName(args[i + 1]) });
+                self.lineFmt("if ({s} == -1) {{ var buf: [32]u8 = undefined; const s = std.fmt.bufPrint(&buf, \"{{d}}\", .{{{s}}}) catch \"?\"; rt.verve_write(1, s.ptr, @intCast(s.len)); }} else {{ rt.verve_write(1, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s}))))), {s}); }}", .{ self.regName(args[i + 1]), self.regName(args[i]), self.regName(args[i]), self.regName(args[i + 1]) });
                 i += 2;
             }
             if (newline) {
-                self.line("verve_write(1, \"\\n\", 1);");
+                self.line("rt.verve_write(1, \"\\n\", 1);");
             }
             self.lineFmt("{s} = 0;", .{self.regName(dest)});
         } else if (std.mem.eql(u8, name, "string_is_digit")) {
@@ -676,25 +548,136 @@ pub const ZigBackend = struct {
         } else if (std.mem.eql(u8, name, "set_has") or std.mem.eql(u8, name, "set_has_str")) {
             if (std.mem.eql(u8, name, "set_has_str") and args.len >= 3) {
                 // args: set, needle_ptr, needle_len — set stores (ptr, len) pairs
-                self.lineFmt("{{ const list = @as(*const List, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s})))))); var found: i64 = 0; var si: i64 = 0; while (si + 1 < list.len) : (si += 2) {{ const eptr = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(list.get(si))))))); const elen = list.get(si + 1); const nptr = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s})))))); if (strEql(eptr, elen, nptr, {s})) {{ found = 1; break; }} }} {s} = found; }}", .{ self.regName(args[0]), self.regName(args[1]), self.regName(args[2]), self.regName(dest) });
+                self.lineFmt("{{ const list = @as(*const rt.List, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s})))))); var found: i64 = 0; var si: i64 = 0; while (si + 1 < list.len) : (si += 2) {{ const eptr = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(list.get(si))))))); const elen = list.get(si + 1); const nptr = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s})))))); if (rt.strEql(eptr, elen, nptr, {s})) {{ found = 1; break; }} }} {s} = found; }}", .{ self.regName(args[0]), self.regName(args[1]), self.regName(args[2]), self.regName(dest) });
             } else if (args.len >= 2) {
                 // Integer set — simple equality
-                self.lineFmt("{{ const list = @as(*const List, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s})))))); var found: i64 = 0; var si: i64 = 0; while (si < list.len) : (si += 1) {{ if (list.get(si) == {s}) {{ found = 1; break; }} }} {s} = found; }}", .{ self.regName(args[0]), self.regName(args[1]), self.regName(dest) });
+                self.lineFmt("{{ const list = @as(*const rt.List, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s})))))); var found: i64 = 0; var si: i64 = 0; while (si < list.len) : (si += 1) {{ if (list.get(si) == {s}) {{ found = 1; break; }} }} {s} = found; }}", .{ self.regName(args[0]), self.regName(args[1]), self.regName(dest) });
             }
         } else if (std.mem.eql(u8, name, "file_open")) {
             // args: path_ptr, path_len, mode_ptr, ...
             if (args.len >= 2) {
-                self.lineFmt("{s} = fileOpen({s}, {s});", .{ self.regName(dest), self.regName(args[0]), self.regName(args[1]) });
+                self.lineFmt("{s} = rt.fileOpen({s}, {s});", .{ self.regName(dest), self.regName(args[0]), self.regName(args[1]) });
             }
         } else if (std.mem.eql(u8, name, "stream_read_all")) {
             if (args.len >= 1) {
-                self.lineFmt("{s} = streamReadAll({s});", .{ self.regName(dest), self.regName(args[0]) });
+                self.lineFmt("{s} = rt.streamReadAll({s});", .{ self.regName(dest), self.regName(args[0]) });
+            }
+        } else if (std.mem.eql(u8, name, "stream_write")) {
+            if (args.len >= 2) {
+                // args: stream_ptr, data_ptr (+ data_len from next arg)
+                if (args.len >= 3) {
+                    self.lineFmt("rt.stream_write({s}, {s}, {s});", .{ self.regName(args[0]), self.regName(args[1]), self.regName(args[2]) });
+                } else {
+                    self.lineFmt("rt.stream_write({s}, {s}, 0);", .{ self.regName(args[0]), self.regName(args[1]) });
+                }
+                self.lineFmt("{s} = 0;", .{self.regName(dest)});
+            }
+        } else if (std.mem.eql(u8, name, "stream_write_line")) {
+            if (args.len >= 2) {
+                if (args.len >= 3) {
+                    self.lineFmt("rt.stream_write_line({s}, {s}, {s});", .{ self.regName(args[0]), self.regName(args[1]), self.regName(args[2]) });
+                } else {
+                    self.lineFmt("rt.stream_write_line({s}, {s}, 0);", .{ self.regName(args[0]), self.regName(args[1]) });
+                }
+                self.lineFmt("{s} = 0;", .{self.regName(dest)});
+            }
+        } else if (std.mem.eql(u8, name, "stream_read_line")) {
+            if (args.len >= 1) {
+                self.lineFmt("{s} = rt.stream_read_line({s});", .{ self.regName(dest), self.regName(args[0]) });
             }
         } else if (std.mem.eql(u8, name, "stream_close")) {
-            self.lineFmt("{s} = 0; // stream close (no-op)", .{self.regName(dest)});
+            if (args.len >= 1) {
+                self.lineFmt("rt.stream_close({s});", .{self.regName(args[0])});
+            }
+            self.lineFmt("{s} = 0;", .{self.regName(dest)});
+        } else if (std.mem.eql(u8, name, "math_abs")) {
+            if (args.len >= 1) self.lineFmt("{s} = rt.math_abs({s});", .{ self.regName(dest), self.regName(args[0]) });
+        } else if (std.mem.eql(u8, name, "math_min")) {
+            if (args.len >= 2) self.lineFmt("{s} = rt.math_min({s}, {s});", .{ self.regName(dest), self.regName(args[0]), self.regName(args[1]) });
+        } else if (std.mem.eql(u8, name, "math_max")) {
+            if (args.len >= 2) self.lineFmt("{s} = rt.math_max({s}, {s});", .{ self.regName(dest), self.regName(args[0]), self.regName(args[1]) });
+        } else if (std.mem.eql(u8, name, "math_clamp")) {
+            if (args.len >= 3) self.lineFmt("{s} = rt.math_clamp({s}, {s}, {s});", .{ self.regName(dest), self.regName(args[0]), self.regName(args[1]), self.regName(args[2]) });
+        } else if (std.mem.eql(u8, name, "math_pow")) {
+            if (args.len >= 2) self.lineFmt("{s} = rt.math_pow({s}, {s});", .{ self.regName(dest), self.regName(args[0]), self.regName(args[1]) });
+        } else if (std.mem.eql(u8, name, "math_sqrt")) {
+            if (args.len >= 1) self.lineFmt("{s} = rt.math_sqrt({s});", .{ self.regName(dest), self.regName(args[0]) });
+        } else if (std.mem.eql(u8, name, "math_log2")) {
+            if (args.len >= 1) self.lineFmt("{s} = rt.math_log2({s});", .{ self.regName(dest), self.regName(args[0]) });
+        } else if (std.mem.eql(u8, name, "math_abs_f")) {
+            if (args.len >= 1) self.lineFmt("{s} = rt.math_abs_f({s});", .{ self.regName(dest), self.regName(args[0]) });
+        } else if (std.mem.eql(u8, name, "math_floor")) {
+            if (args.len >= 1) self.lineFmt("{s} = rt.math_floor({s});", .{ self.regName(dest), self.regName(args[0]) });
+        } else if (std.mem.eql(u8, name, "math_ceil")) {
+            if (args.len >= 1) self.lineFmt("{s} = rt.math_ceil({s});", .{ self.regName(dest), self.regName(args[0]) });
+        } else if (std.mem.eql(u8, name, "math_round")) {
+            if (args.len >= 1) self.lineFmt("{s} = rt.math_round({s});", .{ self.regName(dest), self.regName(args[0]) });
+        } else if (std.mem.eql(u8, name, "math_sin")) {
+            if (args.len >= 1) self.lineFmt("{s} = rt.math_sin({s});", .{ self.regName(dest), self.regName(args[0]) });
+        } else if (std.mem.eql(u8, name, "math_cos")) {
+            if (args.len >= 1) self.lineFmt("{s} = rt.math_cos({s});", .{ self.regName(dest), self.regName(args[0]) });
+        } else if (std.mem.eql(u8, name, "math_tan")) {
+            if (args.len >= 1) self.lineFmt("{s} = rt.math_tan({s});", .{ self.regName(dest), self.regName(args[0]) });
+        } else if (std.mem.eql(u8, name, "math_sqrt_f")) {
+            if (args.len >= 1) self.lineFmt("{s} = rt.math_sqrt_f({s});", .{ self.regName(dest), self.regName(args[0]) });
+        } else if (std.mem.eql(u8, name, "math_pow_f")) {
+            if (args.len >= 2) self.lineFmt("{s} = rt.math_pow_f({s}, {s});", .{ self.regName(dest), self.regName(args[0]), self.regName(args[1]) });
+        } else if (std.mem.eql(u8, name, "math_log")) {
+            if (args.len >= 1) self.lineFmt("{s} = rt.math_log({s});", .{ self.regName(dest), self.regName(args[0]) });
+        } else if (std.mem.eql(u8, name, "math_log10")) {
+            if (args.len >= 1) self.lineFmt("{s} = rt.math_log10({s});", .{ self.regName(dest), self.regName(args[0]) });
+        } else if (std.mem.eql(u8, name, "math_exp")) {
+            if (args.len >= 1) self.lineFmt("{s} = rt.math_exp({s});", .{ self.regName(dest), self.regName(args[0]) });
+        } else if (std.mem.eql(u8, name, "math_min_f")) {
+            if (args.len >= 2) self.lineFmt("{s} = rt.math_min_f({s}, {s});", .{ self.regName(dest), self.regName(args[0]), self.regName(args[1]) });
+        } else if (std.mem.eql(u8, name, "math_max_f")) {
+            if (args.len >= 2) self.lineFmt("{s} = rt.math_max_f({s}, {s});", .{ self.regName(dest), self.regName(args[0]), self.regName(args[1]) });
+        } else if (std.mem.eql(u8, name, "convert_to_float")) {
+            if (args.len >= 1) self.lineFmt("{s} = rt.convert_to_float({s});", .{ self.regName(dest), self.regName(args[0]) });
+        } else if (std.mem.eql(u8, name, "convert_to_int_f")) {
+            if (args.len >= 1) self.lineFmt("{s} = rt.convert_to_int_f({s});", .{ self.regName(dest), self.regName(args[0]) });
+        } else if (std.mem.eql(u8, name, "float_to_string")) {
+            if (args.len >= 1) self.lineFmt("{s} = rt.float_to_string({s});", .{ self.regName(dest), self.regName(args[0]) });
+        } else if (std.mem.eql(u8, name, "string_to_float")) {
+            if (args.len >= 2) self.lineFmt("{s} = rt.string_to_float({s}, {s});", .{ self.regName(dest), self.regName(args[0]), self.regName(args[1]) });
+        } else if (std.mem.eql(u8, name, "env_get")) {
+            if (args.len >= 2) {
+                self.lineFmt("{s} = rt.env_get({s}, {s});", .{ self.regName(dest), self.regName(args[0]), self.regName(args[1]) });
+            }
+        } else if (std.mem.eql(u8, name, "system_exit")) {
+            if (args.len >= 1) self.lineFmt("rt.system_exit({s});", .{self.regName(args[0])});
+        } else if (std.mem.eql(u8, name, "system_time_ms")) {
+            self.lineFmt("{s} = rt.system_time_ms();", .{self.regName(dest)});
+        } else if (std.mem.eql(u8, name, "int_to_string")) {
+            if (args.len >= 1) self.lineFmt("{s} = rt.int_to_string({s});", .{ self.regName(dest), self.regName(args[0]) });
+        } else if (std.mem.eql(u8, name, "string_to_int")) {
+            if (args.len >= 2) self.lineFmt("{s} = rt.string_to_int({s}, {s});", .{ self.regName(dest), self.regName(args[0]), self.regName(args[1]) });
+        } else if (std.mem.eql(u8, name, "tcp_open")) {
+            if (args.len >= 3) {
+                self.lineFmt("{s} = rt.tcp_open({s}, {s}, {s});", .{ self.regName(dest), self.regName(args[0]), self.regName(args[1]), self.regName(args[2]) });
+            }
+        } else if (std.mem.eql(u8, name, "tcp_listen")) {
+            if (args.len >= 3) {
+                self.lineFmt("{s} = rt.tcp_listen({s}, {s}, {s});", .{ self.regName(dest), self.regName(args[0]), self.regName(args[1]), self.regName(args[2]) });
+            }
+        } else if (std.mem.eql(u8, name, "tcp_accept")) {
+            if (args.len >= 1) {
+                self.lineFmt("{s} = rt.tcp_accept({s});", .{ self.regName(dest), self.regName(args[0]) });
+            }
+        } else if (std.mem.eql(u8, name, "string_len")) {
+            if (args.len >= 1) {
+                self.lineFmt("if ({s} == 0) {{ {s} = 0; }} else {{ const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s})))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; {s} = @intCast(sl); }}", .{ self.regName(args[0]), self.regName(dest), self.regName(args[0]), self.regName(dest) });
+            }
+        } else if (std.mem.eql(u8, name, "string_contains") or std.mem.eql(u8, name, "string_split") or std.mem.eql(u8, name, "string_trim") or std.mem.eql(u8, name, "string_replace") or std.mem.eql(u8, name, "string_starts_with") or std.mem.eql(u8, name, "string_ends_with") or std.mem.eql(u8, name, "string_char_at") or std.mem.eql(u8, name, "string_char_len") or std.mem.eql(u8, name, "string_chars")) {
+            // String builtins not yet implemented in compiler — return 0
+            self.lineFmt("{s} = 0; // TODO: {s}", .{ self.regName(dest), name });
+        } else if (std.mem.eql(u8, name, "tcp_port")) {
+            if (args.len >= 1) {
+                self.lineFmt("{s} = rt.tcp_port({s});", .{ self.regName(dest), self.regName(args[0]) });
+            }
         } else if (std.mem.eql(u8, name, "make_tagged")) {
             if (args.len >= 2) {
-                self.lineFmt("{s} = makeTagged({s}, {s});", .{ self.regName(dest), self.regName(args[0]), self.regName(args[1]) });
+                self.lineFmt("{s} = rt.makeTagged({s}, {s});", .{ self.regName(dest), self.regName(args[0]), self.regName(args[1]) });
             }
         } else {
             self.lineFmt("{s} = 0; // unknown builtin: {s}", .{ self.regName(dest), name });
@@ -726,9 +709,11 @@ pub const ZigBackend = struct {
             .const_bool => |c| c.dest,
             .const_string => |c| c.dest,
             .add_i64, .sub_i64, .mul_i64, .div_i64, .mod_i64 => |op| op.dest,
+            .add_f64, .sub_f64, .mul_f64, .div_f64, .mod_f64 => |op| op.dest,
             .eq_i64, .neq_i64, .lt_i64, .gt_i64, .lte_i64, .gte_i64 => |op| op.dest,
+            .eq_f64, .neq_f64, .lt_f64, .gt_f64, .lte_f64, .gte_f64 => |op| op.dest,
             .and_bool, .or_bool => |op| op.dest,
-            .neg_i64, .not_bool => |op| op.dest,
+            .neg_i64, .neg_f64, .not_bool => |op| op.dest,
             .load_local => |l| l.dest,
             .call => |c| c.dest,
             .call_builtin => |c| c.dest,
@@ -747,6 +732,7 @@ pub const ZigBackend = struct {
             .string_eq => |se| se.dest,
             .process_spawn => |ps| ps.dest,
             .process_send => |ps| ps.dest,
+            .process_send_timeout => |ps| ps.dest,
             .process_state_get => |sg| sg.dest,
             else => null,
         };
@@ -774,8 +760,14 @@ pub const ZigBackend = struct {
         try src_file.writeAll(zig_source);
         src_file.close();
 
+        // Write runtime library alongside generated code
+        const src_dir = std.fs.path.dirname(src_path) orelse ".";
+        const rt_path = try std.fmt.allocPrint(self.alloc, "{s}/verve_runtime.zig", .{src_dir});
+        const rt_file = try std.fs.cwd().createFile(rt_path, .{});
+        try rt_file.writeAll(runtime_source);
+        rt_file.close();
+
         // Compile with zig
-        // Use -femit-bin to control output path
         const emit_flag = try std.fmt.allocPrint(self.alloc, "-femit-bin={s}", .{output_path});
         var child = std.process.Child.init(
             &.{ zig_path, "build-exe", src_path, emit_flag },
@@ -794,10 +786,9 @@ pub const ZigBackend = struct {
             return error.CompilationFailed;
         }
 
-        // Keep .zig source for debugging (TODO: clean up in production)
-        // std.fs.cwd().deleteFile(src_path) catch {};
+        // Clean up build artifacts
+        std.fs.cwd().deleteFile(rt_path) catch {};
         std.fs.cwd().deleteTree(".zig-cache") catch {};
-        // Delete the .o file if it exists
         const o_path = try std.fmt.allocPrint(self.alloc, "{s}.o", .{output_path});
         std.fs.cwd().deleteFile(o_path) catch {};
     }

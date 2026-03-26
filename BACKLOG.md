@@ -139,41 +139,51 @@
 
 ### Remaining
 
-- [ ] Compiler support for new process<StateStruct> syntax (lowerer + backend)
-- [ ] Compiler support for field_assign (state.field = expr)
-- [ ] x86_64 direct instruction selection (bypass Zig backend)
-- [ ] Register allocator
-- [ ] ELF binary emission (Linux)
+- [x] Compiler support for new process<StateStruct> syntax (lowerer + backend)
+- [x] Compiler support for field_assign (state.field = expr)
 - [ ] Process runtime — multi-threaded scheduler
-- [ ] Process runtime — message queues with fixed capacity
-- [ ] Process runtime — send with actual timeout
-- [ ] Benchmark: message passing throughput
+- [x] Process runtime — bounded mailbox (ring buffer, capacity 64, backpressure via Result)
+- [x] Process runtime — send/tell split (tell drops silently on full, send returns :error)
+- [x] Process runtime — ProcessDied notification via mailbox (verve_kill)
+- [x] Process runtime — send_timeout IR instruction + runtime plumbing (no syntax yet)
+- [ ] Process runtime — send timeout language syntax
+- [ ] Process runtime — multi-threaded scheduler
+- [x] Benchmark: message passing throughput (examples/bench_messages.vv)
 
-## Phase 5 — arm64 & Cross-compilation
-
-- [ ] arm64 instruction selection
-- [ ] Mach-O binary emission (macOS)
-- [ ] Cross-compilation support (build arm64 on x86_64 and vice versa)
-
-## Phase 6 — Standard Library & IO
+## Phase 5 — Standard Library & IO
 
 ### Done
 
 - [x] IO — File (open, read, write via streams)
 - [x] IO — Stdio (out, err, in via streams)
 - [x] module String (len, contains, starts_with, ends_with, trim, replace, split, slice, byte_at, char_at, char_len, chars, is_alpha, is_digit, is_whitespace, is_alnum)
+- [x] IO — Tcp (open, listen, accept, port — returns Result<stream>, 12 compile tests)
+- [x] IO — Stream (write, write_line, read_line, read_all, close — works for both file and tcp)
+- [x] SIGPIPE handling in runtime (write to closed socket returns error, not process death)
 
-### Remaining — IO (will become process-based with Result types)
+### Remaining — IO
 
-- [ ] IO process — Tcp
-- [ ] IO process — Udp
-- [ ] IO process — Timer
-- [ ] IO process — Signal
+- [ ] IO — Udp
+- [ ] IO — Timer
+- [ ] IO — Signal
+
+### Remaining — Tcp hardening (needs multi-threaded runtime or shutdown support)
+
+- [ ] Tcp test: half-close (shutdown write, peer still reads)
+- [ ] Tcp test: shutdown pending (large data + shutdown flushes all bytes)
+- [ ] Tcp test: concurrent accept (multiple acceptors on same listener)
+- [ ] Tcp.shutdown(stream, :write) — half-close support
+
+### Done — Standard modules
+
+- [x] module Math (abs, min, max, clamp, pow, sqrt, log2)
+- [x] module Env (get)
+- [x] module System (exit, time_ms)
+- [x] module Convert (to_string, to_int)
 
 ### Remaining — Standard modules
 
 - [ ] module Bytes
-- [ ] module Math
 - [ ] module Time
 - [ ] module Uuid
 - [ ] module Json (with struct mapping)
@@ -183,15 +193,78 @@
 - [ ] module Sort
 - [ ] module TextParser
 - [ ] module BinaryParser
-- [ ] module Env
-- [ ] module Args
-- [ ] module System
 - [ ] module Dns
 
 ### Remaining — Utilities
 
 - [ ] Collection copy — `List.copy`, `Map.copy`, etc. (shallow copy, returns mutable)
 - [ ] `verve doc` CLI — generate reference docs from doc comments
+
+## Phase 6 — Project Index (`verve index`)
+
+Binary index format designed for AI assistants to navigate Verve codebases without reading source files. One tool call to understand an entire project. Replaces file-grepping with O(1) symbol lookup.
+
+### Index format (`.verve/index.vvx`)
+
+Binary file with four sections, each with offset tables for direct seeking:
+
+1. **Header** — version, file count, symbol count, checksum
+2. **String table** — deduplicated pool of all names, paths, doc comments, type signatures
+3. **Symbol table** — fixed-size records, one per declaration:
+   - Kind: struct | module | process | function | type | constant | handler
+   - Name (string table offset)
+   - File path + line number
+   - Doc comment (string table offset)
+   - Type signature (string table offset, e.g. `(int, int) -> int`)
+   - Parent symbol (for handlers inside processes, functions inside modules)
+   - Visibility: exported | internal
+4. **Cross-reference table** — variable-length adjacency lists:
+   - Call graph: function → functions it calls
+   - Import graph: file → files it imports
+   - Type usage: type → symbols that reference it
+   - Handler map: process → its receive handlers
+
+### CLI
+
+- [ ] `verve index .` — build index from all `.vv` files in directory tree
+- [ ] `verve index --format text` — emit human/AI-readable text instead of binary
+- [ ] `verve index --query symbols` — list all symbols with signatures
+- [ ] `verve index --query <name>` — lookup one symbol: signature, doc, location, callers/callees
+- [ ] `verve index --query callgraph` — full call graph
+- [ ] `verve index --query imports` — import graph
+- [ ] `verve index --query types` — all type definitions and who uses them
+- [ ] `verve index --diff` — incremental update, only re-index changed files (by mtime)
+
+### Text format (for `--format text` and small projects)
+
+```
+[struct] CounterState counter.vv:1
+  count: int = 0
+
+[process] Counter<CounterState> counter.vv:7
+  /// A counter that tracks a running total.
+  receive Increment(amount: int) -> int
+  receive Reset() -> void
+
+[module] Math math.vv:1 (export)
+  /// Math utilities.
+  fn add(a: int, b: int) -> int
+  fn multiply(a: int, b: int) -> int
+
+[calls] main -> Math.add, Counter.Increment
+[imports] main.vv -> math.vv, counter.vv
+```
+
+### Implementation
+
+- [ ] Walk typed AST after checker pass, collect all declarations
+- [ ] Build string table with deduplication
+- [ ] Build symbol table with parent references
+- [ ] Build cross-reference table from call graph (already computed for recursion detection)
+- [ ] Binary serializer with offset tables
+- [ ] Text serializer (line-oriented, grep-friendly)
+- [ ] File watcher / mtime-based incremental rebuild
+- [ ] Integration: `verve build` and `verve check` auto-rebuild stale index
 
 ## Phase 7 — Package Management
 
@@ -206,12 +279,21 @@ Libraries ship as signed source code (not binaries) — enables tree shaking, AI
 - [ ] CLI — `verve publish`
 - [ ] CLI — `verve cache sync`
 
-## Phase 8 — FFI & Clustering
+## Phase 8 — FFI, Cross-compilation & Clustering
+
+### FFI
 
 - [ ] FFI — `ffi` block parsing
 - [ ] FFI — process isolation for foreign calls
 - [ ] FFI — C library linking
-- [ ] Clustering — `connect` with TLS
+
+### Cross-compilation (depends on FFI for foreign library linking)
+
+- [ ] arm64 instruction selection
+- [ ] Mach-O binary emission (macOS)
+- [ ] Cross-compilation support (build arm64 on x86_64 and vice versa)
+
+### Clustering
 - [ ] Clustering — message serialization across network
 - [ ] Clustering — ProcessDied across network boundaries
 

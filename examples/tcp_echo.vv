@@ -1,0 +1,25 @@
+/// Simple TCP echo server. Listens on port 9999, accepts one connection,
+/// reads a line, writes it back, then exits.
+module Main {
+	fn main() -> int {
+		match Tcp.listen("127.0.0.1", 9999) {
+			:ok{listener} => {
+				println("Listening on 127.0.0.1:9999");
+				match Tcp.accept(listener) {
+					:ok{client} => {
+						println("Client connected");
+						Stream.write(client, "echo: ");
+						line: string = Stream.read_line(client);
+						Stream.write_line(client, line);
+						Stream.close(client);
+						println("Done");
+					}
+					:error{e} => println("Accept failed");
+				}
+				Stream.close(listener);
+			}
+			:error{e} => println("Listen failed");
+		}
+		return 0;
+	}
+}

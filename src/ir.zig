@@ -31,6 +31,14 @@ pub const Inst = union(enum) {
     mod_i64: BinOp,
     neg_i64: UnOp,
 
+    // ── Float arithmetic (values stored as bitcast i64) ─
+    add_f64: BinOp,
+    sub_f64: BinOp,
+    mul_f64: BinOp,
+    div_f64: BinOp,
+    mod_f64: BinOp,
+    neg_f64: UnOp,
+
     // ── Comparison ──────────────────────────────────────
     eq_i64: BinOp,
     neq_i64: BinOp,
@@ -38,6 +46,14 @@ pub const Inst = union(enum) {
     gt_i64: BinOp,
     lte_i64: BinOp,
     gte_i64: BinOp,
+
+    // ── Float comparison (returns bool as i64) ──────────
+    eq_f64: BinOp,
+    neq_f64: BinOp,
+    lt_f64: BinOp,
+    gt_f64: BinOp,
+    lte_f64: BinOp,
+    gte_f64: BinOp,
 
     // ── Logical ─────────────────────────────────────────
     and_bool: BinOp,
@@ -109,6 +125,8 @@ pub const Inst = union(enum) {
     process_state_set: struct { field_index: u32, src: Reg },
     /// Register current process as watcher of target.
     process_watch: struct { target: Reg },
+    /// Send with timeout (milliseconds). Returns :error{:timeout} if exceeded.
+    process_send_timeout: struct { dest: Reg, target: Reg, handler_index: u32, args: []const Reg, timeout_ms: Reg },
 
     pub const BinOp = struct { dest: Reg, lhs: Reg, rhs: Reg };
     pub const UnOp = struct { dest: Reg, operand: Reg };
