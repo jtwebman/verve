@@ -5,7 +5,7 @@ Verve is a process-oriented language with no exceptions, no recursion, and no im
 ## Types
 
 ### Primitives
-`int`, `float`, `string`, `bool`, `void`, `none`
+`int`, `float`, `string`, `bool`, `void`
 
 ### Collections
 - `list<T>` — mutable ordered list. Create with `list()`.
@@ -23,7 +23,7 @@ Verve is a process-oriented language with no exceptions, no recursion, and no im
 - Tags: `:ok`, `:error`, `:eof` — lightweight labels
 - Tagged values: `:ok{42}`, `:error{"reason"}` — tags carrying data
 - `Result<T>` = `:ok{value}` or `:error{reason}`
-- Optional: `T?` — value or `none`
+- Optional: `T?` — value or `none` (`none` is a value keyword, not a type)
 - Structs, enums, tagged unions, function types
 
 ### Poison values
@@ -304,7 +304,7 @@ Precedence: `||` < `&&` < comparison < `+`/`-` < `*`/`/`/`%` < unary
 ## Key constraints
 - **No recursion** — use while loops with explicit stacks
 - **No exceptions** — use Result<T> and poison values
-- **No implicit null** — use `none` with explicit optional types (`T?`). A value is never null unless the type says so.
+- **No implicit null** — optional types (`T?`) are explicit. `none` is a value, not a type. A non-optional value is never absent.
 - **Explicit types** — all variable declarations must have type annotations
 - **Doc comments required** — on all exported modules, processes, and functions
 
