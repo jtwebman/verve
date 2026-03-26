@@ -655,7 +655,8 @@ pub const ZigBackend = struct {
         } else if (std.mem.eql(u8, name, "json_get_string") or std.mem.eql(u8, name, "json_get_string_len") or
             std.mem.eql(u8, name, "json_get_int") or std.mem.eql(u8, name, "json_get_float") or
             std.mem.eql(u8, name, "json_get_bool") or std.mem.eql(u8, name, "json_get_object") or
-            std.mem.eql(u8, name, "json_get_object_len"))
+            std.mem.eql(u8, name, "json_get_object_len") or
+            std.mem.eql(u8, name, "json_get_array") or std.mem.eql(u8, name, "json_get_array_len"))
         {
             if (args.len >= 4) {
                 self.lineFmt("{s} = rt.{s}({s}, {s}, {s}, {s});", .{ self.regName(dest), name, self.regName(args[0]), self.regName(args[1]), self.regName(args[2]), self.regName(args[3]) });

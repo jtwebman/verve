@@ -909,6 +909,61 @@ pub fn json_to_string_len(json_ptr: i64, json_len: i64) i64 {
     return result.len;
 }
 
+/// Split a JSON array into a List of (ptr, len) pairs for each element.
+/// Returns pointer to a List where even indices are ptrs and odd are lens.
+pub fn json_get_array(json_ptr: i64, json_len: i64, key_ptr: i64, key_len: i64) i64 {
+    const src = sliceFromPtr(json_ptr, json_len);
+    const key = sliceFromPtr(key_ptr, key_len);
+    const found = json_find_key(src, key) orelse return 0;
+    return json_split_array(src, found.start, found.end);
+}
+
+pub fn json_get_array_len(json_ptr: i64, json_len: i64, key_ptr: i64, key_len: i64) i64 {
+    const src = sliceFromPtr(json_ptr, json_len);
+    const key = sliceFromPtr(key_ptr, key_len);
+    const found = json_find_key(src, key) orelse return 0;
+    return json_count_array(src, found.start, found.end);
+}
+
+fn json_count_array(src: []const u8, start: usize, end: usize) i64 {
+    _ = end;
+    var p = json_skip_ws(src, start);
+    if (p >= src.len or src[p] != '[') return 0;
+    p = json_skip_ws(src, p + 1);
+    if (p < src.len and src[p] == ']') return 0;
+    var count: i64 = 0;
+    while (p < src.len and src[p] != ']') {
+        _ = json_skip_value(src, p);
+        count += 1;
+        p = json_skip_ws(src, json_skip_value(src, p));
+        if (p < src.len and src[p] == ',') p = json_skip_ws(src, p + 1);
+    }
+    return count;
+}
+
+fn json_split_array(src: []const u8, start: usize, end: usize) i64 {
+    _ = end;
+    var p = json_skip_ws(src, start);
+    if (p >= src.len or src[p] != '[') return 0;
+    p = json_skip_ws(src, p + 1);
+
+    // Build a list: pairs of (ptr, len) for each element as string
+    // Allocate List struct in arena so pointer survives
+    const list_mem = arena_alloc(@sizeOf(List)) orelse return 0;
+    const list = @as(*List, @ptrCast(@alignCast(list_mem)));
+    list.* = List.init();
+    while (p < src.len and src[p] != ']') {
+        const elem_start = p;
+        const elem_end = json_skip_value(src, p);
+        // Store element as (ptr, len) pair in the list
+        list.append(@intCast(@intFromPtr(src[elem_start..elem_end].ptr)));
+        list.append(@intCast(elem_end - elem_start));
+        p = json_skip_ws(src, elem_end);
+        if (p < src.len and src[p] == ',') p = json_skip_ws(src, p + 1);
+    }
+    return @intCast(@intFromPtr(list));
+}
+
 /// Build a JSON string from key-value pairs. Simple object stringifier.
 pub fn json_stringify_int(key_ptr: i64, key_len: i64, val: i64) i64 {
     const key = sliceFromPtr(key_ptr, key_len);

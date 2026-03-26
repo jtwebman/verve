@@ -869,7 +869,8 @@ pub const Lower = struct {
                             // Json functions take (json_ptr, json_len, key_ptr, key_len) or (json_ptr, json_len)
                             if (std.mem.eql(u8, fn_name, "get_string") or std.mem.eql(u8, fn_name, "get_int") or
                                 std.mem.eql(u8, fn_name, "get_float") or std.mem.eql(u8, fn_name, "get_bool") or
-                                std.mem.eql(u8, fn_name, "get_object"))
+                                std.mem.eql(u8, fn_name, "get_object") or std.mem.eql(u8, fn_name, "get_array") or
+                                std.mem.eql(u8, fn_name, "get_array_len"))
                             {
                                 // Two string args: json data + key name
                                 var json_args = std.ArrayListUnmanaged(ir.Reg){};
