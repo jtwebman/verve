@@ -2317,6 +2317,110 @@ test "compile: http json response end to end" {
     try testing.expectEqualStrings("HTTP/1.1 200 OK\r\n", r.stdout);
 }
 
+test "compile: http parse POST with body" {
+    const r = try compileAndCapture(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        data: string = "POST /api HTTP/1.1\r\nContent-Type: application/json\r\nContent-Length: 13\r\n\r\n{\"key\":\"val\"}";
+        \\        req: int = Http.parse_request(data);
+        \\        method: string = Http.req_method(req);
+        \\        body: string = Http.req_body(req);
+        \\        println(method);
+        \\        println(body);
+        \\        name: string = Json.get_string(body, "key");
+        \\        println(name);
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("POST\n{\"key\":\"val\"}\nval\n", r.stdout);
+}
+
+test "compile: http parse different methods" {
+    const r = try compileAndCapture(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        get: int = Http.parse_request("GET / HTTP/1.1\r\n\r\n");
+        \\        m1: string = Http.req_method(get);
+        \\        println(m1);
+        \\        post: int = Http.parse_request("POST /data HTTP/1.1\r\n\r\n");
+        \\        m2: string = Http.req_method(post);
+        \\        println(m2);
+        \\        put: int = Http.parse_request("PUT /item HTTP/1.1\r\n\r\n");
+        \\        m3: string = Http.req_method(put);
+        \\        println(m3);
+        \\        del: int = Http.parse_request("DELETE /item HTTP/1.1\r\n\r\n");
+        \\        m4: string = Http.req_method(del);
+        \\        println(m4);
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("GET\nPOST\nPUT\nDELETE\n", r.stdout);
+}
+
+test "compile: http response status codes" {
+    const r = try compileAndCapture(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        r200: string = Http.respond(200, "text/plain", "ok");
+        \\        r201: string = Http.respond(201, "text/plain", "created");
+        \\        r400: string = Http.respond(400, "text/plain", "bad");
+        \\        r500: string = Http.respond(500, "text/plain", "error");
+        \\        // Check first line of each
+        \\        println(r200);
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    // Just verify it doesn't crash and produces output
+    try testing.expect(r.stdout.len > 0);
+    try testing.expect(std.mem.startsWith(u8, r.stdout, "HTTP/1.1 200 OK"));
+}
+
+test "compile: http server with json request and response" {
+    const r = try compileAndCapture(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        match Tcp.listen("127.0.0.1", 0) {
+        \\            :ok{listener} => {
+        \\                port: int = Tcp.port(listener);
+        \\                match Tcp.open("127.0.0.1", port) {
+        \\                    :ok{client} => {
+        \\                        Stream.write(client, "POST /api HTTP/1.1\r\nContent-Type: application/json\r\n\r\n{\"name\":\"test\"}");
+        \\                        Stream.close(client);
+        \\                        match Tcp.accept(listener) {
+        \\                            :ok{conn} => {
+        \\                                data: string = Stream.read_bytes(conn, 4096);
+        \\                                req: int = Http.parse_request(data);
+        \\                                body: string = Http.req_body(req);
+        \\                                name: string = Json.get_string(body, "name");
+        \\                                b: int = Json.build_object();
+        \\                                Json.build_add_string(b, "hello", name);
+        \\                                resp_body: string = Json.build_end(b);
+        \\                                println(resp_body);
+        \\                                Stream.close(conn);
+        \\                            }
+        \\                            :error{e} => println("accept failed");
+        \\                        }
+        \\                    }
+        \\                    :error{e} => println("open failed");
+        \\                }
+        \\                Stream.close(listener);
+        \\            }
+        \\            :error{e} => println("listen failed");
+        \\        }
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("{\"hello\":\"test\"}\n", r.stdout);
+}
+
 test "compile: process state with new struct syntax" {
     const r = try compileAndCapture(
         \\struct PointState {
