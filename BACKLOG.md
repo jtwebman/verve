@@ -148,7 +148,17 @@
 - [x] Process runtime — send_timeout IR instruction + runtime plumbing (no syntax yet)
 - [ ] Process runtime — send timeout language syntax
 - [ ] Process runtime — multi-threaded scheduler
+- [x] Process runtime — dynamic process table (grows by doubling, no fixed limit)
+- [x] Process runtime — process slot recycling (dead slots reused on spawn)
+- [x] Process.exit() — handler self-terminates, slot recycled on next spawn
+- [x] Spawn-per-connection HTTP server (Elixir-style)
 - [x] Benchmark: message passing throughput (examples/bench_messages.vv)
+
+### Process improvements (planned)
+- [ ] Process worker pool — `ProcessPool.create(Handler, size)`, `pool.fetch()`, `pool.release()`. Pre-warmed processes with arena reset (not free+realloc). Eliminates allocation overhead per request.
+- [ ] `tell` handlers should support `-> void` return type (no meaningless `return 0`)
+- [ ] Process memory budget — configurable per-process arena limits from `memory` declaration
+- [ ] Idle-thread GC — when multi-threaded, idle scheduler threads compact dormant process arenas
 
 ## Phase 4.5 — Foundation Refactor (runtime correctness)
 
