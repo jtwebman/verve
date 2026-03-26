@@ -1,0 +1,41 @@
+/// HTTP/1.1 server. Listens on port 8080, serves JSON and text responses.
+module Main {
+	fn main() -> int {
+		match Tcp.listen("127.0.0.1", 8080) {
+			:ok{listener} => {
+				println("HTTP server listening on http://127.0.0.1:8080");
+				i: int = 0;
+				while i < 100 {
+					match Tcp.accept(listener) {
+						:ok{client} => {
+							data: string = Stream.read_bytes(client, 4096);
+							req: int = Http.parse_request(data);
+							path: string = Http.req_path(req);
+							response: string = "";
+							if path == "/json" {
+								b: int = Json.build_object();
+								Json.build_add_string(b, "status", "ok");
+								Json.build_add_int(b, "request", i);
+								body: string = Json.build_end(b);
+								response = Http.respond(200, "application/json", body);
+							} else {
+								if path == "/health" {
+									response = Http.respond(200, "text/plain", "ok");
+								} else {
+									response = Http.respond(200, "text/plain", "Hello from Verve!");
+								}
+							}
+							Stream.write(client, response);
+							Stream.close(client);
+						}
+						:error{e} => println("Accept failed");
+					}
+					i = i + 1;
+				}
+				Stream.close(listener);
+			}
+			:error{e} => println("Listen failed");
+		}
+		return 0;
+	}
+}

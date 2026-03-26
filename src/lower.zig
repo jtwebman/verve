@@ -767,6 +767,14 @@ pub const Lower = struct {
                                 self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = builtin_name, .args = stream_args.toOwnedSlice(self.alloc) catch &.{} } });
                                 return dest;
                             }
+                            if (std.mem.eql(u8, fn_name, "read_bytes")) {
+                                // Stream.read_bytes(stream, max) → string
+                                self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = "stream_read_bytes", .args = args } });
+                                const len_reg = func.newReg();
+                                self.appendInst(.{ .call_builtin = .{ .dest = len_reg, .name = "stream_read_bytes_len", .args = &.{} } });
+                                self.string_lens.put(self.alloc, dest, len_reg) catch {};
+                                return dest;
+                            }
                             if (std.mem.eql(u8, fn_name, "read_line")) {
                                 // Stream.read_line returns a string — track its length
                                 self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = "stream_read_line", .args = args } });
@@ -976,6 +984,85 @@ pub const Lower = struct {
                                 return dest;
                             }
                             const builtin_name = std.fmt.allocPrint(self.alloc, "json_{s}", .{fn_name}) catch fn_name;
+                            self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = builtin_name, .args = args } });
+                            return dest;
+                        }
+                        if (std.mem.eql(u8, mod_name, "Http")) {
+                            if (std.mem.eql(u8, fn_name, "parse_request")) {
+                                // Http.parse_request(data) — need data_ptr + data_len
+                                var ha = std.ArrayListUnmanaged(ir.Reg){};
+                                if (c.args.len >= 1) {
+                                    const d = self.lowerExpr(c.args[0]);
+                                    ha.append(self.alloc, d) catch {};
+                                    ha.append(self.alloc, self.getStringLen(func, d)) catch {};
+                                }
+                                self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = "http_parse_request", .args = ha.toOwnedSlice(self.alloc) catch &.{} } });
+                                return dest;
+                            }
+                            if (std.mem.eql(u8, fn_name, "req_method") or std.mem.eql(u8, fn_name, "req_path") or std.mem.eql(u8, fn_name, "req_body")) {
+                                // Takes request handle, returns string
+                                self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = std.fmt.allocPrint(self.alloc, "http_{s}", .{fn_name}) catch fn_name, .args = args } });
+                                const len_dest = func.newReg();
+                                self.appendInst(.{ .call_builtin = .{ .dest = len_dest, .name = std.fmt.allocPrint(self.alloc, "http_{s}_len", .{fn_name}) catch fn_name, .args = args } });
+                                self.string_lens.put(self.alloc, dest, len_dest) catch {};
+                                return dest;
+                            }
+                            if (std.mem.eql(u8, fn_name, "req_header")) {
+                                // Http.req_header(req, "Header-Name") — need handle + key_ptr + key_len
+                                var ha = std.ArrayListUnmanaged(ir.Reg){};
+                                if (c.args.len >= 1) ha.append(self.alloc, self.lowerExpr(c.args[0])) catch {};
+                                if (c.args.len >= 2) {
+                                    const k = self.lowerExpr(c.args[1]);
+                                    ha.append(self.alloc, k) catch {};
+                                    ha.append(self.alloc, self.getStringLen(func, k)) catch {};
+                                }
+                                self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = "http_req_header", .args = ha.toOwnedSlice(self.alloc) catch &.{} } });
+                                const len_dest = func.newReg();
+                                var la = std.ArrayListUnmanaged(ir.Reg){};
+                                if (c.args.len >= 1) la.append(self.alloc, self.lowerExpr(c.args[0])) catch {};
+                                if (c.args.len >= 2) {
+                                    const k2 = self.lowerExpr(c.args[1]);
+                                    la.append(self.alloc, k2) catch {};
+                                    la.append(self.alloc, self.getStringLen(func, k2)) catch {};
+                                }
+                                self.appendInst(.{ .call_builtin = .{ .dest = len_dest, .name = "http_req_header_len", .args = la.toOwnedSlice(self.alloc) catch &.{} } });
+                                self.string_lens.put(self.alloc, dest, len_dest) catch {};
+                                return dest;
+                            }
+                            if (std.mem.eql(u8, fn_name, "respond")) {
+                                // Http.respond(status, content_type, body) — need ct_ptr+len, body_ptr+len
+                                var ha = std.ArrayListUnmanaged(ir.Reg){};
+                                if (c.args.len >= 1) ha.append(self.alloc, self.lowerExpr(c.args[0])) catch {};
+                                if (c.args.len >= 2) {
+                                    const ct = self.lowerExpr(c.args[1]);
+                                    ha.append(self.alloc, ct) catch {};
+                                    ha.append(self.alloc, self.getStringLen(func, ct)) catch {};
+                                }
+                                if (c.args.len >= 3) {
+                                    const bd = self.lowerExpr(c.args[2]);
+                                    ha.append(self.alloc, bd) catch {};
+                                    ha.append(self.alloc, self.getStringLen(func, bd)) catch {};
+                                }
+                                self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = "http_build_response", .args = ha.toOwnedSlice(self.alloc) catch &.{} } });
+                                const len_dest = func.newReg();
+                                // Re-emit args for len call
+                                var la = std.ArrayListUnmanaged(ir.Reg){};
+                                if (c.args.len >= 1) la.append(self.alloc, self.lowerExpr(c.args[0])) catch {};
+                                if (c.args.len >= 2) {
+                                    const ct2 = self.lowerExpr(c.args[1]);
+                                    la.append(self.alloc, ct2) catch {};
+                                    la.append(self.alloc, self.getStringLen(func, ct2)) catch {};
+                                }
+                                if (c.args.len >= 3) {
+                                    const bd2 = self.lowerExpr(c.args[2]);
+                                    la.append(self.alloc, bd2) catch {};
+                                    la.append(self.alloc, self.getStringLen(func, bd2)) catch {};
+                                }
+                                self.appendInst(.{ .call_builtin = .{ .dest = len_dest, .name = "http_build_response_len", .args = la.toOwnedSlice(self.alloc) catch &.{} } });
+                                self.string_lens.put(self.alloc, dest, len_dest) catch {};
+                                return dest;
+                            }
+                            const builtin_name = std.fmt.allocPrint(self.alloc, "http_{s}", .{fn_name}) catch fn_name;
                             self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = builtin_name, .args = args } });
                             return dest;
                         }

@@ -1110,6 +1110,323 @@ pub fn json_build_end_len(builder_ptr: i64) i64 {
     return b.result().len;
 }
 
+/// Read up to `max_bytes` from a stream. Returns (ptr, len) stored in a 2-slot arena array.
+/// The returned pointer points to the data, and the companion _len function returns the length.
+var last_read_bytes_len: i64 = 0;
+
+pub fn stream_read_bytes(stream_ptr: i64, max: i64) i64 {
+    const s = toStream(stream_ptr) orelse {
+        last_read_bytes_len = 0;
+        return 0;
+    };
+    if (s.closed) {
+        last_read_bytes_len = 0;
+        return 0;
+    }
+    const max_usize: usize = @intCast(@as(u64, @bitCast(max)));
+    const buf = arena_alloc(max_usize + 1) orelse {
+        last_read_bytes_len = 0;
+        return 0;
+    };
+    var total: usize = 0;
+    switch (s.kind) {
+        .tcp_client => {
+            // Drain read buffer first
+            while (s.read_pos < s.read_len and total < max_usize) {
+                buf[total] = s.read_buf[s.read_pos];
+                s.read_pos += 1;
+                total += 1;
+            }
+            // Read from socket
+            if (total < max_usize) {
+                const n = std.posix.read(s.fd, buf[total..max_usize]) catch 0;
+                total += n;
+            }
+        },
+        else => {},
+    }
+    buf[total] = 0; // null terminate
+    last_read_bytes_len = @intCast(total);
+    return @intCast(@intFromPtr(buf));
+}
+
+pub fn stream_read_bytes_len() i64 {
+    return last_read_bytes_len;
+}
+
+// ── HTTP/1.1 ───────────────────────────────────────
+
+/// Parse an HTTP request from raw bytes. Returns a request "handle" (pointer to HttpRequest).
+/// The handle can be queried with http_req_method, http_req_path, http_req_header, http_req_body.
+pub const HttpRequest = struct {
+    method_start: usize,
+    method_len: usize,
+    path_start: usize,
+    path_len: usize,
+    headers_start: usize,
+    headers_end: usize,
+    body_start: usize,
+    body_len: usize,
+    src: []const u8,
+};
+
+pub fn http_parse_request(data_ptr: i64, data_len: i64) i64 {
+    const src = sliceFromPtr(data_ptr, data_len);
+    if (src.len < 10) return 0; // too short for any valid request
+
+    // Parse request line: METHOD PATH HTTP/1.1\r\n
+    var pos: usize = 0;
+
+    // Method
+    const method_start = pos;
+    while (pos < src.len and src[pos] != ' ') pos += 1;
+    const method_len = pos - method_start;
+    if (pos >= src.len) return 0;
+    pos += 1; // skip space
+
+    // Path
+    const path_start = pos;
+    while (pos < src.len and src[pos] != ' ') pos += 1;
+    const path_len = pos - path_start;
+    if (pos >= src.len) return 0;
+
+    // Skip to end of request line
+    while (pos < src.len and src[pos] != '\n') pos += 1;
+    if (pos < src.len) pos += 1;
+
+    // Headers
+    const headers_start = pos;
+    var headers_end = pos;
+    while (pos + 1 < src.len) {
+        if (src[pos] == '\r' and pos + 1 < src.len and src[pos + 1] == '\n') {
+            headers_end = pos;
+            pos += 2;
+            break;
+        }
+        if (src[pos] == '\n' and (pos + 1 >= src.len or src[pos + 1] == '\n' or src[pos + 1] == '\r')) {
+            headers_end = pos;
+            pos += 1;
+            if (pos < src.len and src[pos] == '\n') pos += 1;
+            break;
+        }
+        while (pos < src.len and src[pos] != '\n') pos += 1;
+        if (pos < src.len) pos += 1;
+    }
+
+    // Body (everything after headers)
+    const body_start = pos;
+    const body_len = if (pos < src.len) src.len - pos else 0;
+
+    const req_mem = arena_alloc(@sizeOf(HttpRequest)) orelse return 0;
+    const req = @as(*HttpRequest, @ptrCast(@alignCast(req_mem)));
+    req.* = .{
+        .method_start = method_start,
+        .method_len = method_len,
+        .path_start = path_start,
+        .path_len = path_len,
+        .headers_start = headers_start,
+        .headers_end = headers_end,
+        .body_start = body_start,
+        .body_len = body_len,
+        .src = src,
+    };
+    return @intCast(@intFromPtr(req));
+}
+
+fn toHttpReq(ptr: i64) ?*HttpRequest {
+    if (ptr == 0) return null;
+    return @as(*HttpRequest, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(ptr))))));
+}
+
+pub fn http_req_method(req_ptr: i64) i64 {
+    const req = toHttpReq(req_ptr) orelse return 0;
+    return @intCast(@intFromPtr(req.src[req.method_start .. req.method_start + req.method_len].ptr));
+}
+
+pub fn http_req_method_len(req_ptr: i64) i64 {
+    const req = toHttpReq(req_ptr) orelse return 0;
+    return @intCast(req.method_len);
+}
+
+pub fn http_req_path(req_ptr: i64) i64 {
+    const req = toHttpReq(req_ptr) orelse return 0;
+    return @intCast(@intFromPtr(req.src[req.path_start .. req.path_start + req.path_len].ptr));
+}
+
+pub fn http_req_path_len(req_ptr: i64) i64 {
+    const req = toHttpReq(req_ptr) orelse return 0;
+    return @intCast(req.path_len);
+}
+
+pub fn http_req_body(req_ptr: i64) i64 {
+    const req = toHttpReq(req_ptr) orelse return 0;
+    if (req.body_len == 0) return 0;
+    return @intCast(@intFromPtr(req.src[req.body_start .. req.body_start + req.body_len].ptr));
+}
+
+pub fn http_req_body_len(req_ptr: i64) i64 {
+    const req = toHttpReq(req_ptr) orelse return 0;
+    return @intCast(req.body_len);
+}
+
+/// Find a header value by name (case-insensitive). Returns pointer to value string.
+pub fn http_req_header(req_ptr: i64, name_ptr: i64, name_len: i64) i64 {
+    const req = toHttpReq(req_ptr) orelse return 0;
+    const name = sliceFromPtr(name_ptr, name_len);
+    const headers = req.src[req.headers_start..req.headers_end];
+
+    var pos: usize = 0;
+    while (pos < headers.len) {
+        // Find colon
+        const line_start = pos;
+        var colon: usize = pos;
+        while (colon < headers.len and headers[colon] != ':') colon += 1;
+        if (colon >= headers.len) break;
+
+        const header_name = headers[line_start..colon];
+        // Case-insensitive compare
+        if (header_name.len == name.len) {
+            var match = true;
+            for (header_name, 0..) |c, i| {
+                const a = if (c >= 'A' and c <= 'Z') c + 32 else c;
+                const b = if (name[i] >= 'A' and name[i] <= 'Z') name[i] + 32 else name[i];
+                if (a != b) {
+                    match = false;
+                    break;
+                }
+            }
+            if (match) {
+                // Skip colon and optional space
+                var val_start = colon + 1;
+                while (val_start < headers.len and headers[val_start] == ' ') val_start += 1;
+                // Find end of line
+                var val_end = val_start;
+                while (val_end < headers.len and headers[val_end] != '\r' and headers[val_end] != '\n') val_end += 1;
+                return @intCast(@intFromPtr(headers[val_start..val_end].ptr));
+            }
+        }
+
+        // Skip to next line
+        while (pos < headers.len and headers[pos] != '\n') pos += 1;
+        if (pos < headers.len) pos += 1;
+    }
+    return 0;
+}
+
+pub fn http_req_header_len(req_ptr: i64, name_ptr: i64, name_len: i64) i64 {
+    const req = toHttpReq(req_ptr) orelse return 0;
+    const name = sliceFromPtr(name_ptr, name_len);
+    const headers = req.src[req.headers_start..req.headers_end];
+
+    var pos: usize = 0;
+    while (pos < headers.len) {
+        const line_start = pos;
+        var colon: usize = pos;
+        while (colon < headers.len and headers[colon] != ':') colon += 1;
+        if (colon >= headers.len) break;
+
+        const header_name = headers[line_start..colon];
+        if (header_name.len == name.len) {
+            var match = true;
+            for (header_name, 0..) |c, i| {
+                const a = if (c >= 'A' and c <= 'Z') c + 32 else c;
+                const b = if (name[i] >= 'A' and name[i] <= 'Z') name[i] + 32 else name[i];
+                if (a != b) {
+                    match = false;
+                    break;
+                }
+            }
+            if (match) {
+                var val_start = colon + 1;
+                while (val_start < headers.len and headers[val_start] == ' ') val_start += 1;
+                var val_end = val_start;
+                while (val_end < headers.len and headers[val_end] != '\r' and headers[val_end] != '\n') val_end += 1;
+                return @intCast(val_end - val_start);
+            }
+        }
+        while (pos < headers.len and headers[pos] != '\n') pos += 1;
+        if (pos < headers.len) pos += 1;
+    }
+    return 0;
+}
+
+/// Build an HTTP response. Returns the full response as a string.
+pub fn http_build_response(status: i64, content_type_ptr: i64, content_type_len: i64, body_ptr: i64, body_len: i64) i64 {
+    const ct = sliceFromPtr(content_type_ptr, content_type_len);
+    const body = sliceFromPtr(body_ptr, body_len);
+
+    var b = JsonBuilder.init(); // reuse the builder for any string building
+    // Status line
+    b.append("HTTP/1.1 ");
+    var status_buf: [4]u8 = undefined;
+    const status_str = std.fmt.bufPrint(&status_buf, "{d}", .{status}) catch "500";
+    b.append(status_str);
+    b.appendByte(' ');
+    const reason: []const u8 = switch (status) {
+        200 => "OK",
+        201 => "Created",
+        204 => "No Content",
+        400 => "Bad Request",
+        404 => "Not Found",
+        405 => "Method Not Allowed",
+        500 => "Internal Server Error",
+        else => "OK",
+    };
+    b.append(reason);
+    b.append("\r\n");
+
+    // Headers
+    b.append("Content-Type: ");
+    b.append(ct);
+    b.append("\r\n");
+
+    b.append("Content-Length: ");
+    var len_buf: [20]u8 = undefined;
+    const len_str = std.fmt.bufPrint(&len_buf, "{d}", .{body.len}) catch "0";
+    b.append(len_str);
+    b.append("\r\n");
+
+    b.append("Connection: close\r\n");
+    b.append("\r\n");
+
+    // Body
+    b.append(body);
+
+    return b.result().ptr;
+}
+
+pub fn http_build_response_len(status: i64, content_type_ptr: i64, content_type_len: i64, body_ptr: i64, body_len: i64) i64 {
+    // Rebuild to get length — not ideal but simple
+    _ = http_build_response(status, content_type_ptr, content_type_len, body_ptr, body_len);
+    // The builder writes sequentially, so we can compute the length
+    const ct_len: usize = @intCast(@as(u64, @bitCast(content_type_len)));
+    const bl: usize = @intCast(@as(u64, @bitCast(body_len)));
+    var body_len_digits: usize = 1;
+    var tmp = bl;
+    while (tmp >= 10) {
+        body_len_digits += 1;
+        tmp /= 10;
+    }
+    const status_digits: usize = if (status >= 100 and status < 1000) 3 else 4;
+    const reason_len: usize = switch (status) {
+        200 => 2, // "OK"
+        201 => 7, // "Created"
+        204 => 10, // "No Content"
+        400 => 11, // "Bad Request"
+        404 => 9, // "Not Found"
+        405 => 18, // "Method Not Allowed"
+        500 => 21, // "Internal Server Error"
+        else => 2,
+    };
+    // "HTTP/1.1 " + status + " " + reason + "\r\n"
+    // "Content-Type: " + ct + "\r\n"
+    // "Content-Length: " + digits + "\r\n"
+    // "Connection: close\r\n"
+    // "\r\n"
+    // body
+    return @intCast(9 + status_digits + 1 + reason_len + 2 + 14 + ct_len + 2 + 16 + body_len_digits + 2 + 19 + 2 + bl);
+}
+
 // ── Arena allocator ────────────────────────────────
 
 const ARENA_PAGE_SIZE = 64 * 1024; // 64KB per page

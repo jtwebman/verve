@@ -2170,6 +2170,153 @@ test "compile: tcp accept on closed listener" {
     try testing.expectEqualStrings("rejected\n", r.stdout);
 }
 
+// ── HTTP tests ─────────────────────────────────────
+
+test "compile: http parse request method and path" {
+    const r = try compileAndCapture(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        data: string = "GET /hello HTTP/1.1\r\nHost: localhost\r\n\r\n";
+        \\        req: int = Http.parse_request(data);
+        \\        method: string = Http.req_method(req);
+        \\        path: string = Http.req_path(req);
+        \\        println(method);
+        \\        println(path);
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("GET\n/hello\n", r.stdout);
+}
+
+test "compile: http parse request header" {
+    const r = try compileAndCapture(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        data: string = "POST /api HTTP/1.1\r\nHost: example.com\r\nContent-Type: application/json\r\n\r\n";
+        \\        req: int = Http.parse_request(data);
+        \\        host: string = Http.req_header(req, "Host");
+        \\        ct: string = Http.req_header(req, "Content-Type");
+        \\        println(host);
+        \\        println(ct);
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("example.com\napplication/json\n", r.stdout);
+}
+
+test "compile: http build response" {
+    const r = try compileAndCapture(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        response: string = Http.respond(200, "text/plain", "hello");
+        \\        println(response);
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 5\r\nConnection: close\r\n\r\nhello\n", r.stdout);
+}
+
+test "compile: http server loopback" {
+    const r = try compileAndCapture(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        match Tcp.listen("127.0.0.1", 0) {
+        \\            :ok{listener} => {
+        \\                port: int = Tcp.port(listener);
+        \\                match Tcp.open("127.0.0.1", port) {
+        \\                    :ok{client} => {
+        \\                        Stream.write(client, "GET /test HTTP/1.1\r\nHost: localhost\r\n\r\n");
+        \\                        match Tcp.accept(listener) {
+        \\                            :ok{conn} => {
+        \\                                data: string = Stream.read_bytes(conn, 4096);
+        \\                                req: int = Http.parse_request(data);
+        \\                                path: string = Http.req_path(req);
+        \\                                response: string = Http.respond(200, "text/plain", "ok");
+        \\                                Stream.write(conn, response);
+        \\                                Stream.close(conn);
+        \\                                reply: string = Stream.read_line(client);
+        \\                                println(reply);
+        \\                                println(path);
+        \\                                Stream.close(client);
+        \\                            }
+        \\                            :error{e} => println("accept failed");
+        \\                        }
+        \\                    }
+        \\                    :error{e} => println("connect failed");
+        \\                }
+        \\                Stream.close(listener);
+        \\            }
+        \\            :error{e} => println("listen failed");
+        \\        }
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    // read_line preserves \r from HTTP \r\n line endings
+    try testing.expectEqualStrings("HTTP/1.1 200 OK\r\n/test\n", r.stdout);
+}
+
+test "compile: http 404 response" {
+    const r = try compileAndCapture(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        response: string = Http.respond(404, "text/plain", "not found");
+        \\        println(response);
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\nContent-Length: 9\r\nConnection: close\r\n\r\nnot found\n", r.stdout);
+}
+
+test "compile: http json response end to end" {
+    const r = try compileAndCapture(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        b: int = Json.build_object();
+        \\        Json.build_add_string(b, "msg", "hello");
+        \\        body: string = Json.build_end(b);
+        \\        response: string = Http.respond(200, "application/json", body);
+        \\        match Tcp.listen("127.0.0.1", 0) {
+        \\            :ok{listener} => {
+        \\                port: int = Tcp.port(listener);
+        \\                match Tcp.open("127.0.0.1", port) {
+        \\                    :ok{client} => {
+        \\                        Stream.write(client, "GET / HTTP/1.1\r\n\r\n");
+        \\                        match Tcp.accept(listener) {
+        \\                            :ok{conn} => {
+        \\                                data: string = Stream.read_bytes(conn, 4096);
+        \\                                Stream.write(conn, response);
+        \\                                Stream.close(conn);
+        \\                                reply: string = Stream.read_line(client);
+        \\                                println(reply);
+        \\                                Stream.close(client);
+        \\                            }
+        \\                            :error{e} => println("accept failed");
+        \\                        }
+        \\                    }
+        \\                    :error{e} => println("connect failed");
+        \\                }
+        \\                Stream.close(listener);
+        \\            }
+        \\            :error{e} => println("listen failed");
+        \\        }
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("HTTP/1.1 200 OK\r\n", r.stdout);
+}
+
 test "compile: process state with new struct syntax" {
     const r = try compileAndCapture(
         \\struct PointState {

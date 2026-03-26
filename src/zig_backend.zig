@@ -581,6 +581,12 @@ pub const ZigBackend = struct {
                 }
                 self.lineFmt("{s} = 0;", .{self.regName(dest)});
             }
+        } else if (std.mem.eql(u8, name, "stream_read_bytes")) {
+            if (args.len >= 2) {
+                self.lineFmt("{s} = rt.stream_read_bytes({s}, {s});", .{ self.regName(dest), self.regName(args[0]), self.regName(args[1]) });
+            }
+        } else if (std.mem.eql(u8, name, "stream_read_bytes_len")) {
+            self.lineFmt("{s} = rt.stream_read_bytes_len();", .{self.regName(dest)});
         } else if (std.mem.eql(u8, name, "stream_read_line")) {
             if (args.len >= 1) {
                 self.lineFmt("{s} = rt.stream_read_line({s});", .{ self.regName(dest), self.regName(args[0]) });
@@ -683,6 +689,17 @@ pub const ZigBackend = struct {
         } else if (std.mem.eql(u8, name, "json_build_add_bool")) {
             if (args.len >= 4) self.lineFmt("rt.json_build_add_bool({s}, {s}, {s}, {s});", .{ self.regName(args[0]), self.regName(args[1]), self.regName(args[2]), self.regName(args[3]) });
             self.lineFmt("{s} = 0;", .{self.regName(dest)});
+        } else if (std.mem.eql(u8, name, "http_parse_request")) {
+            if (args.len >= 2) self.lineFmt("{s} = rt.http_parse_request({s}, {s});", .{ self.regName(dest), self.regName(args[0]), self.regName(args[1]) });
+        } else if (std.mem.eql(u8, name, "http_req_method") or std.mem.eql(u8, name, "http_req_method_len") or
+            std.mem.eql(u8, name, "http_req_path") or std.mem.eql(u8, name, "http_req_path_len") or
+            std.mem.eql(u8, name, "http_req_body") or std.mem.eql(u8, name, "http_req_body_len"))
+        {
+            if (args.len >= 1) self.lineFmt("{s} = rt.{s}({s});", .{ self.regName(dest), name, self.regName(args[0]) });
+        } else if (std.mem.eql(u8, name, "http_req_header") or std.mem.eql(u8, name, "http_req_header_len")) {
+            if (args.len >= 3) self.lineFmt("{s} = rt.{s}({s}, {s}, {s});", .{ self.regName(dest), name, self.regName(args[0]), self.regName(args[1]), self.regName(args[2]) });
+        } else if (std.mem.eql(u8, name, "http_build_response") or std.mem.eql(u8, name, "http_build_response_len")) {
+            if (args.len >= 5) self.lineFmt("{s} = rt.{s}({s}, {s}, {s}, {s}, {s});", .{ self.regName(dest), name, self.regName(args[0]), self.regName(args[1]), self.regName(args[2]), self.regName(args[3]), self.regName(args[4]) });
         } else if (std.mem.eql(u8, name, "tcp_open")) {
             if (args.len >= 3) {
                 self.lineFmt("{s} = rt.tcp_open({s}, {s}, {s});", .{ self.regName(dest), self.regName(args[0]), self.regName(args[1]), self.regName(args[2]) });
