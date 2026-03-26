@@ -2421,6 +2421,139 @@ test "compile: http server with json request and response" {
     try testing.expectEqualStrings("{\"hello\":\"test\"}\n", r.stdout);
 }
 
+test "compile: http missing header returns empty" {
+    const r = try compileAndCapture(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        data: string = "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n";
+        \\        req: int = Http.parse_request(data);
+        \\        ct: string = Http.req_header(req, "Content-Type");
+        \\        println(String.len(ct));
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("0\n", r.stdout);
+}
+
+test "compile: http case insensitive headers" {
+    const r = try compileAndCapture(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        data: string = "GET / HTTP/1.1\r\nContent-Type: text/html\r\n\r\n";
+        \\        req: int = Http.parse_request(data);
+        \\        ct1: string = Http.req_header(req, "content-type");
+        \\        ct2: string = Http.req_header(req, "CONTENT-TYPE");
+        \\        ct3: string = Http.req_header(req, "Content-Type");
+        \\        println(ct1);
+        \\        println(ct2);
+        \\        println(ct3);
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("text/html\ntext/html\ntext/html\n", r.stdout);
+}
+
+test "compile: http path with query string" {
+    const r = try compileAndCapture(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        data: string = "GET /search?q=verve&page=1 HTTP/1.1\r\n\r\n";
+        \\        req: int = Http.parse_request(data);
+        \\        path: string = Http.req_path(req);
+        \\        println(path);
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("/search?q=verve&page=1\n", r.stdout);
+}
+
+test "compile: http multiple requests on same listener" {
+    const r = try compileAndCapture(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        match Tcp.listen("127.0.0.1", 0) {
+        \\            :ok{listener} => {
+        \\                port: int = Tcp.port(listener);
+        \\                i: int = 0;
+        \\                while i < 3 {
+        \\                    match Tcp.open("127.0.0.1", port) {
+        \\                        :ok{client} => {
+        \\                            n: string = Convert.to_string(i);
+        \\                            Stream.write(client, "GET /req" + n + " HTTP/1.1\r\n\r\n");
+        \\                            Stream.close(client);
+        \\                            match Tcp.accept(listener) {
+        \\                                :ok{conn} => {
+        \\                                    data: string = Stream.read_bytes(conn, 4096);
+        \\                                    req: int = Http.parse_request(data);
+        \\                                    path: string = Http.req_path(req);
+        \\                                    println(path);
+        \\                                    Stream.close(conn);
+        \\                                }
+        \\                                :error{e} => println("accept failed");
+        \\                            }
+        \\                        }
+        \\                        :error{e} => println("open failed");
+        \\                    }
+        \\                    i = i + 1;
+        \\                }
+        \\                Stream.close(listener);
+        \\            }
+        \\            :error{e} => println("listen failed");
+        \\        }
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("/req0\n/req1\n/req2\n", r.stdout);
+}
+
+test "compile: json and http integration - parse json body and respond" {
+    const r = try compileAndCapture(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        match Tcp.listen("127.0.0.1", 0) {
+        \\            :ok{listener} => {
+        \\                port: int = Tcp.port(listener);
+        \\                match Tcp.open("127.0.0.1", port) {
+        \\                    :ok{client} => {
+        \\                        Stream.write(client, "POST /echo HTTP/1.1\r\n\r\n{\"input\":\"hello\"}");
+        \\                        Stream.close(client);
+        \\                        match Tcp.accept(listener) {
+        \\                            :ok{conn} => {
+        \\                                data: string = Stream.read_bytes(conn, 4096);
+        \\                                req: int = Http.parse_request(data);
+        \\                                body: string = Http.req_body(req);
+        \\                                input: string = Json.get_string(body, "input");
+        \\                                b: int = Json.build_object();
+        \\                                Json.build_add_string(b, "output", input);
+        \\                                resp: string = Json.build_end(b);
+        \\                                println(resp);
+        \\                                Stream.close(conn);
+        \\                            }
+        \\                            :error{e} => println("accept failed");
+        \\                        }
+        \\                    }
+        \\                    :error{e} => println("open failed");
+        \\                }
+        \\                Stream.close(listener);
+        \\            }
+        \\            :error{e} => println("listen failed");
+        \\        }
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("{\"output\":\"hello\"}\n", r.stdout);
+}
+
 test "compile: process state with new struct syntax" {
     const r = try compileAndCapture(
         \\struct PointState {
