@@ -45,16 +45,6 @@ pub fn build(b: *std.Build) void {
     });
     test_step.dependOn(&b.addRunArtifact(parser_error_tests).step);
 
-    // Process tests
-    const process_tests = b.addTest(.{
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("src/process_test.zig"),
-            .target = target,
-            .optimize = optimize,
-        }),
-    });
-    test_step.dependOn(&b.addRunArtifact(process_tests).step);
-
     // Checker tests
     const checker_tests = b.addTest(.{
         .root_module = b.createModule(.{
@@ -64,26 +54,6 @@ pub fn build(b: *std.Build) void {
         }),
     });
     test_step.dependOn(&b.addRunArtifact(checker_tests).step);
-
-    // Verifier tests
-    const verifier_tests = b.addTest(.{
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("src/verifier_test.zig"),
-            .target = target,
-            .optimize = optimize,
-        }),
-    });
-    test_step.dependOn(&b.addRunArtifact(verifier_tests).step);
-
-    // Interpreter tests
-    const interp_tests = b.addTest(.{
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("src/interpreter_test.zig"),
-            .target = target,
-            .optimize = optimize,
-        }),
-    });
-    test_step.dependOn(&b.addRunArtifact(interp_tests).step);
 
     // Compile pipeline tests (AST → IR → Zig → binary → run → verify)
     const compile_tests = b.addTest(.{

@@ -30,11 +30,6 @@ See `LANGUAGE.md` for complete syntax, built-in modules, and API reference.
 - `src/zig_backend.zig` — emits Zig source from IR, compiles via zig build-exe
 - `src/verve_runtime.zig` — compiled runtime (processes, TCP, HTTP, JSON, arena allocator)
 
-### Legacy (interpreter — used by verve run/test, being phased out)
-- `src/interpreter.zig` — tree-walk interpreter
-- `src/value.zig` — interpreter value types
-- `src/process.zig` — interpreter process scheduler
-
 ### CLI
 - `src/main.zig` — CLI entry point (build, check, test, fmt, run)
 
@@ -49,7 +44,7 @@ See `LANGUAGE.md` for complete syntax, built-in modules, and API reference.
 ```
 /home/jt/.local/zig/zig build              # build
 /home/jt/.local/zig/zig build test         # run all tests
-./zig-out/bin/verve run file.vv            # run (interpreter)
+./zig-out/bin/verve run file.vv            # compile and run
 ./zig-out/bin/verve build file.vv          # compile to native binary
 ./zig-out/bin/verve check file.vv          # type check
 ./zig-out/bin/verve test file.vv           # run @example and test blocks

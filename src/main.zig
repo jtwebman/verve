@@ -1,9 +1,7 @@
 const std = @import("std");
 const Parser = @import("parser.zig").Parser;
 const Lower = @import("lower.zig").Lower;
-const Interpreter = @import("interpreter.zig").Interpreter; // used by verve test
 const Loader = @import("loader.zig").Loader;
-const Value = @import("value.zig").Value; // used by verve test
 
 pub fn main() !void {
     const alloc = std.heap.page_allocator;

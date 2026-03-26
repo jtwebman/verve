@@ -1,6 +1,6 @@
 # Verve Backlog
 
-## Phase 1 — Parser & Interpreter ✅
+## Phase 1 — Parser & Language Foundation ✅
 
 - [x] Set up Zig project structure
 - [x] Hand-written recursive descent parser (no separate lexer, no parser generator)
@@ -125,8 +125,9 @@
 
 - [ ] Invariant checking after receive handlers
 - [ ] Real test blocks — `test "name" { ... }` in addition to @example
-- [ ] Migrate `verve test` from interpreter to compiler — generate test program from @example/@property, compile, run, compare results
-- [ ] Remove interpreter entirely after verve test migration (interpreter.zig, value.zig, process.zig, interpreter_test.zig, process_test.zig)
+- [x] `test "name" { assert ...; }` blocks compile to native via `verve test`
+- [x] Interpreter removed (4,549 lines — interpreter.zig, value.zig, process.zig, verifier.zig)
+- [ ] @example/@property compile-based verification (doc comment tests currently disabled)
 
 ## Phase 4 — Native Compilation (Zig backend)
 
