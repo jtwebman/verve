@@ -2219,7 +2219,10 @@ test "compile: http build response" {
         \\}
     );
     try testing.expectEqual(@as(u8, 0), r.exit);
-    try testing.expectEqualStrings("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 5\r\nConnection: close\r\n\r\nhello\n", r.stdout);
+    // Response includes Date header, so check key parts
+    try testing.expect(std.mem.startsWith(u8, r.stdout, "HTTP/1.1 200 OK\r\n"));
+    try testing.expect(std.mem.indexOf(u8, r.stdout, "Content-Length: 5") != null);
+    try testing.expect(std.mem.indexOf(u8, r.stdout, "hello") != null);
 }
 
 test "compile: http server loopback" {
@@ -2274,7 +2277,9 @@ test "compile: http 404 response" {
         \\}
     );
     try testing.expectEqual(@as(u8, 0), r.exit);
-    try testing.expectEqualStrings("HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\nContent-Length: 9\r\nConnection: close\r\n\r\nnot found\n", r.stdout);
+    try testing.expect(std.mem.startsWith(u8, r.stdout, "HTTP/1.1 404 Not Found\r\n"));
+    try testing.expect(std.mem.indexOf(u8, r.stdout, "Content-Length: 9") != null);
+    try testing.expect(std.mem.indexOf(u8, r.stdout, "not found") != null);
 }
 
 test "compile: http json response end to end" {

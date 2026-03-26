@@ -1387,44 +1387,29 @@ pub fn http_build_response(status: i64, content_type_ptr: i64, content_type_len:
     b.append("\r\n");
 
     b.append("Connection: close\r\n");
+
+    // Date header (RFC 7231 MUST) — Unix timestamp for simplicity
+    var date_buf: [48]u8 = undefined;
+    const ts = std.time.timestamp();
+    const date_str = std.fmt.bufPrint(&date_buf, "Date: {d}\r\n", .{ts}) catch "";
+    b.append(date_str);
     b.append("\r\n");
 
     // Body
     b.append(body);
 
-    return b.result().ptr;
+    const res = b.result();
+    last_response_len = res.len;
+    return res.ptr;
 }
 
+/// Last response length — set by http_build_response.
+var last_response_len: i64 = 0;
+
 pub fn http_build_response_len(status: i64, content_type_ptr: i64, content_type_len: i64, body_ptr: i64, body_len: i64) i64 {
-    // Rebuild to get length — not ideal but simple
+    // Build the response to get the exact length
     _ = http_build_response(status, content_type_ptr, content_type_len, body_ptr, body_len);
-    // The builder writes sequentially, so we can compute the length
-    const ct_len: usize = @intCast(@as(u64, @bitCast(content_type_len)));
-    const bl: usize = @intCast(@as(u64, @bitCast(body_len)));
-    var body_len_digits: usize = 1;
-    var tmp = bl;
-    while (tmp >= 10) {
-        body_len_digits += 1;
-        tmp /= 10;
-    }
-    const status_digits: usize = if (status >= 100 and status < 1000) 3 else 4;
-    const reason_len: usize = switch (status) {
-        200 => 2, // "OK"
-        201 => 7, // "Created"
-        204 => 10, // "No Content"
-        400 => 11, // "Bad Request"
-        404 => 9, // "Not Found"
-        405 => 18, // "Method Not Allowed"
-        500 => 21, // "Internal Server Error"
-        else => 2,
-    };
-    // "HTTP/1.1 " + status + " " + reason + "\r\n"
-    // "Content-Type: " + ct + "\r\n"
-    // "Content-Length: " + digits + "\r\n"
-    // "Connection: close\r\n"
-    // "\r\n"
-    // body
-    return @intCast(9 + status_digits + 1 + reason_len + 2 + 14 + ct_len + 2 + 16 + body_len_digits + 2 + 19 + 2 + bl);
+    return last_response_len;
 }
 
 // ── Arena allocator ────────────────────────────────
