@@ -1,8 +1,9 @@
 const std = @import("std");
 const Parser = @import("parser.zig").Parser;
-const Interpreter = @import("interpreter.zig").Interpreter;
+const Lower = @import("lower.zig").Lower;
+const Interpreter = @import("interpreter.zig").Interpreter; // used by verve test
 const Loader = @import("loader.zig").Loader;
-const Value = @import("value.zig").Value;
+const Value = @import("value.zig").Value; // used by verve test
 
 pub fn main() !void {
     const alloc = std.heap.page_allocator;
@@ -64,65 +65,61 @@ pub fn main() !void {
             }
         }
     } else if (std.mem.eql(u8, command, "run")) {
+        // verve run = compile to temp binary + execute (like go run)
         const file_path = args.next() orelse {
             std.debug.print("Error: no file specified\n", .{});
             return;
         };
 
-        var loader = Loader.init(alloc);
-        const merged = loader.loadFile(file_path) catch |err| {
-            switch (err) {
-                error.FileNotFound => std.debug.print("Error: file not found: {s}\n", .{file_path}),
-                error.ParseFailed => std.debug.print("Parse error in {s}\n", .{file_path}),
-                error.CircularImport => std.debug.print("Error: circular import detected\n", .{}),
-                else => std.debug.print("Error: {}\n", .{err}),
-            }
+        const source = std.fs.cwd().readFileAlloc(alloc, file_path, 10 * 1024 * 1024) catch |err| {
+            std.debug.print("Error reading {s}: {}\n", .{ file_path, err });
             return;
         };
 
-        var interp = Interpreter.init(alloc);
-        interp.load(merged) catch |err| {
-            std.debug.print("Load error: {}\n", .{err});
-            return;
-        };
-        // Store source for runtime error reporting
-        interp.source = std.fs.cwd().readFileAlloc(alloc, file_path, 1024 * 1024) catch null;
-
-        const entry = interp.findMain() orelse {
-            std.debug.print("Error: no entry point found. Add fn main(args: list<string>) -> int to a process or module.\n", .{});
+        var parser = Parser.init(source, alloc);
+        const file = parser.parseFile() catch {
+            std.debug.print("Parse error in {s}\n", .{file_path});
             return;
         };
 
-        // Build args list
-        const args_list = try alloc.create(Value.MutableList);
-        args_list.* = Value.MutableList.init(alloc);
+        var lower = Lower.init(alloc);
+        const program = lower.lowerFile(file) catch |err| {
+            std.debug.print("Lowering error: {}\n", .{err});
+            return;
+        };
+
+        const ZigBackend = @import("zig_backend.zig").ZigBackend;
+        var backend = ZigBackend.init(alloc);
+        backend.emit(program);
+
+        // Build to temp path
+        const tmp_path = "/tmp/verve_run_tmp";
+        backend.build(tmp_path, "/home/jt/.local/zig/zig") catch |err| {
+            std.debug.print("Build error: {}\n", .{err});
+            return;
+        };
+
+        // Execute the compiled binary
+        // Collect remaining args for the program
+        var child_args = std.ArrayListUnmanaged([]const u8){};
+        try child_args.append(alloc, tmp_path);
         while (args.next()) |arg| {
-            try args_list.append(.{ .string = arg });
+            try child_args.append(alloc, arg);
         }
-        const args_val = [_]Value{.{ .list = args_list }};
+        var child = std.process.Child.init(child_args.items, alloc);
+        child.stderr_behavior = .Inherit;
+        child.stdout_behavior = .Inherit;
+        try child.spawn();
+        const term = try child.wait();
 
-        const result = blk: {
-            if (entry.is_process) {
-                break :blk interp.runProcessMain(entry.module, &args_val) catch |err| {
-                    printRuntimeError(&interp, err);
-                    return;
-                };
-            } else {
-                break :blk interp.callFunction(entry.module, entry.name, &args_val) catch |err| {
-                    printRuntimeError(&interp, err);
-                    return;
-                };
-            }
-        };
+        // Clean up
+        std.fs.cwd().deleteFile(tmp_path) catch {};
 
-        switch (result) {
-            .int => |code| {
-                if (code != 0) {
-                    std.process.exit(@intCast(@as(u64, @bitCast(code))));
-                }
+        switch (term) {
+            .Exited => |code| {
+                if (code != 0) std.process.exit(code);
             },
-            .void => {},
-            else => {},
+            else => std.process.exit(1),
         }
     } else if (std.mem.eql(u8, command, "test")) {
         const file_path = args.next() orelse {
@@ -253,28 +250,16 @@ pub fn main() !void {
     }
 }
 
-fn printRuntimeError(interp: *Interpreter, err: anyerror) void {
-    if (interp.runtime_error) |re| {
-        if (re.line > 0) {
-            std.debug.print("Runtime error at line {d}, col {d}: {s}\n", .{ re.line, re.col, re.message });
-        } else {
-            std.debug.print("Runtime error: {s}\n", .{re.message});
-        }
-    } else {
-        std.debug.print("Runtime error: {}\n", .{err});
-    }
-}
-
 fn printUsage() void {
     std.debug.print(
         \\verve - AI-first programming language
         \\
         \\Usage:
-        \\  verve run <file.vv>     Run a Verve program (interpreter)
         \\  verve build <file.vv>   Compile to native binary
-        \\  verve check <file.vv>   Check a Verve program
-        \\  verve test <file.vv>    Run @example and test blocks
-        \\  verve fmt <file.vv>     Format a Verve file in place
+        \\  verve run <file.vv>     Compile and run (like go run)
+        \\  verve check <file.vv>   Type check
+        \\  verve test <file.vv>    Run @example and @property tests
+        \\  verve fmt <file.vv>     Format in place
         \\
     , .{});
 }
