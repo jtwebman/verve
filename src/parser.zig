@@ -222,16 +222,47 @@ pub const Parser = struct {
         self.skipWhitespaceAndComments();
         try self.expectChar('"');
         const start = self.pos;
+        var has_escapes = false;
         while (self.pos < self.source.len and self.source[self.pos] != '"') {
-            if (self.source[self.pos] == '\\') self.pos += 1;
+            if (self.source[self.pos] == '\\') {
+                has_escapes = true;
+                self.pos += 1;
+            }
             self.pos += 1;
         }
         if (self.pos >= self.source.len) {
             return self.fail("unterminated string literal starting at position {d}", .{start - 1});
         }
-        const value = self.source[start..self.pos];
+        const raw = self.source[start..self.pos];
         try self.expectChar('"');
-        return value;
+        // If no escapes, return the raw slice (zero-copy)
+        if (!has_escapes) return raw;
+        // Process escape sequences
+        const buf = self.alloc.alloc(u8, raw.len) catch return raw;
+        var out: usize = 0;
+        var i: usize = 0;
+        while (i < raw.len) {
+            if (raw[i] == '\\' and i + 1 < raw.len) {
+                const c = raw[i + 1];
+                buf[out] = switch (c) {
+                    'n' => '\n',
+                    't' => '\t',
+                    'r' => '\r',
+                    '\\' => '\\',
+                    '"' => '"',
+                    '/' => '/',
+                    '0' => 0,
+                    else => c,
+                };
+                out += 1;
+                i += 2;
+            } else {
+                buf[out] = raw[i];
+                out += 1;
+                i += 1;
+            }
+        }
+        return buf[0..out];
     }
 
     fn parseStringOrInterp(self: *Parser) Error!ast.Expr {
