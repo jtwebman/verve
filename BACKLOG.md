@@ -153,25 +153,25 @@
 ## Phase 4.5 — Foundation Refactor (runtime correctness)
 
 ### Fat Strings
-- [ ] String representation: fat pointers (ptr, len) everywhere, eliminate strlen
-- [ ] String concatenation with `+` in compiled code
-- [ ] stream_read_line returns (ptr, len) not null-terminated
-- [ ] int_to_string / float_to_string return (ptr, len)
-- [ ] String.len uses tracked length, never scans
+- [x] String concatenation with `+` in compiled code
+- [x] String escape processing in parser
+- [ ] Fully eliminate strlen — some paths still fall back to null-terminated scanning
 - [ ] Remove `-1 marker` pattern in println — track types properly
 
 ### Per-Process Arena Allocator
-- [ ] ProcessArena: bump allocator with page-based growth
-- [ ] Route all runtime allocations through process-local arena
-- [ ] Global arena for non-process (module main) code
-- [ ] Process death frees entire arena (verve_kill → arena.freeAll)
+- [x] ProcessArena: bump allocator with 64KB pages, 8-byte aligned
+- [x] Route 9 allocation sites through process-local arena
+- [x] Global arena for non-process (module main) code
+- [x] Process death frees entire arena (verve_kill → arena.freeAll)
 - [ ] Fix List stack-escape bug (list_new stores pointer to stack local)
+- [ ] Remaining page_allocator sites: readFileAlloc, ArrayList in tcp read_all
 
 ### Overflow → Poison Values (spec compliance)
-- [ ] Checked arithmetic: add, sub, mul detect overflow → `:overflow`
-- [ ] Division by zero → `:div_zero`
-- [ ] Poison propagation: any op on poison returns poison
+- [x] Checked arithmetic: add, sub, mul detect overflow → `:overflow`
+- [x] Division by zero → `:div_zero`
+- [x] Poison propagation: any op on poison returns poison
 - [ ] Poison in comparisons: poison is not equal to anything
+- [ ] Float infinity/NaN → poison
 
 ### Future (needs multi-threaded scheduler)
 - [ ] Idle-thread GC: scan dormant processes, compact arenas
@@ -186,8 +186,15 @@
 - [x] IO — Stdio (out, err, in via streams)
 - [x] module String (len, contains, starts_with, ends_with, trim, replace, split, slice, byte_at, char_at, char_len, chars, is_alpha, is_digit, is_whitespace, is_alnum)
 - [x] IO — Tcp (open, listen, accept, port — returns Result<stream>, 12 compile tests)
-- [x] IO — Stream (write, write_line, read_line, read_all, close — works for both file and tcp)
+- [x] IO — Stream (write, write_line, read_line, read_all, read_bytes, close — works for both file and tcp)
 - [x] SIGPIPE handling in runtime (write to closed socket returns error, not process death)
+- [x] module Json — scanning API (get_string, get_int, get_float, get_bool, get_object, get_array, get_array_len, to_int, to_float, to_bool, to_string) + builder API (build_object, build_add_string/int/bool, build_end)
+- [x] module Http — request parser (parse_request, req_method, req_path, req_body, req_header) + response builder (respond with status codes)
+- [x] module Math — float functions (floor, ceil, round, sin, cos, tan, sqrt_f, pow_f, log, log10, exp, abs_f, min_f, max_f)
+- [x] module Convert — float conversions (to_float, to_int_f, float_to_string, string_to_float)
+- [x] String concatenation with `+` operator in compiled code
+- [x] Float arithmetic in compiler (add_f64, sub_f64, mul_f64, div_f64, neg_f64 + comparisons)
+- [x] String escape processing in parser (\" → ", \n → newline, etc.)
 
 ### Remaining — IO
 
