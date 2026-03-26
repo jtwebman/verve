@@ -291,9 +291,9 @@ test "compile: File.open success" {
 
 test "compile: process main handler" {
     const r = try compileAndCapture(
-        \\process App {
-        \\    state { x: int = 0; }
-        \\    receive main() -> int {
+        \\struct AppState { x: int = 0; }
+        \\process App<AppState> {
+        \\    receive main(state: AppState) -> int {
         \\        println("hello from process");
         \\        return 0;
         \\    }
@@ -305,10 +305,10 @@ test "compile: process main handler" {
 
 test "compile: process state default zero" {
     const r = try compileAndCapture(
-        \\process App {
-        \\    state { count: int = 0; }
-        \\    receive main() -> int {
-        \\        println(count);
+        \\struct AppState { count: int = 0; }
+        \\process App<AppState> {
+        \\    receive main(state: AppState) -> int {
+        \\        println(state.count);
         \\        return 0;
         \\    }
         \\}
@@ -317,13 +317,13 @@ test "compile: process state default zero" {
     try testing.expectEqualStrings("0\n", r.stdout);
 }
 
-test "compile: process transition and state read" {
+test "compile: process state mutation and read" {
     const r = try compileAndCapture(
-        \\process App {
-        \\    state { count: int = 0; }
-        \\    receive main() -> int {
-        \\        transition count { count + 5; }
-        \\        println(count);
+        \\struct AppState { count: int = 0; }
+        \\process App<AppState> {
+        \\    receive main(state: AppState) -> int {
+        \\        state.count = state.count + 5;
+        \\        println(state.count);
         \\        return 0;
         \\    }
         \\}
@@ -334,14 +334,14 @@ test "compile: process transition and state read" {
 
 test "compile: spawn and send" {
     const r = try compileAndCapture(
-        \\process Counter {
-        \\    state { count: int = 0; }
-        \\    receive Increment() -> int {
-        \\        transition count { count + 1; }
-        \\        return count;
+        \\struct CounterState { count: int = 0; }
+        \\process Counter<CounterState> {
+        \\    receive Increment(state: CounterState) -> int {
+        \\        state.count = state.count + 1;
+        \\        return state.count;
         \\    }
-        \\    receive GetCount() -> int {
-        \\        return count;
+        \\    receive GetCount(state: CounterState) -> int {
+        \\        return state.count;
         \\    }
         \\}
         \\module App {
@@ -369,14 +369,14 @@ test "compile: spawn and send" {
 
 test "compile: spawn and tell" {
     const r = try compileAndCapture(
-        \\process Counter {
-        \\    state { count: int = 0; }
-        \\    receive Increment() -> int {
-        \\        transition count { count + 1; }
-        \\        return count;
+        \\struct CounterState { count: int = 0; }
+        \\process Counter<CounterState> {
+        \\    receive Increment(state: CounterState) -> int {
+        \\        state.count = state.count + 1;
+        \\        return state.count;
         \\    }
-        \\    receive GetCount() -> int {
-        \\        return count;
+        \\    receive GetCount(state: CounterState) -> int {
+        \\        return state.count;
         \\    }
         \\}
         \\module App {
@@ -399,12 +399,12 @@ test "compile: spawn and tell" {
 
 test "compile: guard failure" {
     const r = try compileAndCapture(
-        \\process Counter {
-        \\    state { count: int = 0; }
-        \\    receive Add(n: int) -> int {
+        \\struct CounterState { count: int = 0; }
+        \\process Counter<CounterState> {
+        \\    receive Add(state: CounterState, n: int) -> int {
         \\        guard n > 0;
-        \\        transition count { count + n; }
-        \\        return count;
+        \\        state.count = state.count + n;
+        \\        return state.count;
         \\    }
         \\}
         \\module App {
@@ -428,18 +428,18 @@ test "compile: guard failure" {
 
 test "compile: multiple state fields" {
     const r = try compileAndCapture(
-        \\process Pair {
-        \\    state { x: int = 0; y: int = 0; }
-        \\    receive SetX(val: int) -> int {
-        \\        transition x { val; }
-        \\        return x;
+        \\struct PairState { x: int = 0; y: int = 0; }
+        \\process Pair<PairState> {
+        \\    receive SetX(state: PairState, val: int) -> int {
+        \\        state.x = val;
+        \\        return state.x;
         \\    }
-        \\    receive SetY(val: int) -> int {
-        \\        transition y { val; }
-        \\        return y;
+        \\    receive SetY(state: PairState, val: int) -> int {
+        \\        state.y = val;
+        \\        return state.y;
         \\    }
-        \\    receive Sum() -> int {
-        \\        return x + y;
+        \\    receive Sum(state: PairState) -> int {
+        \\        return state.x + state.y;
         \\    }
         \\}
         \\module App {
@@ -467,14 +467,14 @@ test "compile: multiple state fields" {
 
 test "compile: multi-process interaction" {
     const r = try compileAndCapture(
-        \\process Adder {
-        \\    state { total: int = 0; }
-        \\    receive Add(n: int) -> int {
-        \\        transition total { total + n; }
-        \\        return total;
+        \\struct AdderState { total: int = 0; }
+        \\process Adder<AdderState> {
+        \\    receive Add(state: AdderState, n: int) -> int {
+        \\        state.total = state.total + n;
+        \\        return state.total;
         \\    }
-        \\    receive GetTotal() -> int {
-        \\        return total;
+        \\    receive GetTotal(state: AdderState) -> int {
+        \\        return state.total;
         \\    }
         \\}
         \\module App {
@@ -511,14 +511,14 @@ test "compile: multi-process interaction" {
 
 test "compile: message throughput via tell" {
     const r = try compileAndCapture(
-        \\process Counter {
-        \\    state { count: int = 0; }
-        \\    receive Increment() -> int {
-        \\        transition count { count + 1; }
-        \\        return count;
+        \\struct CounterState { count: int = 0; }
+        \\process Counter<CounterState> {
+        \\    receive Increment(state: CounterState) -> int {
+        \\        state.count = state.count + 1;
+        \\        return state.count;
         \\    }
-        \\    receive GetCount() -> int {
-        \\        return count;
+        \\    receive GetCount(state: CounterState) -> int {
+        \\        return state.count;
         \\    }
         \\}
         \\module App {
@@ -714,11 +714,11 @@ test "compile: normal arithmetic still works" {
 
 test "compile: many tagged results dont crash (arena allocation)" {
     const r = try compileAndCapture(
-        \\process Counter {
-        \\    state { count: int = 0; }
-        \\    receive Inc() -> int {
-        \\        transition count { count + 1; }
-        \\        return count;
+        \\struct CounterState { count: int = 0; }
+        \\process Counter<CounterState> {
+        \\    receive Inc(state: CounterState) -> int {
+        \\        state.count = state.count + 1;
+        \\        return state.count;
         \\    }
         \\}
         \\module App {
