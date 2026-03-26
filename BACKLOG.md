@@ -30,13 +30,14 @@
 
 ### Done
 - [x] `test "name" { assert expr; }` blocks — compile to native, run via `verve test`
+- [x] `@example` doc comment tests — compile to assert, run alongside test blocks
 - [x] Poison value warnings (literal division by zero at compile time)
 - [x] Guard consistency checks
 
 ### Remaining
-- [ ] @example/@property compile-based verification (doc comment tests — disabled since interpreter removal)
 - [ ] Invariant checking after receive handlers
 - [ ] Cross-module calls in test blocks
+- [ ] Property-based testing as a language feature (not doc comments)
 
 ## Phase 4 — Native Compilation (Zig backend)
 
