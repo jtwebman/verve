@@ -43,11 +43,12 @@ pub fn fileOpen(path_ptr: i64, path_len: i64) i64 {
     };
     const path = ptr[0..len];
     const data = std.fs.cwd().readFileAlloc(std.heap.page_allocator, path, 10 * 1024 * 1024) catch return makeTagged(1, 0);
-    const stream = std.heap.page_allocator.alloc(i64, 3) catch return makeTagged(1, 0);
+    const stream_mem = arena_alloc(3 * @sizeOf(i64)) orelse return makeTagged(1, 0);
+    const stream = @as([*]i64, @ptrCast(@alignCast(stream_mem)));
     stream[0] = @intCast(@intFromPtr(data.ptr));
     stream[1] = @intCast(data.len);
     stream[2] = 0;
-    return makeTagged(0, @intCast(@intFromPtr(stream.ptr)));
+    return makeTagged(0, @intCast(@intFromPtr(stream)));
 }
 
 pub fn streamReadAll(stream_ptr: i64) i64 {
@@ -138,14 +139,16 @@ pub fn stream_read_line(stream_ptr: i64) i64 {
             while (end < s.file_len and data[end] != '\n') : (end += 1) {}
             const line_len = end - s.file_pos;
             // Copy to null-terminated buffer
-            const buf = std.heap.page_allocator.alloc(u8, line_len + 1) catch return 0;
+            const buf_mem = arena_alloc(line_len + 1) orelse return 0;
+            const buf = @as([*]u8, buf_mem);
             @memcpy(buf[0..line_len], data[s.file_pos..end]);
             buf[line_len] = 0;
             s.file_pos = if (end < s.file_len) end + 1 else end;
-            return @intCast(@intFromPtr(buf.ptr));
+            return @intCast(@intFromPtr(buf));
         },
         .tcp_client => {
-            var line_buf = std.heap.page_allocator.alloc(u8, 4096) catch return 0;
+            const line_mem = arena_alloc(4096) orelse return 0;
+            var line_buf = @as([*]u8, line_mem)[0..4096];
             var line_len: usize = 0;
             while (true) {
                 while (s.read_pos < s.read_len) {
@@ -243,7 +246,8 @@ pub fn tcp_open(host_ptr: i64, host_len: i64, port: i64) i64 {
         return makeTagged(1, 0);
     };
 
-    const s = std.heap.page_allocator.create(VerveStream) catch return makeTagged(1, 0);
+    const s_mem = arena_alloc(@sizeOf(VerveStream)) orelse return makeTagged(1, 0);
+    const s = @as(*VerveStream, @ptrCast(@alignCast(s_mem)));
     s.* = .{
         .kind = .tcp_client,
         .fd = fd,
@@ -277,7 +281,8 @@ pub fn tcp_listen(host_ptr: i64, host_len: i64, port: i64) i64 {
         return makeTagged(1, 0);
     };
 
-    const s = std.heap.page_allocator.create(VerveStream) catch return makeTagged(1, 0);
+    const s_mem = arena_alloc(@sizeOf(VerveStream)) orelse return makeTagged(1, 0);
+    const s = @as(*VerveStream, @ptrCast(@alignCast(s_mem)));
     s.* = .{
         .kind = .tcp_listener,
         .fd = fd,
@@ -298,10 +303,11 @@ pub fn tcp_accept(listener_ptr: i64) i64 {
 
     const client_fd = std.posix.accept(listener.fd, null, null, 0) catch return makeTagged(1, 0);
 
-    const s = std.heap.page_allocator.create(VerveStream) catch {
+    const s_mem = arena_alloc(@sizeOf(VerveStream)) orelse {
         std.posix.close(client_fd);
         return makeTagged(1, 0);
     };
+    const s = @as(*VerveStream, @ptrCast(@alignCast(s_mem)));
     s.* = .{
         .kind = .tcp_client,
         .fd = client_fd,
@@ -468,10 +474,11 @@ pub fn float_to_string(val: i64) i64 {
     const f = f64_from_i64(val);
     var buf: [64]u8 = undefined;
     const s = std.fmt.bufPrint(&buf, "{d}", .{f}) catch return 0;
-    const result = std.heap.page_allocator.alloc(u8, s.len + 1) catch return 0;
+    const result_mem = arena_alloc(s.len + 1) orelse return 0;
+    const result = @as([*]u8, result_mem);
     @memcpy(result[0..s.len], s);
     result[s.len] = 0;
-    return @intCast(@intFromPtr(result.ptr));
+    return @intCast(@intFromPtr(result));
 }
 
 pub fn string_to_float(ptr: i64, len: i64) i64 {
@@ -509,10 +516,11 @@ pub fn system_time_ms() i64 {
 pub fn int_to_string(val: i64) i64 {
     var buf: [32]u8 = undefined;
     const s = std.fmt.bufPrint(&buf, "{d}", .{val}) catch return 0;
-    const result = std.heap.page_allocator.alloc(u8, s.len + 1) catch return 0;
+    const result_mem = arena_alloc(s.len + 1) orelse return 0;
+    const result = @as([*]u8, result_mem);
     @memcpy(result[0..s.len], s);
     result[s.len] = 0;
-    return @intCast(@intFromPtr(result.ptr));
+    return @intCast(@intFromPtr(result));
 }
 
 pub fn int_to_string_len(val: i64) i64 {
@@ -534,8 +542,9 @@ pub const List = struct {
     cap: i64,
 
     pub fn init() List {
-        const mem = std.heap.page_allocator.alloc(i64, 256) catch return .{ .items = undefined, .len = 0, .cap = 0 };
-        return .{ .items = @constCast(mem.ptr), .len = 0, .cap = 256 };
+        const raw = arena_alloc(256 * @sizeOf(i64)) orelse return .{ .items = undefined, .len = 0, .cap = 0 };
+        const mem = @as([*]i64, @ptrCast(@alignCast(raw)));
+        return .{ .items = mem, .len = 0, .cap = 256 };
     }
 
     pub fn append(self: *List, val: i64) void {
@@ -554,7 +563,8 @@ pub const List = struct {
 pub const Tagged = struct { tag: i64, value: i64 };
 
 pub fn makeTagged(tag: i64, value: i64) i64 {
-    const t = std.heap.page_allocator.create(Tagged) catch return 0;
+    const mem = arena_alloc(@sizeOf(Tagged)) orelse return 0;
+    const t = @as(*Tagged, @ptrCast(@alignCast(mem)));
     t.* = .{ .tag = tag, .value = value };
     return @intCast(@intFromPtr(t));
 }
@@ -583,7 +593,8 @@ pub fn verve_string_concat(a_ptr: i64, a_len: i64, b_ptr: i64, b_len: i64) i64 {
     const al: usize = @intCast(@as(u64, @bitCast(a_len)));
     const bl: usize = @intCast(@as(u64, @bitCast(b_len)));
     const total = al + bl;
-    const buf = std.heap.page_allocator.alloc(u8, total) catch return 0;
+    const buf_ptr = arena_alloc(total + 1) orelse return 0; // +1 for null terminator
+    const buf = @as([*]u8, buf_ptr)[0 .. total + 1];
     if (a_ptr != 0 and al > 0) {
         const a = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(a_ptr))))));
         @memcpy(buf[0..al], a[0..al]);
@@ -592,7 +603,74 @@ pub fn verve_string_concat(a_ptr: i64, a_len: i64, b_ptr: i64, b_len: i64) i64 {
         const b = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(b_ptr))))));
         @memcpy(buf[al..total], b[0..bl]);
     }
+    buf[total] = 0; // null-terminate for backward compat with strlen
     return @intCast(@intFromPtr(buf.ptr));
+}
+
+// ── Arena allocator ────────────────────────────────
+
+const ARENA_PAGE_SIZE = 64 * 1024; // 64KB per page
+const ARENA_MAX_PAGES = 256; // 16MB max per arena
+
+pub const Arena = struct {
+    pages: [ARENA_MAX_PAGES]?[*]align(8) u8 = .{null} ** ARENA_MAX_PAGES,
+    page_count: usize = 0,
+    offset: usize = 0,
+    total_allocated: usize = 0,
+
+    /// Allocate `size` bytes from this arena. Returns null on failure.
+    pub fn alloc(self: *Arena, size: usize) ?[*]u8 {
+        // Align to 8 bytes
+        const aligned = (size + 7) & ~@as(usize, 7);
+
+        // Try current page
+        if (self.page_count > 0 and self.offset + aligned <= ARENA_PAGE_SIZE) {
+            const page = self.pages[self.page_count - 1] orelse return null;
+            const ptr = page + self.offset;
+            self.offset += aligned;
+            self.total_allocated += aligned;
+            return ptr;
+        }
+
+        // Need a new page
+        if (self.page_count >= ARENA_MAX_PAGES) return null;
+        const new_page = std.heap.page_allocator.alignedAlloc(u8, .@"8", ARENA_PAGE_SIZE) catch return null;
+        self.pages[self.page_count] = new_page.ptr;
+        self.page_count += 1;
+        self.offset = aligned;
+        self.total_allocated += aligned;
+        return new_page.ptr;
+    }
+
+    /// Free all pages. After this, the arena is empty and reusable.
+    pub fn freeAll(self: *Arena) void {
+        for (0..self.page_count) |i| {
+            if (self.pages[i]) |page| {
+                std.heap.page_allocator.free(@as([*]u8, @ptrCast(page))[0..ARENA_PAGE_SIZE]);
+                self.pages[i] = null;
+            }
+        }
+        self.page_count = 0;
+        self.offset = 0;
+        self.total_allocated = 0;
+    }
+};
+
+/// Global arena for non-process code (module main).
+var global_arena: Arena = .{};
+
+/// Get the current arena: process-local if in a process, global otherwise.
+pub fn currentArena() *Arena {
+    if (current_process_id > 0) {
+        const idx = pidx(current_process_id);
+        return &process_table[idx].arena;
+    }
+    return &global_arena;
+}
+
+/// Allocate from the current arena. Drop-in replacement for page_allocator.alloc.
+pub fn arena_alloc(size: usize) ?[*]u8 {
+    return currentArena().alloc(size);
 }
 
 // ── Process runtime ────────────────────────────────
@@ -635,6 +713,7 @@ pub const VerveProcess = struct {
     mailbox: Mailbox,
     watcher_pids: [MAX_WATCHERS]i64,
     watcher_count: usize,
+    arena: Arena,
 };
 
 pub const DispatchFn = *const fn (i64, [*]const i64, i64) i64;
@@ -650,6 +729,7 @@ pub var process_table: [MAX_PROCESSES]VerveProcess = blk: {
             .mailbox = .{},
             .watcher_pids = @splat(0),
             .watcher_count = 0,
+            .arena = .{},
         };
     }
     break :blk t;
@@ -679,6 +759,7 @@ pub fn verve_spawn(process_type: i64) i64 {
         .mailbox = .{},
         .watcher_pids = @splat(0),
         .watcher_count = 0,
+        .arena = .{},
     };
     return process_count;
 }
@@ -704,6 +785,7 @@ pub fn verve_kill(target_pid: i64) void {
     const idx = pidx(target_pid);
     const proc = &process_table[idx];
     proc.alive = false;
+    // Notify watchers before freeing arena
     for (0..proc.watcher_count) |i| {
         const watcher_pid = proc.watcher_pids[i];
         const widx = pidx(watcher_pid);
@@ -714,6 +796,8 @@ pub fn verve_kill(target_pid: i64) void {
         msg.args[1] = 0;
         _ = watcher.mailbox.push(msg);
     }
+    // Free all memory owned by this process
+    proc.arena.freeAll();
 }
 
 // ── Message passing ────────────────────────────────
