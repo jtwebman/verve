@@ -325,13 +325,39 @@ Libraries ship as signed source code (not binaries) — enables tree shaking, AI
 - [ ] Clustering — message serialization across network
 - [ ] Clustering — ProcessDied across network boundaries
 
+## Adoption — Non-Negotiable Prerequisites
+
+Research (Meyerovich-Rabkin OOPSLA 2013 + industry analysis) shows technical features are secondary to tooling, ecosystem, and developer experience. These are required for adoption:
+
+### Tooling (highest leverage)
+- [ ] LSP (Language Server Protocol) — go-to-definition, autocomplete, errors in editor. Covers VSCode, Neovim, Zed. Without this "no one will go for it."
+- [ ] Unified CLI — `verve build`, `verve test`, `verve fmt`, `verve check`, `verve doc` all in one binary (already mostly done)
+- [ ] Excellent error messages — Rust-quality: show the code, point to the problem, suggest a fix
+- [ ] `verve doc` — generate reference docs from doc comments
+
+### Ecosystem
+- [ ] Package manager integrated with build (Cargo model) — `verve.pkg` + `verve install` + `verve publish`
+- [ ] WASM compilation target — run in browsers, edge functions, serverless
+- [ ] C FFI — interop with existing libraries (Phase 8)
+
+### Killer Demo / Domain
+Build something IN Verve that people need daily. The Go/Docker model: a tool so good that people discover the language through it.
+
+Candidates:
+- [ ] Demo: AI agent orchestration service — process model maps naturally, no clear language winner yet
+- [ ] Demo: Real-time chat/WebSocket server — Discord proved this with Elixir
+- [ ] Demo: HTTP API framework — JSON + Tcp + processes = a web server in 50 lines
+- [ ] Demo: CLI tool that showcases compile speed + binary size
+
+### Community
+- [ ] vervelang.org website with getting-started guide
+- [ ] Open source from day one (Mojo's closed approach is failing)
+- [ ] Welcoming community culture (Rust's inclusivity was a competitive advantage, Haskell's elitism killed adoption)
+- [ ] Stability commitment — never ship breaking changes casually (Crystal's trap)
+
 ## Future
 
-- [ ] WASM backend
 - [ ] GPU backend (SPIR-V)
 - [ ] LLVM backend (optional, for maximum optimization)
 - [ ] Self-hosting — rewrite compiler in Verve
-- [ ] vervelang.org website
-- [ ] Package discovery site
-- [ ] Language server protocol (LSP) for editor support
 - [ ] Memory-mapped file support
