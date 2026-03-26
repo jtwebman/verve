@@ -2559,6 +2559,120 @@ test "compile: json and http integration - parse json body and respond" {
     try testing.expectEqualStrings("{\"output\":\"hello\"}\n", r.stdout);
 }
 
+test "compile: http GET without body" {
+    const r = try compileAndCapture(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        data: string = "GET /api HTTP/1.1\r\nHost: localhost\r\n\r\n";
+        \\        req: int = Http.parse_request(data);
+        \\        body: string = Http.req_body(req);
+        \\        println(String.len(body));
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("0\n", r.stdout);
+}
+
+test "compile: http POST with form encoded body" {
+    const r = try compileAndCapture(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        data: string = "POST /login HTTP/1.1\r\nContent-Type: application/x-www-form-urlencoded\r\nContent-Length: 21\r\n\r\nuser=alice&pass=s3cret";
+        \\        req: int = Http.parse_request(data);
+        \\        method: string = Http.req_method(req);
+        \\        body: string = Http.req_body(req);
+        \\        ct: string = Http.req_header(req, "Content-Type");
+        \\        println(method);
+        \\        println(body);
+        \\        println(ct);
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("POST\nuser=alice&pass=s3cret\napplication/x-www-form-urlencoded\n", r.stdout);
+}
+
+test "compile: http request line only no headers" {
+    const r = try compileAndCapture(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        data: string = "GET / HTTP/1.1\r\n\r\n";
+        \\        req: int = Http.parse_request(data);
+        \\        path: string = Http.req_path(req);
+        \\        println(path);
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("/\n", r.stdout);
+}
+
+test "compile: http lazy parsing - path only never touches headers" {
+    const r = try compileAndCapture(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        match Tcp.listen("127.0.0.1", 0) {
+        \\            :ok{listener} => {
+        \\                port: int = Tcp.port(listener);
+        \\                match Tcp.open("127.0.0.1", port) {
+        \\                    :ok{client} => {
+        \\                        Stream.write(client, "GET /health HTTP/1.1\r\nHost: localhost\r\n\r\n");
+        \\                        Stream.close(client);
+        \\                        match Tcp.accept(listener) {
+        \\                            :ok{conn} => {
+        \\                                data: string = Stream.read_bytes(conn, 4096);
+        \\                                req: int = Http.parse_request(data);
+        \\                                path: string = Http.req_path(req);
+        \\                                if path == "/health" {
+        \\                                    println("healthy");
+        \\                                } else {
+        \\                                    println("unknown");
+        \\                                }
+        \\                                Stream.close(conn);
+        \\                            }
+        \\                            :error{e} => println("accept failed");
+        \\                        }
+        \\                    }
+        \\                    :error{e} => println("open failed");
+        \\                }
+        \\                Stream.close(listener);
+        \\            }
+        \\            :error{e} => println("listen failed");
+        \\        }
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("healthy\n", r.stdout);
+}
+
+test "compile: http multiple headers" {
+    const r = try compileAndCapture(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        data: string = "GET / HTTP/1.1\r\nHost: localhost\r\nAccept: text/html\r\nUser-Agent: Verve/1.0\r\nX-Custom: hello\r\n\r\n";
+        \\        req: int = Http.parse_request(data);
+        \\        host: string = Http.req_header(req, "Host");
+        \\        accept: string = Http.req_header(req, "Accept");
+        \\        ua: string = Http.req_header(req, "User-Agent");
+        \\        custom: string = Http.req_header(req, "X-Custom");
+        \\        println(host);
+        \\        println(accept);
+        \\        println(ua);
+        \\        println(custom);
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("localhost\ntext/html\nVerve/1.0\nhello\n", r.stdout);
+}
+
 test "compile: process state with new struct syntax" {
     const r = try compileAndCapture(
         \\struct PointState {
