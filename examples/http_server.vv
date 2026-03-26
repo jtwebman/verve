@@ -1,13 +1,12 @@
-/// HTTP/1.1 server with process-based connection handling.
-/// Accept loop dispatches to a handler process via tell (fire-and-forget).
-/// Handler process owns the connection lifecycle.
-/// When multi-threading arrives: spawn process per connection for true parallelism.
+/// HTTP/1.1 server — spawn a process per connection (Elixir-style).
+/// Each connection gets its own process with its own memory arena.
+/// Process dies after handling the request, arena freed automatically.
 
 struct HandlerState {
-	handled: int = 0;
+	id: int = 0;
 }
 
-/// Handles HTTP connections dispatched from the accept loop.
+/// Handles a single HTTP connection, then dies.
 process ConnectionHandler<HandlerState> {
 	/// Process one HTTP request and respond.
 	receive Handle(state: HandlerState, client_fd: int, request_num: int) -> int {
@@ -32,22 +31,22 @@ process ConnectionHandler<HandlerState> {
 			Stream.write(client_fd, response);
 		}
 		Stream.close(client_fd);
-		state.handled = state.handled + 1;
-		return state.handled;
+		Process.exit();
+		return 0;
 	}
 }
 
-/// Accept loop — dispatches connections to handler process.
+/// Accept loop — spawns a fresh process per connection.
 module Main {
 	fn main() -> int {
 		match Tcp.listen("127.0.0.1", 8080) {
 			:ok{listener} => {
-				println("HTTP server on http://127.0.0.1:8080 (process-per-connection)");
-				handler: int = spawn ConnectionHandler();
+				println("HTTP server on http://127.0.0.1:8080 (spawn per connection)");
 				i: int = 0;
-				while i < 100000 {
+				while i < 1000000 {
 					match Tcp.accept(listener) {
 						:ok{client_fd} => {
+							handler: int = spawn ConnectionHandler();
 							tell handler.Handle(client_fd, i);
 						}
 						:error{e} => {

@@ -734,6 +734,9 @@ pub const ZigBackend = struct {
             if (args.len >= 2) {
                 self.lineFmt("{s} = rt.{s}({s}, {s});", .{ self.regName(dest), name, self.regName(args[0]), self.regName(args[1]) });
             }
+        } else if (std.mem.eql(u8, name, "process_exit")) {
+            self.line("rt.verve_exit_self();");
+            self.lineFmt("{s} = 0;", .{self.regName(dest)});
         } else if (std.mem.startsWith(u8, name, "json_parse_struct:")) {
             const struct_name = name["json_parse_struct:".len..];
             if (args.len >= 2) {

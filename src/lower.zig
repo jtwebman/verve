@@ -898,6 +898,11 @@ pub const Lower = struct {
                                 return dest;
                             }
                         }
+                        if (std.mem.eql(u8, mod_name, "Process")) {
+                            const builtin_name = std.fmt.allocPrint(self.alloc, "process_{s}", .{fn_name}) catch fn_name;
+                            self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = builtin_name, .args = args } });
+                            return dest;
+                        }
                         if (std.mem.eql(u8, mod_name, "Json")) {
                             // Json functions take (json_ptr, json_len, key_ptr, key_len) or (json_ptr, json_len)
                             if (std.mem.eql(u8, fn_name, "get_string") or std.mem.eql(u8, fn_name, "get_int") or

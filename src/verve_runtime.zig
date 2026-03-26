@@ -1658,6 +1658,17 @@ pub fn verve_kill(target_pid: i64) void {
     proc.arena.freeAll();
 }
 
+/// Exit the current process — marks it dead and frees its arena.
+/// Called by a handler to self-terminate (spawn-per-message pattern).
+pub fn verve_exit_self() void {
+    if (current_process_id <= 0) return;
+    const idx = pidx(current_process_id);
+    if (idx >= process_table.len) return;
+    const proc = &process_table[idx];
+    proc.alive = false;
+    // Arena freed on next spawn that recycles this slot
+}
+
 // ── Message passing ────────────────────────────────
 
 pub fn verve_drain(target_pid: i64) void {
@@ -1701,6 +1712,7 @@ pub fn verve_send(target_pid: i64, handler_id: i64, args: [*]const i64, arg_coun
 
 pub fn verve_tell(target_pid: i64, handler_id: i64, args: [*]const i64, arg_count: i64) void {
     const idx = pidx(target_pid);
+    if (idx >= process_table.len) return;
     const proc = &process_table[idx];
     if (!proc.alive) return;
     const msg = build_msg(handler_id, args, arg_count);
