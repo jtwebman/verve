@@ -541,6 +541,82 @@ test "compile: message throughput via tell" {
     try testing.expectEqualStrings("50\n", r.stdout);
 }
 
+// ── Overflow / poison tests ────────────────────────
+
+test "compile: division by zero produces poison" {
+    const r = try compileAndCapture(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        x: int = 10 / 0;
+        \\        // Poison prints as a large negative number (sentinel)
+        \\        if x > 0 {
+        \\            println("wrong: positive");
+        \\        } else {
+        \\            println("poison");
+        \\        }
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("poison\n", r.stdout);
+}
+
+test "compile: modulo by zero produces poison" {
+    const r = try compileAndCapture(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        x: int = 10 % 0;
+        \\        if x > 0 {
+        \\            println("wrong");
+        \\        } else {
+        \\            println("poison");
+        \\        }
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("poison\n", r.stdout);
+}
+
+test "compile: poison propagates through addition" {
+    const r = try compileAndCapture(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        bad: int = 10 / 0;
+        \\        result: int = bad + 5;
+        \\        if result > 0 {
+        \\            println("wrong");
+        \\        } else {
+        \\            println("propagated");
+        \\        }
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("propagated\n", r.stdout);
+}
+
+test "compile: normal arithmetic still works" {
+    const r = try compileAndCapture(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        println(3 + 4);
+        \\        println(10 - 3);
+        \\        println(6 * 7);
+        \\        println(42 / 6);
+        \\        println(10 % 3);
+        \\        println(0 - 5);
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("7\n7\n42\n7\n1\n-5\n", r.stdout);
+}
+
 // ── String concat tests ────────────────────────────
 
 test "compile: string concat literals" {

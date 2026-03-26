@@ -607,6 +607,68 @@ pub fn verve_string_concat(a_ptr: i64, a_len: i64, b_ptr: i64, b_len: i64) i64 {
     return @intCast(@intFromPtr(buf.ptr));
 }
 
+// ── Checked arithmetic (poison values) ─────────────
+
+/// Poison sentinel values — chosen to be in the extreme negative range
+/// that normal arithmetic cannot produce (i64.MIN region).
+pub const POISON_OVERFLOW: i64 = std.math.minInt(i64) + 1; // 0x8000000000000001
+pub const POISON_DIV_ZERO: i64 = std.math.minInt(i64) + 2;
+pub const POISON_OUT_OF_BOUNDS: i64 = std.math.minInt(i64) + 3;
+
+fn isPoison(v: i64) bool {
+    return v >= std.math.minInt(i64) and v <= std.math.minInt(i64) + 3 and v != std.math.minInt(i64);
+}
+
+pub fn verve_add_checked(a: i64, b: i64) i64 {
+    if (isPoison(a)) return a;
+    if (isPoison(b)) return b;
+    const result = @addWithOverflow(a, b);
+    if (result[1] != 0) return POISON_OVERFLOW;
+    return result[0];
+}
+
+pub fn verve_sub_checked(a: i64, b: i64) i64 {
+    if (isPoison(a)) return a;
+    if (isPoison(b)) return b;
+    const result = @subWithOverflow(a, b);
+    if (result[1] != 0) return POISON_OVERFLOW;
+    return result[0];
+}
+
+pub fn verve_mul_checked(a: i64, b: i64) i64 {
+    if (isPoison(a)) return a;
+    if (isPoison(b)) return b;
+    const result = @mulWithOverflow(a, b);
+    if (result[1] != 0) return POISON_OVERFLOW;
+    return result[0];
+}
+
+pub fn verve_div_checked(a: i64, b: i64) i64 {
+    if (isPoison(a)) return a;
+    if (isPoison(b)) return b;
+    if (b == 0) return POISON_DIV_ZERO;
+    return @divTrunc(a, b);
+}
+
+pub fn verve_mod_checked(a: i64, b: i64) i64 {
+    if (isPoison(a)) return a;
+    if (isPoison(b)) return b;
+    if (b == 0) return POISON_DIV_ZERO;
+    return @mod(a, b);
+}
+
+pub fn verve_neg_checked(a: i64) i64 {
+    if (isPoison(a)) return a;
+    const result = @subWithOverflow(@as(i64, 0), a);
+    if (result[1] != 0) return POISON_OVERFLOW;
+    return result[0];
+}
+
+/// Check if a value is poison (for comparisons — poison is never equal to anything).
+pub fn verve_is_poison(v: i64) i64 {
+    return if (isPoison(v)) @as(i64, 1) else @as(i64, 0);
+}
+
 // ── Arena allocator ────────────────────────────────
 
 const ARENA_PAGE_SIZE = 64 * 1024; // 64KB per page

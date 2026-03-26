@@ -323,12 +323,12 @@ pub const ZigBackend = struct {
                 self.lineFmt("{s} = @bitCast(@as(f64, {d}));", .{ self.regName(cf.dest), cf.value });
             },
 
-            .add_i64 => |op| self.lineFmt("{s} = {s} +% {s};", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
-            .sub_i64 => |op| self.lineFmt("{s} = {s} -% {s};", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
-            .mul_i64 => |op| self.lineFmt("{s} = {s} *% {s};", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
-            .div_i64 => |op| self.lineFmt("{s} = @divTrunc({s}, {s});", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
-            .mod_i64 => |op| self.lineFmt("{s} = @mod({s}, {s});", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
-            .neg_i64 => |op| self.lineFmt("{s} = -%({s});", .{ self.regName(op.dest), self.regName(op.operand) }),
+            .add_i64 => |op| self.lineFmt("{s} = rt.verve_add_checked({s}, {s});", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
+            .sub_i64 => |op| self.lineFmt("{s} = rt.verve_sub_checked({s}, {s});", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
+            .mul_i64 => |op| self.lineFmt("{s} = rt.verve_mul_checked({s}, {s});", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
+            .div_i64 => |op| self.lineFmt("{s} = rt.verve_div_checked({s}, {s});", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
+            .mod_i64 => |op| self.lineFmt("{s} = rt.verve_mod_checked({s}, {s});", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
+            .neg_i64 => |op| self.lineFmt("{s} = rt.verve_neg_checked({s});", .{ self.regName(op.dest), self.regName(op.operand) }),
 
             // Float arithmetic — bitcast i64 <-> f64, let Zig handle the math
             .add_f64 => |op| self.lineFmt("{s} = @bitCast(@as(f64, @bitCast({s})) + @as(f64, @bitCast({s})));", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
