@@ -94,6 +94,26 @@ pub const Lower = struct {
                 else => {},
             }
         }
+        // Build struct_decls in program for backend (used by Json.parse typed parsing)
+        for (file.decls) |decl| {
+            switch (decl) {
+                .struct_decl => |s| {
+                    var fields = std.ArrayListUnmanaged(ir.StructFieldInfo){};
+                    for (s.fields) |f| {
+                        const type_name: []const u8 = switch (f.type_expr) {
+                            .simple => |tn| tn,
+                            else => "unknown",
+                        };
+                        try fields.append(self.alloc, .{ .name = f.name, .type_name = type_name });
+                    }
+                    try self.program.struct_decls.append(self.alloc, .{
+                        .name = s.name,
+                        .fields = try fields.toOwnedSlice(self.alloc),
+                    });
+                },
+                else => {},
+            }
+        }
         for (file.decls) |decl| {
             switch (decl) {
                 .module_decl => |m| {
@@ -420,6 +440,11 @@ pub const Lower = struct {
                                 const val_reg = func.newReg();
                                 self.appendInst(.{ .tag_value = .{ .dest = val_reg, .tagged = subject_reg } });
                                 self.appendInst(.{ .store_local = .{ .name = t.bindings[0], .src = val_reg } });
+                                // Propagate struct type from tagged result to binding
+                                const tag_key = std.fmt.allocPrint(self.alloc, "__tagged_struct_{d}", .{subject_reg}) catch "";
+                                if (self.var_types.get(tag_key)) |struct_type| {
+                                    self.var_types.put(self.alloc, t.bindings[0], struct_type) catch {};
+                                }
                             }
                             for (arm.body) |s| self.lowerStmt(s);
                             self.appendInst(.{ .jump = .{ .target = merge_id } });
@@ -940,6 +965,27 @@ pub const Lower = struct {
                                 }
                                 return dest;
                             }
+                            if (std.mem.eql(u8, fn_name, "parse")) {
+                                // Json.parse(data, StructName) — typed struct parsing
+                                // Second arg is a struct type name (identifier)
+                                var json_args = std.ArrayListUnmanaged(ir.Reg){};
+                                if (c.args.len >= 1) {
+                                    const d = self.lowerExpr(c.args[0]);
+                                    json_args.append(self.alloc, d) catch {};
+                                    json_args.append(self.alloc, self.getStringLen(func, d)) catch {};
+                                }
+                                // Get struct name from second argument (must be identifier)
+                                var struct_name: []const u8 = "unknown";
+                                if (c.args.len >= 2 and c.args[1] == .identifier) {
+                                    struct_name = c.args[1].identifier;
+                                }
+                                const builtin_name = std.fmt.allocPrint(self.alloc, "json_parse_struct:{s}", .{struct_name}) catch "json_parse_struct:unknown";
+                                self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = builtin_name, .args = json_args.toOwnedSlice(self.alloc) catch &.{} } });
+                                // Track the tagged result as carrying this struct type
+                                // When match extracts :ok{user}, user will be typed as this struct
+                                self.var_types.put(self.alloc, std.fmt.allocPrint(self.alloc, "__tagged_struct_{d}", .{dest}) catch "", struct_name) catch {};
+                                return dest;
+                            }
                             if (std.mem.eql(u8, fn_name, "build_object")) {
                                 self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = "json_build_object", .args = &.{} } });
                                 return dest;
@@ -1116,7 +1162,9 @@ pub const Lower = struct {
                             builtin_args.append(self.alloc, arg_reg) catch {};
                             // Add string length for string args, 0 for non-string
                             const is_string = (arg == .string_literal) or
-                                (arg == .identifier and self.string_vars.get(arg.identifier) != null);
+                                (arg == .identifier and self.string_vars.get(arg.identifier) != null) or
+                                (arg == .field_access and self.isStringFieldAccess(arg.field_access)) or
+                                (self.string_lens.get(arg_reg) != null);
                             if (is_string) {
                                 if (self.string_lens.get(arg_reg)) |lr| {
                                     builtin_args.append(self.alloc, lr) catch {};

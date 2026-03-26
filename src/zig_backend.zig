@@ -60,6 +60,65 @@ pub const ZigBackend = struct {
         self.line("const std = @import(\"std\");");
         self.line("const rt = @import(\"verve_runtime.zig\");");
         self.line("");
+        // Emit Zig struct definitions for Json.parse typed parsing
+        for (program.struct_decls.items) |sd| {
+            self.writeFmt("const VerveStruct_{s} = struct {{\n", .{sd.name});
+            self.indent += 1;
+            for (sd.fields) |f| {
+                self.writeIndent();
+                if (std.mem.eql(u8, f.type_name, "int")) {
+                    self.writeFmt("{s}: i64 = 0,\n", .{f.name});
+                } else if (std.mem.eql(u8, f.type_name, "float")) {
+                    self.writeFmt("{s}: f64 = 0.0,\n", .{f.name});
+                } else if (std.mem.eql(u8, f.type_name, "bool")) {
+                    self.writeFmt("{s}: bool = false,\n", .{f.name});
+                } else if (std.mem.eql(u8, f.type_name, "string")) {
+                    self.writeFmt("{s}: []const u8 = \"\",\n", .{f.name});
+                } else {
+                    self.writeFmt("{s}: i64 = 0,\n", .{f.name});
+                }
+            }
+            self.indent -= 1;
+            self.line("};");
+            self.line("");
+
+            // Emit parse function: takes (data_ptr, data_len), returns tagged Result
+            // On success: allocates Verve struct [N]i64, populates fields, wraps in :ok
+            // On failure: returns :error
+            self.writeFmt("fn verve_json_parse_{s}(data_ptr: i64, data_len: i64) i64 {{\n", .{sd.name});
+            self.indent += 1;
+            self.line("const ptr = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(data_ptr))))));");
+            self.line("const len: usize = @intCast(@as(u64, @bitCast(data_len)));");
+            self.line("const slice = ptr[0..len];");
+            self.writeFmt("const parsed = std.json.parseFromSlice(VerveStruct_{s}, std.heap.page_allocator, slice, .{{ .ignore_unknown_fields = true }}) catch return rt.makeTagged(1, 0);\n", .{sd.name});
+            self.line("const val = parsed.value;");
+
+            // Allocate Verve struct (array of i64)
+            self.lineFmt("const struct_mem = rt.arena_alloc({d} * @sizeOf(i64)) orelse return rt.makeTagged(1, 0);", .{sd.fields.len});
+            self.line("const fields = @as([*]i64, @ptrCast(@alignCast(struct_mem)));");
+
+            // Copy each field
+            for (sd.fields, 0..) |f, fi| {
+                if (std.mem.eql(u8, f.type_name, "int")) {
+                    self.lineFmt("fields[{d}] = val.{s};", .{ fi, f.name });
+                } else if (std.mem.eql(u8, f.type_name, "float")) {
+                    self.lineFmt("fields[{d}] = @bitCast(val.{s});", .{ fi, f.name });
+                } else if (std.mem.eql(u8, f.type_name, "bool")) {
+                    self.lineFmt("fields[{d}] = if (val.{s}) @as(i64, 1) else @as(i64, 0);", .{ fi, f.name });
+                } else if (std.mem.eql(u8, f.type_name, "string")) {
+                    // Copy to null-terminated buffer (std.json slices aren't null-terminated)
+                    self.writeFmt("    {{ const sv = val.{s}; if (sv.len == 0) {{ fields[{d}] = @intCast(@intFromPtr(@as([*]const u8, \"\"))); }} else if (rt.arena_alloc(sv.len + 1)) |sb| {{ @memcpy(sb[0..sv.len], sv); sb[sv.len] = 0; fields[{d}] = @intCast(@intFromPtr(sb)); }} else {{ fields[{d}] = 0; }} }}\n", .{ f.name, fi, fi, fi });
+                } else {
+                    self.lineFmt("fields[{d}] = 0;", .{fi});
+                }
+            }
+
+            self.line("return rt.makeTagged(0, @intCast(@intFromPtr(fields)));");
+            self.indent -= 1;
+            self.line("}");
+            self.line("");
+        }
+
         // Emit per-process dispatch functions + register in dispatch table
         if (program.process_decls.items.len > 0) {
             for (program.process_decls.items, 0..) |pd, pdi| {
@@ -673,6 +732,11 @@ pub const ZigBackend = struct {
         {
             if (args.len >= 2) {
                 self.lineFmt("{s} = rt.{s}({s}, {s});", .{ self.regName(dest), name, self.regName(args[0]), self.regName(args[1]) });
+            }
+        } else if (std.mem.startsWith(u8, name, "json_parse_struct:")) {
+            const struct_name = name["json_parse_struct:".len..];
+            if (args.len >= 2) {
+                self.lineFmt("{s} = verve_json_parse_{s}({s}, {s});", .{ self.regName(dest), struct_name, self.regName(args[0]), self.regName(args[1]) });
             }
         } else if (std.mem.eql(u8, name, "json_build_object")) {
             self.lineFmt("{s} = rt.json_build_object();", .{self.regName(dest)});

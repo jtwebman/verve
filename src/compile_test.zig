@@ -1666,6 +1666,131 @@ test "compile: json to_int and to_bool leaf extraction" {
     try testing.expectEqualStrings("42\n-7\n1\n0\n", r.stdout);
 }
 
+test "compile: json typed parse struct" {
+    const r = try compileAndCapture(
+        \\struct User {
+        \\    name: string = "";
+        \\    age: int = 0;
+        \\    active: bool = false;
+        \\}
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        data: string = "{\"name\": \"alice\", \"age\": 30, \"active\": true}";
+        \\        match Json.parse(data, User) {
+        \\            :ok{user} => {
+        \\                println(user.name);
+        \\                println(user.age);
+        \\                if user.active {
+        \\                    println("active");
+        \\                } else {
+        \\                    println("not active");
+        \\                }
+        \\            }
+        \\            :error{e} => println("parse failed");
+        \\        }
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("alice\n30\nactive\n", r.stdout);
+}
+
+test "compile: json typed parse missing fields use zero defaults" {
+    const r = try compileAndCapture(
+        \\struct Config {
+        \\    host: string = "";
+        \\    port: int = 0;
+        \\    debug: bool = false;
+        \\}
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        data: string = "{\"port\": 3000}";
+        \\        match Json.parse(data, Config) {
+        \\            :ok{cfg} => {
+        \\                println(cfg.port);
+        \\                if cfg.debug {
+        \\                    println("debug on");
+        \\                } else {
+        \\                    println("debug off");
+        \\                }
+        \\            }
+        \\            :error{e} => println("parse failed");
+        \\        }
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("3000\ndebug off\n", r.stdout);
+}
+
+test "compile: json typed parse extra fields ignored" {
+    const r = try compileAndCapture(
+        \\struct Item {
+        \\    id: int = 0;
+        \\}
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        data: string = "{\"id\": 42, \"name\": \"widget\", \"price\": 9.99}";
+        \\        match Json.parse(data, Item) {
+        \\            :ok{item} => println(item.id);
+        \\            :error{e} => println("parse failed");
+        \\        }
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("42\n", r.stdout);
+}
+
+test "compile: json typed parse invalid json returns error" {
+    const r = try compileAndCapture(
+        \\struct Thing {
+        \\    x: int = 0;
+        \\}
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        data: string = "not json at all";
+        \\        match Json.parse(data, Thing) {
+        \\            :ok{t} => println("unexpected success");
+        \\            :error{e} => println("correctly failed");
+        \\        }
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("correctly failed\n", r.stdout);
+}
+
+test "compile: json typed parse with http request body" {
+    const r = try compileAndCapture(
+        \\struct CreateUser {
+        \\    name: string = "";
+        \\    email: string = "";
+        \\}
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        http_data: string = "POST /users HTTP/1.1\r\nContent-Type: application/json\r\n\r\n{\"name\": \"bob\", \"email\": \"bob@test.com\"}";
+        \\        req: int = Http.parse_request(http_data);
+        \\        body: string = Http.req_body(req);
+        \\        match Json.parse(body, CreateUser) {
+        \\            :ok{user} => {
+        \\                println(user.name);
+        \\                println(user.email);
+        \\            }
+        \\            :error{e} => println("parse failed");
+        \\        }
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("bob\nbob@test.com\n", r.stdout);
+}
+
 test "compile: json build simple object" {
     const r = try compileAndCapture(
         \\module App {

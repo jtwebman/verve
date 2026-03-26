@@ -205,9 +205,20 @@ pub const StateFieldInfo = struct {
     name: []const u8,
 };
 
+pub const StructFieldInfo = struct {
+    name: []const u8,
+    type_name: []const u8, // "int", "float", "string", "bool", or struct name
+};
+
+pub const StructInfo = struct {
+    name: []const u8,
+    fields: []const StructFieldInfo,
+};
+
 pub const Program = struct {
     functions: std.ArrayListUnmanaged(Function),
     process_decls: std.ArrayListUnmanaged(ProcessInfo),
+    struct_decls: std.ArrayListUnmanaged(StructInfo),
     entry_module: []const u8,
     entry_function: []const u8,
     alloc: std.mem.Allocator,
@@ -216,6 +227,7 @@ pub const Program = struct {
         return .{
             .functions = .{},
             .process_decls = .{},
+            .struct_decls = .{},
             .entry_module = "",
             .entry_function = "main",
             .alloc = alloc,
