@@ -1,6 +1,6 @@
 # Verve Language Reference
 
-Verve is a process-oriented language with no exceptions, no recursion, and no implicit nulls. Written in Zig with a native compiler via Zig backend. Designed for building reliable concurrent systems.
+Verve is a process-oriented compiled language with no exceptions, no recursion, and no implicit nulls. Compiles to native binaries via Zig backend. Designed for building reliable concurrent systems.
 
 ## Types
 

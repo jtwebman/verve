@@ -16,12 +16,9 @@ See `LANGUAGE.md` for complete syntax, built-in modules, and API reference.
 
 ## Project structure
 
-### Interpreter (verve run)
+### Frontend (shared)
 - `src/parser.zig` — hand-written recursive descent parser
 - `src/ast.zig` — AST node definitions
-- `src/interpreter.zig` — tree-walk interpreter with built-in modules
-- `src/value.zig` — runtime value types (int, float, string, list, map, set, stream, struct, tag, poison)
-- `src/process.zig` — process scheduler, mailbox, state management
 - `src/checker.zig` — type checker (types, signatures, returns, assignments, built-ins, exhaustiveness, recursion)
 - `src/verifier.zig` — @example, @property, and test block runner
 - `src/formatter.zig` — canonical code formatter
@@ -31,12 +28,21 @@ See `LANGUAGE.md` for complete syntax, built-in modules, and API reference.
 - `src/ir.zig` — target-independent SSA intermediate representation
 - `src/lower.zig` — lowers AST to IR
 - `src/zig_backend.zig` — emits Zig source from IR, compiles via zig build-exe
+- `src/verve_runtime.zig` — compiled runtime (processes, TCP, HTTP, JSON, arena allocator)
+
+### Legacy (interpreter — used by verve run/test, being phased out)
+- `src/interpreter.zig` — tree-walk interpreter
+- `src/value.zig` — interpreter value types
+- `src/process.zig` — interpreter process scheduler
 
 ### CLI
-- `src/main.zig` — CLI entry point (run, build, check, test, fmt)
+- `src/main.zig` — CLI entry point (build, check, test, fmt, run)
 
 ### Examples
-- `examples/` — working example programs including self-hosting tokenizer (parser.vv)
+- `examples/http_server.vv` — process-per-connection HTTP server
+- `examples/tcp_echo.vv` — TCP echo server
+- `examples/counter.vv` — process state + message passing
+- `examples/bench_messages.vv` — message throughput benchmark
 
 ## Build and test
 
