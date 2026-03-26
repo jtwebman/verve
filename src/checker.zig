@@ -655,7 +655,8 @@ pub const Checker = struct {
                         std.mem.eql(u8, name, "Math") or
                         std.mem.eql(u8, name, "Env") or
                         std.mem.eql(u8, name, "System") or
-                        std.mem.eql(u8, name, "Convert")) return;
+                        std.mem.eql(u8, name, "Convert") or
+                        std.mem.eql(u8, name, "Json")) return;
                 }
                 try self.checkExpr(fa.target.*);
             },

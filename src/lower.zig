@@ -865,6 +865,76 @@ pub const Lower = struct {
                                 return dest;
                             }
                         }
+                        if (std.mem.eql(u8, mod_name, "Json")) {
+                            // Json functions take (json_ptr, json_len, key_ptr, key_len) or (json_ptr, json_len)
+                            if (std.mem.eql(u8, fn_name, "get_string") or std.mem.eql(u8, fn_name, "get_int") or
+                                std.mem.eql(u8, fn_name, "get_float") or std.mem.eql(u8, fn_name, "get_bool") or
+                                std.mem.eql(u8, fn_name, "get_object"))
+                            {
+                                // Two string args: json data + key name
+                                var json_args = std.ArrayListUnmanaged(ir.Reg){};
+                                if (c.args.len >= 1) {
+                                    const data_reg = self.lowerExpr(c.args[0]);
+                                    json_args.append(self.alloc, data_reg) catch {};
+                                    json_args.append(self.alloc, self.getStringLen(func, data_reg)) catch {};
+                                }
+                                if (c.args.len >= 2) {
+                                    const key_reg = self.lowerExpr(c.args[1]);
+                                    json_args.append(self.alloc, key_reg) catch {};
+                                    json_args.append(self.alloc, self.getStringLen(func, key_reg)) catch {};
+                                }
+                                const builtin_name = std.fmt.allocPrint(self.alloc, "json_{s}", .{fn_name}) catch fn_name;
+                                self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = builtin_name, .args = json_args.toOwnedSlice(self.alloc) catch &.{} } });
+                                // Track string results
+                                if (std.mem.eql(u8, fn_name, "get_string") or std.mem.eql(u8, fn_name, "get_object")) {
+                                    // Emit a companion call for the length
+                                    const len_dest = func.newReg();
+                                    var len_args = std.ArrayListUnmanaged(ir.Reg){};
+                                    if (c.args.len >= 1) {
+                                        const data_reg2 = self.lowerExpr(c.args[0]);
+                                        len_args.append(self.alloc, data_reg2) catch {};
+                                        len_args.append(self.alloc, self.getStringLen(func, data_reg2)) catch {};
+                                    }
+                                    if (c.args.len >= 2) {
+                                        const key_reg2 = self.lowerExpr(c.args[1]);
+                                        len_args.append(self.alloc, key_reg2) catch {};
+                                        len_args.append(self.alloc, self.getStringLen(func, key_reg2)) catch {};
+                                    }
+                                    const len_name = std.fmt.allocPrint(self.alloc, "json_{s}_len", .{fn_name}) catch fn_name;
+                                    self.appendInst(.{ .call_builtin = .{ .dest = len_dest, .name = len_name, .args = len_args.toOwnedSlice(self.alloc) catch &.{} } });
+                                    self.string_lens.put(self.alloc, dest, len_dest) catch {};
+                                }
+                                return dest;
+                            }
+                            if (std.mem.eql(u8, fn_name, "to_int") or std.mem.eql(u8, fn_name, "to_float") or
+                                std.mem.eql(u8, fn_name, "to_bool") or std.mem.eql(u8, fn_name, "to_string"))
+                            {
+                                // Single string arg: json value
+                                var json_args = std.ArrayListUnmanaged(ir.Reg){};
+                                if (c.args.len >= 1) {
+                                    const data_reg = self.lowerExpr(c.args[0]);
+                                    json_args.append(self.alloc, data_reg) catch {};
+                                    json_args.append(self.alloc, self.getStringLen(func, data_reg)) catch {};
+                                }
+                                const builtin_name = std.fmt.allocPrint(self.alloc, "json_{s}", .{fn_name}) catch fn_name;
+                                self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = builtin_name, .args = json_args.toOwnedSlice(self.alloc) catch &.{} } });
+                                if (std.mem.eql(u8, fn_name, "to_string")) {
+                                    const len_dest = func.newReg();
+                                    var len_args = std.ArrayListUnmanaged(ir.Reg){};
+                                    if (c.args.len >= 1) {
+                                        const data_reg2 = self.lowerExpr(c.args[0]);
+                                        len_args.append(self.alloc, data_reg2) catch {};
+                                        len_args.append(self.alloc, self.getStringLen(func, data_reg2)) catch {};
+                                    }
+                                    self.appendInst(.{ .call_builtin = .{ .dest = len_dest, .name = "json_to_string_len", .args = len_args.toOwnedSlice(self.alloc) catch &.{} } });
+                                    self.string_lens.put(self.alloc, dest, len_dest) catch {};
+                                }
+                                return dest;
+                            }
+                            const builtin_name = std.fmt.allocPrint(self.alloc, "json_{s}", .{fn_name}) catch fn_name;
+                            self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = builtin_name, .args = args } });
+                            return dest;
+                        }
                         if (std.mem.eql(u8, mod_name, "Tcp")) {
                             // Tcp.connect(host, port), Tcp.listen(host, port), Tcp.accept(listener)
                             if (std.mem.eql(u8, fn_name, "open") or std.mem.eql(u8, fn_name, "listen")) {

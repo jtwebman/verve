@@ -652,6 +652,21 @@ pub const ZigBackend = struct {
             if (args.len >= 1) self.lineFmt("{s} = rt.int_to_string({s});", .{ self.regName(dest), self.regName(args[0]) });
         } else if (std.mem.eql(u8, name, "string_to_int")) {
             if (args.len >= 2) self.lineFmt("{s} = rt.string_to_int({s}, {s});", .{ self.regName(dest), self.regName(args[0]), self.regName(args[1]) });
+        } else if (std.mem.eql(u8, name, "json_get_string") or std.mem.eql(u8, name, "json_get_string_len") or
+            std.mem.eql(u8, name, "json_get_int") or std.mem.eql(u8, name, "json_get_float") or
+            std.mem.eql(u8, name, "json_get_bool") or std.mem.eql(u8, name, "json_get_object") or
+            std.mem.eql(u8, name, "json_get_object_len"))
+        {
+            if (args.len >= 4) {
+                self.lineFmt("{s} = rt.{s}({s}, {s}, {s}, {s});", .{ self.regName(dest), name, self.regName(args[0]), self.regName(args[1]), self.regName(args[2]), self.regName(args[3]) });
+            }
+        } else if (std.mem.eql(u8, name, "json_to_int") or std.mem.eql(u8, name, "json_to_float") or
+            std.mem.eql(u8, name, "json_to_bool") or std.mem.eql(u8, name, "json_to_string") or
+            std.mem.eql(u8, name, "json_to_string_len"))
+        {
+            if (args.len >= 2) {
+                self.lineFmt("{s} = rt.{s}({s}, {s});", .{ self.regName(dest), name, self.regName(args[0]), self.regName(args[1]) });
+            }
         } else if (std.mem.eql(u8, name, "tcp_open")) {
             if (args.len >= 3) {
                 self.lineFmt("{s} = rt.tcp_open({s}, {s}, {s});", .{ self.regName(dest), self.regName(args[0]), self.regName(args[1]), self.regName(args[2]) });
