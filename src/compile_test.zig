@@ -2651,6 +2651,27 @@ test "compile: http lazy parsing - path only never touches headers" {
     try testing.expectEqualStrings("healthy\n", r.stdout);
 }
 
+test "compile: http GET with body (elasticsearch style)" {
+    const r = try compileAndCapture(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        data: string = "GET /search HTTP/1.1\r\nContent-Length: 16\r\n\r\n{\"query\":\"test\"}";
+        \\        req: int = Http.parse_request(data);
+        \\        method: string = Http.req_method(req);
+        \\        path: string = Http.req_path(req);
+        \\        body: string = Http.req_body(req);
+        \\        println(method);
+        \\        println(path);
+        \\        q: string = Json.get_string(body, "query");
+        \\        println(q);
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("GET\n/search\ntest\n", r.stdout);
+}
+
 test "compile: http multiple headers" {
     const r = try compileAndCapture(
         \\module App {
