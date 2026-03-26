@@ -599,6 +599,99 @@ test "compile: poison propagates through addition" {
     try testing.expectEqualStrings("propagated\n", r.stdout);
 }
 
+test "compile: overflow on addition" {
+    const r = try compileAndCapture(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        max: int = 9223372036854775807;
+        \\        result: int = max + 1;
+        \\        if result > 0 {
+        \\            println("wrapped");
+        \\        } else {
+        \\            println("poison");
+        \\        }
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("poison\n", r.stdout);
+}
+
+test "compile: overflow on multiplication" {
+    const r = try compileAndCapture(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        big: int = 9223372036854775807;
+        \\        result: int = big * 2;
+        \\        if result > 0 {
+        \\            println("wrapped");
+        \\        } else {
+        \\            println("poison");
+        \\        }
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("poison\n", r.stdout);
+}
+
+test "compile: underflow on subtraction" {
+    const r = try compileAndCapture(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        min: int = 0 - 9223372036854775807;
+        \\        result: int = min - 2;
+        \\        if result < 0 {
+        \\            println("poison");
+        \\        } else {
+        \\            println("wrapped");
+        \\        }
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("poison\n", r.stdout);
+}
+
+test "compile: poison propagates through multiple operations" {
+    const r = try compileAndCapture(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        bad: int = 10 / 0;
+        \\        r1: int = bad + 5;
+        \\        r2: int = r1 * 3;
+        \\        r3: int = r2 - 1;
+        \\        if r3 > 0 {
+        \\            println("wrong");
+        \\        } else {
+        \\            println("still poison");
+        \\        }
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("still poison\n", r.stdout);
+}
+
+test "compile: poison does not affect independent values" {
+    const r = try compileAndCapture(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        bad: int = 10 / 0;
+        \\        good: int = 3 + 4;
+        \\        println(good);
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("7\n", r.stdout);
+}
+
 test "compile: normal arithmetic still works" {
     const r = try compileAndCapture(
         \\module App {
@@ -615,6 +708,80 @@ test "compile: normal arithmetic still works" {
     );
     try testing.expectEqual(@as(u8, 0), r.exit);
     try testing.expectEqualStrings("7\n7\n42\n7\n1\n-5\n", r.stdout);
+}
+
+// ── Arena / memory tests ───────────────────────────
+
+test "compile: many tagged results dont crash (arena allocation)" {
+    const r = try compileAndCapture(
+        \\process Counter {
+        \\    state { count: int = 0; }
+        \\    receive Inc() -> int {
+        \\        transition count { count + 1; }
+        \\        return count;
+        \\    }
+        \\}
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        c: int = spawn Counter();
+        \\        i: int = 0;
+        \\        while i < 1000 {
+        \\            match c.Inc() {
+        \\                :ok{v} => {
+        \\                    i = i + 1;
+        \\                }
+        \\                :error{e} => {
+        \\                    i = i + 1;
+        \\                }
+        \\            }
+        \\        }
+        \\        match c.Inc() {
+        \\            :ok{v} => println(v);
+        \\            :error{e} => println("err");
+        \\        }
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("1001\n", r.stdout);
+}
+
+test "compile: many string conversions dont crash (arena allocation)" {
+    const r = try compileAndCapture(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        i: int = 0;
+        \\        while i < 500 {
+        \\            s: string = Convert.to_string(i);
+        \\            i = i + 1;
+        \\        }
+        \\        println("survived");
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("survived\n", r.stdout);
+}
+
+test "compile: many string concats dont crash (arena allocation)" {
+    const r = try compileAndCapture(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        s: string = "";
+        \\        i: int = 0;
+        \\        while i < 200 {
+        \\            s = s + "a";
+        \\            i = i + 1;
+        \\        }
+        \\        println(String.len(s));
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("200\n", r.stdout);
 }
 
 // ── String concat tests ────────────────────────────
