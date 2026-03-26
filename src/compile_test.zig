@@ -1499,6 +1499,173 @@ test "compile: env get nonexistent var" {
     try testing.expectEqualStrings("empty\n", r.stdout);
 }
 
+// ── JSON tests ─────────────────────────────────────
+
+test "compile: json get_string from object" {
+    const r = try compileAndCapture(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        data: string = "{\"name\": \"verve\", \"version\": 1}";
+        \\        name: string = Json.get_string(data, "name");
+        \\        println(name);
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("verve\n", r.stdout);
+}
+
+test "compile: json get_int from object" {
+    const r = try compileAndCapture(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        data: string = "{\"count\": 42, \"name\": \"test\"}";
+        \\        count: int = Json.get_int(data, "count");
+        \\        println(count);
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("42\n", r.stdout);
+}
+
+test "compile: json get_bool from object" {
+    const r = try compileAndCapture(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        data: string = "{\"active\": true, \"deleted\": false}";
+        \\        if Json.get_bool(data, "active") {
+        \\            println("active");
+        \\        } else {
+        \\            println("not active");
+        \\        }
+        \\        if Json.get_bool(data, "deleted") {
+        \\            println("deleted");
+        \\        } else {
+        \\            println("not deleted");
+        \\        }
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("active\nnot deleted\n", r.stdout);
+}
+
+test "compile: json nested object" {
+    const r = try compileAndCapture(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        data: string = "{\"user\": {\"name\": \"alice\", \"age\": 30}}";
+        \\        user: string = Json.get_object(data, "user");
+        \\        name: string = Json.get_string(user, "name");
+        \\        age: int = Json.get_int(user, "age");
+        \\        println(name);
+        \\        println(age);
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("alice\n30\n", r.stdout);
+}
+
+test "compile: json missing key returns zero" {
+    const r = try compileAndCapture(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        data: string = "{\"name\": \"test\"}";
+        \\        missing: int = Json.get_int(data, "nope");
+        \\        println(missing);
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("0\n", r.stdout);
+}
+
+test "compile: json multiple fields" {
+    const r = try compileAndCapture(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        data: string = "{\"a\": 1, \"b\": 2, \"c\": 3, \"d\": 4}";
+        \\        println(Json.get_int(data, "a"));
+        \\        println(Json.get_int(data, "b"));
+        \\        println(Json.get_int(data, "c"));
+        \\        println(Json.get_int(data, "d"));
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("1\n2\n3\n4\n", r.stdout);
+}
+
+test "compile: json negative number" {
+    const r = try compileAndCapture(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        data: string = "{\"temp\": -5}";
+        \\        println(Json.get_int(data, "temp"));
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("-5\n", r.stdout);
+}
+
+test "compile: json string with spaces and special chars" {
+    const r = try compileAndCapture(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        data: string = "{\"msg\": \"hello world!\"}";
+        \\        msg: string = Json.get_string(data, "msg");
+        \\        println(msg);
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("hello world!\n", r.stdout);
+}
+
+test "compile: json deeply nested" {
+    const r = try compileAndCapture(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        data: string = "{\"a\": {\"b\": {\"c\": 99}}}";
+        \\        a: string = Json.get_object(data, "a");
+        \\        b: string = Json.get_object(a, "b");
+        \\        c: int = Json.get_int(b, "c");
+        \\        println(c);
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("99\n", r.stdout);
+}
+
+test "compile: json to_int and to_bool leaf extraction" {
+    const r = try compileAndCapture(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        println(Json.to_int("42"));
+        \\        println(Json.to_int("-7"));
+        \\        println(Json.to_bool("true"));
+        \\        println(Json.to_bool("false"));
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("42\n-7\n1\n0\n", r.stdout);
+}
+
 // ── TCP tests ──────────────────────────────────────
 
 test "compile: tcp listen and connect loopback" {
