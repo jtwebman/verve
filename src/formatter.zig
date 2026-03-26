@@ -176,26 +176,6 @@ pub const Formatter = struct {
         try self.write(" {\n");
         self.indent += 1;
 
-        if (p.state_fields.len > 0) {
-            try self.writeIndent();
-            try self.write("state {\n");
-            self.indent += 1;
-            for (p.state_fields) |field| {
-                try self.writeIndent();
-                try self.write(field.name);
-                try self.write(": ");
-                try self.formatTypeExpr(field.type_expr);
-                if (field.default_value) |dv| {
-                    try self.write(" = ");
-                    try self.formatExpr(dv);
-                }
-                try self.write(";\n");
-            }
-            self.indent -= 1;
-            try self.writeIndent();
-            try self.write("}\n");
-        }
-
         if (p.invariants.len > 0) {
             try self.write("\n");
             try self.writeIndent();
@@ -212,7 +192,7 @@ pub const Formatter = struct {
         }
 
         for (p.receive_handlers, 0..) |handler, i| {
-            if (i > 0 or p.state_fields.len > 0 or p.invariants.len > 0) try self.write("\n");
+            if (i > 0 or p.invariants.len > 0) try self.write("\n");
             try self.formatReceiveDecl(handler);
         }
 
@@ -513,21 +493,6 @@ pub const Formatter = struct {
                 }
                 self.indent -= 1;
                 try self.writeIndent();
-                try self.write("}\n");
-            },
-            .transition => |t| {
-                try self.writeIndent();
-                try self.write("transition ");
-                try self.formatExpr(t.target);
-                try self.write(" { ");
-                for (t.fields) |f| {
-                    if (f.name) |name| {
-                        try self.write(name);
-                        try self.write(": ");
-                    }
-                    try self.formatExpr(f.value);
-                    try self.write("; ");
-                }
                 try self.write("}\n");
             },
             .append => |a| {

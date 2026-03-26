@@ -230,15 +230,6 @@ pub const Interpreter = struct {
                 // New syntax: create struct value from defaults
                 const struct_val = try self.createStructFromDefaults(st);
                 p.state_value = struct_val;
-            } else {
-                // Old syntax: evaluate explicit default values for state fields
-                var empty_scope = Scope.init(self.alloc);
-                for (decl.state_fields) |field| {
-                    if (field.default_value) |default_expr| {
-                        const val = try self.evalExpr(default_expr, &empty_scope);
-                        p.setState(field.name, val) catch return error.OutOfMemory;
-                    }
-                }
             }
         }
 
@@ -442,37 +433,6 @@ pub const Interpreter = struct {
             .expr_stmt => |e| {
                 const val = try self.evalExpr(e, scope);
                 return .{ .value = val, .returned = false };
-            },
-            .transition => |t| {
-                if (self.current_process) |pid| {
-                    if (self.scheduler.getProcess(pid)) |p| {
-                        // transition target is a state field name or index expression
-                        const target_name = switch (t.target) {
-                            .identifier => |id| id,
-                            .index_access => |ia| switch (ia.target.*) {
-                                .identifier => |id| id,
-                                else => return error.RuntimeError,
-                            },
-                            else => return error.RuntimeError,
-                        };
-                        // For simple transitions: transition balance { balance + amount; }
-                        if (t.fields.len == 1 and t.fields[0].name == null) {
-                            const new_val = try self.evalExpr(t.fields[0].value, scope);
-                            try p.setState(target_name, new_val);
-                        } else {
-                            // Named field transitions: transition accounts[id] { balance: X; active: false; }
-                            // TODO: implement struct field transitions
-                            for (t.fields) |field| {
-                                if (field.name) |fname| {
-                                    _ = fname;
-                                    const new_val = try self.evalExpr(field.value, scope);
-                                    try p.setState(target_name, new_val);
-                                }
-                            }
-                        }
-                    }
-                }
-                return .{ .value = .{ .void = {} }, .returned = false };
             },
             .append => |a| {
                 const target = try self.evalExpr(a.target, scope);

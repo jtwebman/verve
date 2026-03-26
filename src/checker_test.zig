@@ -271,7 +271,7 @@ test "error: int literal as guard" {
 
 // ── Transition checks ─────────────────────────────────────
 
-test "valid: transition in receive handler" {
+test "valid: field assign in receive handler" {
     try expectNoErrors(
         \\struct CounterState { count: int = 0; }
         \\process Counter<CounterState> {
@@ -284,17 +284,6 @@ test "valid: transition in receive handler" {
         \\    fn main() -> int { return 0; }
         \\}
     );
-}
-
-test "error: transition in module function" {
-    try expectError(
-        \\module Main {
-        \\    fn main() -> int {
-        \\        transition balance { 100; }
-        \\        return 0;
-        \\    }
-        \\}
-    , "transition can only be used inside a receive handler");
 }
 
 // ── receive; checks ───────────────────────────────────────
@@ -534,15 +523,10 @@ test "error: duplicate struct field" {
 
 // ── Process state in scope ────────────────────────────────
 
-test "error: state field without default value" {
+test "error: struct field without default value" {
     try expectError(
-        \\process Counter {
-        \\    state {
-        \\        count: int;
-        \\    }
-        \\    receive GetCount() -> int {
-        \\        return count;
-        \\    }
+        \\struct BadState {
+        \\    count: int;
         \\}
         \\module Main {
         \\    fn main() -> int { return 0; }

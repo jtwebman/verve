@@ -69,16 +69,10 @@ pub const Lower = struct {
                 .process_decl => |p| {
                     var state_fields = std.ArrayListUnmanaged(ir.StateFieldInfo){};
                     if (p.state_type) |st| {
-                        // New syntax: process<StateStruct> — get fields from struct decl
                         if (self.struct_decls.get(st)) |sd| {
                             for (sd.fields) |f| {
                                 try state_fields.append(self.alloc, .{ .name = f.name });
                             }
-                        }
-                    } else {
-                        // Old syntax: inline state fields
-                        for (p.state_fields) |sf| {
-                            try state_fields.append(self.alloc, .{ .name = sf.name });
                         }
                     }
                     var handler_names = std.ArrayListUnmanaged([]const u8){};
@@ -352,25 +346,6 @@ pub const Lower = struct {
                 const val_reg = self.lowerExpr(a.value);
                 self.appendInst(.{ .list_append = .{ .list = list_reg, .value = val_reg } });
             },
-            .transition => |t| {
-                // transition field_name { expr; }
-                if (self.current_process_decl) |pdecl| {
-                    const target_name = switch (t.target) {
-                        .identifier => |id| id,
-                        else => "",
-                    };
-                    if (t.fields.len == 1 and t.fields[0].name == null) {
-                        const val_reg = self.lowerExpr(t.fields[0].value);
-                        // Find field index
-                        for (pdecl.state_fields, 0..) |sf, fi| {
-                            if (std.mem.eql(u8, sf.name, target_name)) {
-                                self.appendInst(.{ .process_state_set = .{ .field_index = @intCast(fi), .src = val_reg } });
-                                break;
-                            }
-                        }
-                    }
-                }
-            },
             .tell_stmt => |t| {
                 const target_reg = self.lowerExpr(t.target);
                 var arg_regs = std.ArrayListUnmanaged(ir.Reg){};
@@ -516,16 +491,6 @@ pub const Lower = struct {
                 return dest;
             },
             .identifier => |name| {
-                // Check if this is a process state field
-                if (self.current_process_decl) |pdecl| {
-                    for (pdecl.state_fields, 0..) |sf, fi| {
-                        if (std.mem.eql(u8, sf.name, name)) {
-                            const dest = func.newReg();
-                            self.appendInst(.{ .process_state_get = .{ .dest = dest, .field_index = @intCast(fi) } });
-                            return dest;
-                        }
-                    }
-                }
                 const dest = func.newReg();
                 self.appendInst(.{ .load_local = .{ .dest = dest, .name = name } });
                 // Load string length for known string variables

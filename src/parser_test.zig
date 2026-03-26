@@ -359,17 +359,14 @@ test "parse module with import" {
 
 test "parse simple process" {
     var p = parse(
-        \\process Counter {
-        \\    state {
-        \\        count: int = 0;
+        \\process Counter<CounterState> {
+        \\    receive Increment(state: CounterState) -> int {
+        \\        guard state.count >= 0;
+        \\        state.count = state.count + 1;
+        \\        return state.count;
         \\    }
-        \\    receive Increment() -> Result {
-        \\        guard count >= 0;
-        \\        transition count { count + 1; }
-        \\        return :ok;
-        \\    }
-        \\    receive GetCount() -> int {
-        \\        return count;
+        \\    receive GetCount(state: CounterState) -> int {
+        \\        return state.count;
         \\    }
         \\}
     );
@@ -377,8 +374,7 @@ test "parse simple process" {
     const decl = try p.parseProcessDecl();
     try testing.expectEqualStrings("Counter", decl.name);
     try testing.expect(decl.memory == null);
-    try testing.expectEqual(@as(usize, 1), decl.state_fields.len);
-    try testing.expectEqualStrings("count", decl.state_fields[0].name);
+    try testing.expectEqualStrings("CounterState", decl.state_type.?);
     try testing.expectEqual(@as(usize, 2), decl.receive_handlers.len);
     try testing.expectEqualStrings("Increment", decl.receive_handlers[0].name);
     try testing.expectEqualStrings("GetCount", decl.receive_handlers[1].name);
@@ -386,12 +382,9 @@ test "parse simple process" {
 
 test "parse process with memory budget" {
     var p = parse(
-        \\process Ledger [memory: 64] {
-        \\    state {
-        \\        balance: int = 0;
-        \\    }
-        \\    receive GetBalance() -> int {
-        \\        return balance;
+        \\process Ledger<LedgerState> [memory: 64] {
+        \\    receive GetBalance(state: LedgerState) -> int {
+        \\        return state.balance;
         \\    }
         \\}
     );
@@ -407,12 +400,9 @@ test "parse process with memory budget" {
 
 test "parse process with unbounded memory" {
     var p = parse(
-        \\process Cache [memory: unbounded] {
-        \\    state {
-        \\        count: int = 0;
-        \\    }
-        \\    receive Get() -> int {
-        \\        return count;
+        \\process Cache<CacheState> [memory: unbounded] {
+        \\    receive Get(state: CacheState) -> int {
+        \\        return state.count;
         \\    }
         \\}
     );
@@ -425,17 +415,14 @@ test "parse process with unbounded memory" {
 
 test "parse process with invariant" {
     var p = parse(
-        \\process Ledger {
-        \\    state {
-        \\        balance: int = 0;
-        \\    }
+        \\process Ledger<LedgerState> {
         \\    invariant {
         \\        balance >= 0;
         \\    }
-        \\    receive Deposit(amount: int) -> Result {
+        \\    receive Deposit(state: LedgerState, amount: int) -> int {
         \\        guard amount > 0;
-        \\        transition balance { balance + amount; }
-        \\        return :ok;
+        \\        state.balance = state.balance + amount;
+        \\        return state.balance;
         \\    }
         \\}
     );
@@ -472,12 +459,9 @@ test "parse file with module and process" {
         \\    }
         \\}
         \\
-        \\process Ledger {
-        \\    state {
-        \\        balance: int = 0;
-        \\    }
-        \\    receive GetBalance() -> int {
-        \\        return balance;
+        \\process Ledger<LedgerState> {
+        \\    receive GetBalance(state: LedgerState) -> int {
+        \\        return state.balance;
         \\    }
         \\}
     );
@@ -554,7 +538,6 @@ test "parse process with state type parameter" {
     const decl = try p.parseProcessDecl();
     try testing.expectEqualStrings("Counter", decl.name);
     try testing.expectEqualStrings("CounterState", decl.state_type.?);
-    try testing.expectEqual(@as(usize, 0), decl.state_fields.len);
     try testing.expectEqual(@as(usize, 1), decl.receive_handlers.len);
     try testing.expectEqualStrings("state", decl.receive_handlers[0].params[0].name);
 }

@@ -159,18 +159,6 @@ pub const Checker = struct {
             }
         }
 
-        // Old syntax: check state fields have valid types and default values
-        for (p.state_fields) |field| {
-            try self.checkTypeExists(field.type_expr);
-            if (field.default_value == null) {
-                try self.addError(
-                    try std.fmt.allocPrint(self.alloc, "state field '{s}' in process '{s}' requires a default value — add = <value>", .{ field.name, p.name }),
-                    0,
-                    0,
-                );
-            }
-        }
-
         self.current_module_name = p.name;
 
         // Check receive handlers
@@ -217,11 +205,6 @@ pub const Checker = struct {
                     0,
                 );
             }
-        }
-
-        // Old syntax: add process state fields to scope
-        for (p.state_fields) |field| {
-            try self.current_scope.put(self.alloc, field.name, field.type_expr);
         }
 
         // Check guards
@@ -506,15 +489,6 @@ pub const Checker = struct {
                             0,
                         );
                     }
-                }
-            },
-            .transition => |t| {
-                if (!self.in_receive_handler) {
-                    try self.addError("transition can only be used inside a receive handler", 0, 0);
-                }
-                try self.checkExpr(t.target);
-                for (t.fields) |f| {
-                    try self.checkExpr(f.value);
                 }
             },
             .append => |a| {
@@ -1360,10 +1334,6 @@ pub const Checker = struct {
                 for (m.arms) |arm| {
                     for (arm.body) |s| try self.collectCallsFromStmt(s, current_module, callees);
                 }
-            },
-            .transition => |t| {
-                try self.collectCallsFromExpr(t.target, current_module, callees);
-                for (t.fields) |f| try self.collectCallsFromExpr(f.value, current_module, callees);
             },
             .append => |a| {
                 try self.collectCallsFromExpr(a.target, current_module, callees);

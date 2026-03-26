@@ -144,14 +144,14 @@ test "error: unknown declaration in process" {
         \\process Ledger {
         \\    fn bad() -> int { return 1; }
         \\}
-    , "expected 'state', 'invariant', or 'receive' inside process");
+    , "expected 'invariant' or 'receive' inside process");
 }
 
 test "error: process memory missing keyword" {
     try expectParseError(
-        \\process Ledger [size: 64] {
-        \\    state {
-        \\        balance: int = 0;
+        \\process Ledger<LedgerState> [size: 64] {
+        \\    receive Get(state: LedgerState) -> int {
+        \\        return state.balance;
         \\    }
         \\}
     , "expected 'memory'");

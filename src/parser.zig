@@ -830,10 +830,6 @@ pub const Parser = struct {
             return .{ .watch_stmt = .{ .target = target, .span = .{ .start = start, .end = self.pos } } };
         }
 
-        if (self.matchKeyword("transition")) {
-            return try self.parseTransitionStmt();
-        }
-
         if (self.matchKeyword("append")) {
             return try self.parseAppendStmt();
         }
@@ -1029,29 +1025,6 @@ pub const Parser = struct {
         return .{ .expr_stmt = target_expr };
     }
 
-    fn parseTransitionStmt(self: *Parser) Error!ast.Stmt {
-        const target = try self.parseExpr();
-        try self.expectChar('{');
-        var fields: std.ArrayListUnmanaged(ast.TransitionField) = .{};
-        while (!self.peekChar('}')) {
-            const saved = self.pos;
-            const maybe_name = self.parseIdentifier() catch null;
-            if (maybe_name != null and self.peekChar(':')) {
-                try self.expectChar(':');
-                const value = try self.parseExpr();
-                try self.expectChar(';');
-                try fields.append(self.alloc, .{ .name = maybe_name, .value = value });
-            } else {
-                self.pos = saved;
-                const value = try self.parseExpr();
-                try self.expectChar(';');
-                try fields.append(self.alloc, .{ .name = null, .value = value });
-            }
-        }
-        try self.expectChar('}');
-        return .{ .transition = .{ .target = target, .fields = try fields.toOwnedSlice(self.alloc), .span = .{ .start = 0, .end = 0 } } };
-    }
-
     fn parseAppendStmt(self: *Parser) Error!ast.Stmt {
         const target = try self.parseExpr();
         try self.expectChar('{');
@@ -1236,36 +1209,12 @@ pub const Parser = struct {
 
         try self.expectChar('{');
 
-        var state_fields: std.ArrayListUnmanaged(ast.StateField) = .{};
         var receive_handlers: std.ArrayListUnmanaged(ast.ReceiveDecl) = .{};
         var invariants: std.ArrayListUnmanaged(ast.Expr) = .{};
 
         while (!self.peekChar('}')) {
             const doc = try self.parseDocComment();
-            if (self.matchKeyword("state")) {
-                if (state_type != null) {
-                    return self.fail("process '{s}' uses <{s}> for state — 'state' block is not allowed", .{ name, state_type.? });
-                }
-                try self.expectChar('{');
-                while (!self.peekChar('}')) {
-                    const fname = try self.parseIdentifier();
-                    try self.expectChar(':');
-                    const ftype = try self.parseTypeExpr();
-                    var default_val: ?ast.Expr = null;
-                    if (self.peekChar('=')) {
-                        try self.expectChar('=');
-                        default_val = try self.parseExpr();
-                    }
-                    try self.expectChar(';');
-                    try state_fields.append(self.alloc, .{
-                        .name = fname,
-                        .type_expr = ftype,
-                        .default_value = default_val,
-                        .span = .{ .start = 0, .end = 0 },
-                    });
-                }
-                try self.expectChar('}');
-            } else if (self.matchKeyword("invariant")) {
+            if (self.matchKeyword("invariant")) {
                 try self.expectChar('{');
                 while (!self.peekChar('}')) {
                     try invariants.append(self.alloc, try self.parseExpr());
@@ -1275,7 +1224,7 @@ pub const Parser = struct {
             } else if (self.matchKeyword("receive")) {
                 try receive_handlers.append(self.alloc, try self.parseReceiveDecl(doc));
             } else {
-                return self.fail("expected 'state', 'invariant', or 'receive' inside process '{s}' but found '{s}'", .{ name, self.peekSnippet() });
+                return self.fail("expected 'invariant' or 'receive' inside process '{s}' but found '{s}'", .{ name, self.peekSnippet() });
             }
         }
         try self.expectChar('}');
@@ -1284,7 +1233,6 @@ pub const Parser = struct {
             .name = name,
             .memory = memory,
             .state_type = state_type,
-            .state_fields = try state_fields.toOwnedSlice(self.alloc),
             .receive_handlers = try receive_handlers.toOwnedSlice(self.alloc),
             .invariants = try invariants.toOwnedSlice(self.alloc),
             .exported = false,

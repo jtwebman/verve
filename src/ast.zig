@@ -45,7 +45,6 @@ pub const ProcessDecl = struct {
     name: []const u8,
     memory: ?MemoryBudget,
     state_type: ?[]const u8, // struct name for process state (new syntax)
-    state_fields: []const StateField, // inline state (old syntax, to be removed)
     receive_handlers: []const ReceiveDecl,
     invariants: []const Expr,
     exported: bool,
@@ -69,13 +68,6 @@ pub const StructDecl = struct {
 };
 
 pub const Field = struct {
-    name: []const u8,
-    type_expr: TypeExpr,
-    default_value: ?Expr,
-    span: Span,
-};
-
-pub const StateField = struct {
     name: []const u8,
     type_expr: TypeExpr,
     default_value: ?Expr,
@@ -159,7 +151,6 @@ pub const UnionVariant = struct {
 pub const Stmt = union(enum) {
     assign: Assign,
     field_assign: FieldAssign, // state.field = expr;
-    transition: Transition,
     append: Append,
     match_stmt: MatchStmt,
     if_stmt: IfStmt,
@@ -191,17 +182,6 @@ pub const FieldAssign = struct {
     target: Expr, // field_access expression (e.g., state.count)
     value: Expr,
     span: Span,
-};
-
-pub const Transition = struct {
-    target: Expr,
-    fields: []const TransitionField,
-    span: Span,
-};
-
-pub const TransitionField = struct {
-    name: ?[]const u8,
-    value: Expr,
 };
 
 pub const Append = struct {
