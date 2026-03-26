@@ -539,6 +539,33 @@ pub const Lower = struct {
                         return dest;
                     }
                 }
+                // String concatenation with +
+                if (op.op == .add) {
+                    const is_str_l = (op.left.* == .string_literal) or
+                        (op.left.* == .identifier and self.string_vars.get(op.left.identifier) != null) or
+                        (op.left.* == .field_access and self.isStringFieldAccess(op.left.field_access));
+                    const is_str_r = (op.right.* == .string_literal) or
+                        (op.right.* == .identifier and self.string_vars.get(op.right.identifier) != null) or
+                        (op.right.* == .field_access and self.isStringFieldAccess(op.right.field_access));
+                    if (is_str_l or is_str_r) {
+                        const lhs = self.lowerExpr(op.left.*);
+                        const rhs = self.lowerExpr(op.right.*);
+                        const lhs_len = self.getStringLen(func, lhs);
+                        const rhs_len = self.getStringLen(func, rhs);
+                        const dest = func.newReg();
+                        var concat_args = std.ArrayListUnmanaged(ir.Reg){};
+                        concat_args.append(self.alloc, lhs) catch {};
+                        concat_args.append(self.alloc, lhs_len) catch {};
+                        concat_args.append(self.alloc, rhs) catch {};
+                        concat_args.append(self.alloc, rhs_len) catch {};
+                        self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = "string_concat", .args = concat_args.toOwnedSlice(self.alloc) catch &.{} } });
+                        // Result length = lhs_len + rhs_len
+                        const result_len = func.newReg();
+                        self.appendInst(.{ .add_i64 = .{ .dest = result_len, .lhs = lhs_len, .rhs = rhs_len } });
+                        self.string_lens.put(self.alloc, dest, result_len) catch {};
+                        return dest;
+                    }
+                }
                 const lhs = self.lowerExpr(op.left.*);
                 const rhs = self.lowerExpr(op.right.*);
                 const dest = func.newReg();

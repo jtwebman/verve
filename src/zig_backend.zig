@@ -664,6 +664,10 @@ pub const ZigBackend = struct {
             if (args.len >= 1) {
                 self.lineFmt("{s} = rt.tcp_accept({s});", .{ self.regName(dest), self.regName(args[0]) });
             }
+        } else if (std.mem.eql(u8, name, "string_concat")) {
+            if (args.len >= 4) {
+                self.lineFmt("{s} = rt.verve_string_concat({s}, {s}, {s}, {s});", .{ self.regName(dest), self.regName(args[0]), self.regName(args[1]), self.regName(args[2]), self.regName(args[3]) });
+            }
         } else if (std.mem.eql(u8, name, "string_len")) {
             if (args.len >= 1) {
                 self.lineFmt("if ({s} == 0) {{ {s} = 0; }} else {{ const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s})))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; {s} = @intCast(sl); }}", .{ self.regName(args[0]), self.regName(dest), self.regName(args[0]), self.regName(dest) });

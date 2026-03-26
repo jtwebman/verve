@@ -577,6 +577,24 @@ pub fn strEql(a: [*]const u8, a_len: i64, b: [*]const u8, b_len: i64) bool {
     return std.mem.eql(u8, a[0..len], b[0..len]);
 }
 
+/// Concatenate two strings. Returns pointer to new buffer.
+/// Caller tracks length as a_len + b_len.
+pub fn verve_string_concat(a_ptr: i64, a_len: i64, b_ptr: i64, b_len: i64) i64 {
+    const al: usize = @intCast(@as(u64, @bitCast(a_len)));
+    const bl: usize = @intCast(@as(u64, @bitCast(b_len)));
+    const total = al + bl;
+    const buf = std.heap.page_allocator.alloc(u8, total) catch return 0;
+    if (a_ptr != 0 and al > 0) {
+        const a = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(a_ptr))))));
+        @memcpy(buf[0..al], a[0..al]);
+    }
+    if (b_ptr != 0 and bl > 0) {
+        const b = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(b_ptr))))));
+        @memcpy(buf[al..total], b[0..bl]);
+    }
+    return @intCast(@intFromPtr(buf.ptr));
+}
+
 // ── Process runtime ────────────────────────────────
 
 pub const Message = struct {

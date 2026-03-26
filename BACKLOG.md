@@ -150,6 +150,34 @@
 - [ ] Process runtime — multi-threaded scheduler
 - [x] Benchmark: message passing throughput (examples/bench_messages.vv)
 
+## Phase 4.5 — Foundation Refactor (runtime correctness)
+
+### Fat Strings
+- [ ] String representation: fat pointers (ptr, len) everywhere, eliminate strlen
+- [ ] String concatenation with `+` in compiled code
+- [ ] stream_read_line returns (ptr, len) not null-terminated
+- [ ] int_to_string / float_to_string return (ptr, len)
+- [ ] String.len uses tracked length, never scans
+- [ ] Remove `-1 marker` pattern in println — track types properly
+
+### Per-Process Arena Allocator
+- [ ] ProcessArena: bump allocator with page-based growth
+- [ ] Route all runtime allocations through process-local arena
+- [ ] Global arena for non-process (module main) code
+- [ ] Process death frees entire arena (verve_kill → arena.freeAll)
+- [ ] Fix List stack-escape bug (list_new stores pointer to stack local)
+
+### Overflow → Poison Values (spec compliance)
+- [ ] Checked arithmetic: add, sub, mul detect overflow → `:overflow`
+- [ ] Division by zero → `:div_zero`
+- [ ] Poison propagation: any op on poison returns poison
+- [ ] Poison in comparisons: poison is not equal to anything
+
+### Future (needs multi-threaded scheduler)
+- [ ] Idle-thread GC: scan dormant processes, compact arenas
+- [ ] Per-process memory limits (from memory budget in process declaration)
+- [ ] NaN-boxing or tagged value representation (revisit when adding REPL/debugger)
+
 ## Phase 5 — Standard Library & IO
 
 ### Done

@@ -541,6 +541,172 @@ test "compile: message throughput via tell" {
     try testing.expectEqualStrings("50\n", r.stdout);
 }
 
+// ── String concat tests ────────────────────────────
+
+test "compile: string concat literals" {
+    const r = try compileAndCapture(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        s: string = "hello" + " " + "world";
+        \\        println(s);
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("hello world\n", r.stdout);
+}
+
+test "compile: string concat variables" {
+    const r = try compileAndCapture(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        a: string = "foo";
+        \\        b: string = "bar";
+        \\        c: string = a + b;
+        \\        println(c);
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("foobar\n", r.stdout);
+}
+
+test "compile: string concat length" {
+    const r = try compileAndCapture(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        s: string = "ab" + "cd";
+        \\        println(String.len(s));
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("4\n", r.stdout);
+}
+
+test "compile: string concat empty" {
+    const r = try compileAndCapture(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        s: string = "hello" + "";
+        \\        println(s);
+        \\        s2: string = "" + "world";
+        \\        println(s2);
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("hello\nworld\n", r.stdout);
+}
+
+test "compile: string concat chain" {
+    const r = try compileAndCapture(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        s: string = "a" + "b" + "c" + "d" + "e";
+        \\        println(s);
+        \\        println(String.len(s));
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("abcde\n5\n", r.stdout);
+}
+
+test "compile: string concat with convert" {
+    const r = try compileAndCapture(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        name: string = "count";
+        \\        num: string = Convert.to_string(42);
+        \\        result: string = name + ": " + num;
+        \\        println(result);
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("count: 42\n", r.stdout);
+}
+
+test "compile: string concat in loop" {
+    const r = try compileAndCapture(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        s: string = "";
+        \\        i: int = 0;
+        \\        while i < 5 {
+        \\            s = s + "x";
+        \\            i = i + 1;
+        \\        }
+        \\        println(s);
+        \\        println(String.len(s));
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("xxxxx\n5\n", r.stdout);
+}
+
+test "compile: string concat with stream read_line" {
+    const r = try compileAndCapture(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        match Tcp.listen("127.0.0.1", 0) {
+        \\            :ok{listener} => {
+        \\                port: int = Tcp.port(listener);
+        \\                match Tcp.open("127.0.0.1", port) {
+        \\                    :ok{conn} => {
+        \\                        Stream.write_line(conn, "world");
+        \\                        Stream.close(conn);
+        \\                        match Tcp.accept(listener) {
+        \\                            :ok{client} => {
+        \\                                line: string = Stream.read_line(client);
+        \\                                result: string = "hello " + line;
+        \\                                println(result);
+        \\                                Stream.close(client);
+        \\                            }
+        \\                            :error{e} => println("accept failed");
+        \\                        }
+        \\                    }
+        \\                    :error{e} => println("open failed");
+        \\                }
+        \\                Stream.close(listener);
+        \\            }
+        \\            :error{e} => println("listen failed");
+        \\        }
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("hello world\n", r.stdout);
+}
+
+test "compile: string equality after concat" {
+    const r = try compileAndCapture(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        a: string = "hel" + "lo";
+        \\        if a == "hello" {
+        \\            println("equal");
+        \\        } else {
+        \\            println("not equal");
+        \\        }
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("equal\n", r.stdout);
+}
+
 // ── Math tests ─────────────────────────────────────
 
 test "compile: math abs min max" {
