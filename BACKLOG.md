@@ -125,6 +125,8 @@
 
 - [ ] Invariant checking after receive handlers
 - [ ] Real test blocks — `test "name" { ... }` in addition to @example
+- [ ] Migrate `verve test` from interpreter to compiler — generate test program from @example/@property, compile, run, compare results
+- [ ] Remove interpreter entirely after verve test migration (interpreter.zig, value.zig, process.zig, interpreter_test.zig, process_test.zig)
 
 ## Phase 4 — Native Compilation (Zig backend)
 
