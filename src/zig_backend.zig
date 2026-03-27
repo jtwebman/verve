@@ -508,7 +508,11 @@ pub const ZigBackend = struct {
             .add_f64 => |op| self.lineFmt("{s} = @bitCast(@as(f64, @bitCast({s})) + @as(f64, @bitCast({s})));", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
             .sub_f64 => |op| self.lineFmt("{s} = @bitCast(@as(f64, @bitCast({s})) - @as(f64, @bitCast({s})));", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
             .mul_f64 => |op| self.lineFmt("{s} = @bitCast(@as(f64, @bitCast({s})) * @as(f64, @bitCast({s})));", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
-            .div_f64 => |op| self.lineFmt("{s} = @bitCast(@as(f64, @bitCast({s})) / @as(f64, @bitCast({s})));", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
+            .div_f64 => |op| {
+                self.lineFmt("{s} = @bitCast(@as(f64, @bitCast({s})) / @as(f64, @bitCast({s})));", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) });
+                // Check for infinity/NaN → poison
+                self.lineFmt("{s} = rt.float_check({s});", .{ self.regName(op.dest), self.regName(op.dest) });
+            },
             .mod_f64 => |op| self.lineFmt("{s} = @bitCast(@mod(@as(f64, @bitCast({s})), @as(f64, @bitCast({s}))));", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
             .neg_f64 => |op| self.lineFmt("{s} = @bitCast(-@as(f64, @bitCast({s})));", .{ self.regName(op.dest), self.regName(op.operand) }),
 

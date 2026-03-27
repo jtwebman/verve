@@ -404,14 +404,17 @@ pub fn math_abs_f(x: i64) i64 {
 }
 
 pub fn math_floor(x: i64) i64 {
+    if (isPoison(x)) return x;
     return @intFromFloat(@floor(f64_from_i64(x)));
 }
 
 pub fn math_ceil(x: i64) i64 {
+    if (isPoison(x)) return x;
     return @intFromFloat(@ceil(f64_from_i64(x)));
 }
 
 pub fn math_round(x: i64) i64 {
+    if (isPoison(x)) return x;
     return @intFromFloat(@round(f64_from_i64(x)));
 }
 
@@ -746,7 +749,8 @@ pub const POISON_DIV_ZERO: i64 = std.math.minInt(i64) + 2;
 pub const POISON_OUT_OF_BOUNDS: i64 = std.math.minInt(i64) + 3;
 
 fn isPoison(v: i64) bool {
-    return v >= std.math.minInt(i64) and v <= std.math.minInt(i64) + 3 and v != std.math.minInt(i64);
+    // Poison sentinels: MIN+1 (overflow), MIN+2 (div_zero), MIN+3 (oob), MIN+4 (infinity), MIN+5 (nan)
+    return v >= std.math.minInt(i64) and v <= std.math.minInt(i64) + 5 and v != std.math.minInt(i64);
 }
 
 pub fn verve_add_checked(a: i64, b: i64) i64 {
@@ -800,6 +804,17 @@ pub fn verve_is_poison(v: i64) i64 {
 }
 
 /// Comparison operators that return 0 (false) if either operand is poison.
+pub const POISON_INFINITY: i64 = std.math.minInt(i64) + 4;
+pub const POISON_NAN: i64 = std.math.minInt(i64) + 5;
+
+/// Check a float result for infinity/NaN and convert to poison.
+pub fn float_check(val: i64) i64 {
+    const f = f64_from_i64(val);
+    if (std.math.isNan(f)) return POISON_NAN;
+    if (std.math.isInf(f)) return POISON_INFINITY;
+    return val;
+}
+
 pub fn verve_eq(a: i64, b: i64) i64 {
     if (isPoison(a) or isPoison(b)) return 0;
     return if (a == b) @as(i64, 1) else @as(i64, 0);
