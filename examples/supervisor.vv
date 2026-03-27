@@ -27,21 +27,21 @@ process App<AppState> {
 
 		// Send some messages to the worker
 		match worker.SetValue(42) {
-			:ok{v} => println("Worker value set to: ", v);
-			:error{r} => println("Error setting value");
+			:ok{v} => Stdio.println("Worker value set to: ", v);
+			:error{r} => Stdio.println("Error setting value");
 		}
 
 		match worker.GetValue() {
-			:ok{v} => println("Worker value is: ", v);
-			:error{r} => println("Error getting value");
+			:ok{v} => Stdio.println("Worker value is: ", v);
+			:error{r} => Stdio.println("Error getting value");
 		}
 
 		match worker.SetValue(100) {
-			:ok{v} => println("Worker value updated to: ", v);
-			:error{r} => println("Error");
+			:ok{v} => Stdio.println("Worker value updated to: ", v);
+			:error{r} => Stdio.println("Error");
 		}
 
-		println("Supervisor done");
+		Stdio.println("Supervisor done");
 		return 0;
 	}
 }

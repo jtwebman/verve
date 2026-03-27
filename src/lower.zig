@@ -848,6 +848,39 @@ pub const Lower = struct {
                             return dest;
                         }
                         if (std.mem.eql(u8, mod_name, "Stdio")) {
+                            if (std.mem.eql(u8, fn_name, "println") or std.mem.eql(u8, fn_name, "print")) {
+                                // Stdio.println/print: same auto-convert logic as old println
+                                var builtin_args = std.ArrayListUnmanaged(ir.Reg){};
+                                for (c.args) |arg| {
+                                    const arg_reg = self.lowerExpr(arg);
+                                    builtin_args.append(self.alloc, arg_reg) catch {};
+                                    const is_string = (arg == .string_literal) or
+                                        (arg == .identifier and self.string_vars.get(arg.identifier) != null) or
+                                        (arg == .field_access and self.isStringFieldAccess(arg.field_access)) or
+                                        (self.string_lens.get(arg_reg) != null);
+                                    if (is_string) {
+                                        if (self.string_lens.get(arg_reg)) |lr| {
+                                            builtin_args.append(self.alloc, lr) catch {};
+                                        } else {
+                                            const lr = func.newReg();
+                                            self.appendInst(.{ .string_len = .{ .dest = lr, .str = arg_reg } });
+                                            builtin_args.append(self.alloc, lr) catch {};
+                                        }
+                                    } else {
+                                        const marker = func.newReg();
+                                        self.appendInst(.{ .const_int = .{ .dest = marker, .value = -1 } });
+                                        builtin_args.append(self.alloc, marker) catch {};
+                                    }
+                                }
+                                self.appendInst(.{
+                                    .call_builtin = .{
+                                        .dest = dest,
+                                        .name = fn_name, // "println" or "print" — backend handles these
+                                        .args = builtin_args.toOwnedSlice(self.alloc) catch &.{},
+                                    },
+                                });
+                                return dest;
+                            }
                             const builtin_name = std.fmt.allocPrint(self.alloc, "stdio_{s}", .{fn_name}) catch fn_name;
                             self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = builtin_name, .args = args } });
                             return dest;
@@ -1263,41 +1296,6 @@ pub const Lower = struct {
                 }
                 if (c.target.* == .identifier) {
                     const name = c.target.identifier;
-                    // println/print: pass (ptr, len) pairs for all string args
-                    if (std.mem.eql(u8, name, "println") or std.mem.eql(u8, name, "print")) {
-                        var builtin_args = std.ArrayListUnmanaged(ir.Reg){};
-                        for (c.args) |arg| {
-                            const arg_reg = self.lowerExpr(arg);
-                            builtin_args.append(self.alloc, arg_reg) catch {};
-                            // Add string length for string args, 0 for non-string
-                            const is_string = (arg == .string_literal) or
-                                (arg == .identifier and self.string_vars.get(arg.identifier) != null) or
-                                (arg == .field_access and self.isStringFieldAccess(arg.field_access)) or
-                                (self.string_lens.get(arg_reg) != null);
-                            if (is_string) {
-                                if (self.string_lens.get(arg_reg)) |lr| {
-                                    builtin_args.append(self.alloc, lr) catch {};
-                                } else {
-                                    const lr = func.newReg();
-                                    self.appendInst(.{ .string_len = .{ .dest = lr, .str = arg_reg } });
-                                    builtin_args.append(self.alloc, lr) catch {};
-                                }
-                            } else {
-                                // Non-string: mark with -1 so backend formats as integer.
-                                // Known limitation: function return values not tracked as strings
-                                // unless stored to a typed variable first.
-                                const marker = func.newReg();
-                                self.appendInst(.{ .const_int = .{ .dest = marker, .value = -1 } });
-                                builtin_args.append(self.alloc, marker) catch {};
-                            }
-                        }
-                        self.appendInst(.{ .call_builtin = .{
-                            .dest = dest,
-                            .name = name,
-                            .args = builtin_args.toOwnedSlice(self.alloc) catch &.{},
-                        } });
-                        return dest;
-                    }
                     if (std.mem.eql(u8, name, "list")) {
                         self.appendInst(.{ .list_new = .{ .dest = dest } });
                         return dest;

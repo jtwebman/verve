@@ -4,21 +4,21 @@ module Main {
 	fn main() -> int {
 		match Tcp.listen("127.0.0.1", 9999) {
 			:ok{listener} => {
-				println("Listening on 127.0.0.1:9999");
+				Stdio.println("Listening on 127.0.0.1:9999");
 				match Tcp.accept(listener) {
 					:ok{client} => {
-						println("Client connected");
+						Stdio.println("Client connected");
 						Stream.write(client, "echo: ");
 						line: string = Stream.read_line(client);
 						Stream.write_line(client, line);
 						Stream.close(client);
-						println("Done");
+						Stdio.println("Done");
 					}
-					:error{e} => println("Accept failed");
+					:error{e} => Stdio.println("Accept failed");
 				}
 				Stream.close(listener);
 			}
-			:error{e} => println("Listen failed");
+			:error{e} => Stdio.println("Listen failed");
 		}
 		return 0;
 	}

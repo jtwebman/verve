@@ -156,25 +156,25 @@ test "compile: nested calls" {
 // Strings and println
 // ════════════════════════════════════════════════════════════
 
-test "compile: println string" {
+test "compile: Stdio.println string" {
     const r = try compileAndCapture(
-        \\module App { fn main(args: list<string>) -> int { println("hello"); return 0; } }
+        \\module App { fn main(args: list<string>) -> int { Stdio.println("hello"); return 0; } }
     );
     try testing.expectEqual(@as(u8, 0), r.exit);
     try testing.expectEqualStrings("hello\n", r.stdout);
 }
 
-test "compile: println int" {
+test "compile: Stdio.println int" {
     const r = try compileAndCapture(
-        \\module App { fn main(args: list<string>) -> int { x: int = 42; println(x); return 0; } }
+        \\module App { fn main(args: list<string>) -> int { x: int = 42; Stdio.println(x); return 0; } }
     );
     try testing.expectEqual(@as(u8, 0), r.exit);
     try testing.expectEqualStrings("42\n", r.stdout);
 }
 
-test "compile: print multiple" {
+test "compile: Stdio.print multiple" {
     const r = try compileAndCapture(
-        \\module App { fn main(args: list<string>) -> int { println("a", "b"); return 0; } }
+        \\module App { fn main(args: list<string>) -> int { Stdio.println("a", "b"); return 0; } }
     );
     try testing.expectEqualStrings("ab\n", r.stdout);
 }
@@ -278,7 +278,7 @@ test "compile: File.open success" {
     const r = try compileAndCapture(
         \\module App { fn main(args: list<string>) -> int {
         \\    result: Result<stream> = File.open("examples/math.vv", "r");
-        \\    match result { :ok{f} => { println("ok"); return 0; } :error{r} => { return 1; } }
+        \\    match result { :ok{f} => { Stdio.println("ok"); return 0; } :error{r} => { return 1; } }
         \\} }
     );
     try testing.expectEqual(@as(u8, 0), r.exit);
@@ -294,7 +294,7 @@ test "compile: process main handler" {
         \\struct AppState { x: int = 0; }
         \\process App<AppState> {
         \\    receive main(state: AppState) -> int {
-        \\        println("hello from process");
+        \\        Stdio.println("hello from process");
         \\        return 0;
         \\    }
         \\}
@@ -308,7 +308,7 @@ test "compile: process state default zero" {
         \\struct AppState { count: int = 0; }
         \\process App<AppState> {
         \\    receive main(state: AppState) -> int {
-        \\        println(state.count);
+        \\        Stdio.println(state.count);
         \\        return 0;
         \\    }
         \\}
@@ -323,7 +323,7 @@ test "compile: process state mutation and read" {
         \\process App<AppState> {
         \\    receive main(state: AppState) -> int {
         \\        state.count = state.count + 5;
-        \\        println(state.count);
+        \\        Stdio.println(state.count);
         \\        return 0;
         \\    }
         \\}
@@ -348,16 +348,16 @@ test "compile: spawn and send" {
         \\    fn main(args: list<string>) -> int {
         \\        counter: int = spawn Counter();
         \\        match counter.Increment() {
-        \\            :ok{val} => println(val);
-        \\            :error{e} => println("err");
+        \\            :ok{val} => Stdio.println(val);
+        \\            :error{e} => Stdio.println("err");
         \\        }
         \\        match counter.Increment() {
-        \\            :ok{val} => println(val);
-        \\            :error{e} => println("err");
+        \\            :ok{val} => Stdio.println(val);
+        \\            :error{e} => Stdio.println("err");
         \\        }
         \\        match counter.GetCount() {
-        \\            :ok{val} => println(val);
-        \\            :error{e} => println("err");
+        \\            :ok{val} => Stdio.println(val);
+        \\            :error{e} => Stdio.println("err");
         \\        }
         \\        return 0;
         \\    }
@@ -386,8 +386,8 @@ test "compile: spawn and tell" {
         \\        tell counter.Increment();
         \\        tell counter.Increment();
         \\        match counter.GetCount() {
-        \\            :ok{val} => println(val);
-        \\            :error{e} => println("err");
+        \\            :ok{val} => Stdio.println(val);
+        \\            :error{e} => Stdio.println("err");
         \\        }
         \\        return 0;
         \\    }
@@ -411,12 +411,12 @@ test "compile: guard failure" {
         \\    fn main(args: list<string>) -> int {
         \\        counter: int = spawn Counter();
         \\        match counter.Add(5) {
-        \\            :ok{val} => println(val);
-        \\            :error{e} => println("guard failed");
+        \\            :ok{val} => Stdio.println(val);
+        \\            :error{e} => Stdio.println("guard failed");
         \\        }
         \\        match counter.Add(0) {
-        \\            :ok{val} => println(val);
-        \\            :error{e} => println("guard failed");
+        \\            :ok{val} => Stdio.println(val);
+        \\            :error{e} => Stdio.println("guard failed");
         \\        }
         \\        return 0;
         \\    }
@@ -446,16 +446,16 @@ test "compile: multiple state fields" {
         \\    fn main(args: list<string>) -> int {
         \\        p: int = spawn Pair();
         \\        match p.SetX(10) {
-        \\            :ok{v} => println(v);
-        \\            :error{e} => println("err");
+        \\            :ok{v} => Stdio.println(v);
+        \\            :error{e} => Stdio.println("err");
         \\        }
         \\        match p.SetY(32) {
-        \\            :ok{v} => println(v);
-        \\            :error{e} => println("err");
+        \\            :ok{v} => Stdio.println(v);
+        \\            :error{e} => Stdio.println("err");
         \\        }
         \\        match p.Sum() {
-        \\            :ok{v} => println(v);
-        \\            :error{e} => println("err");
+        \\            :ok{v} => Stdio.println(v);
+        \\            :error{e} => Stdio.println("err");
         \\        }
         \\        return 0;
         \\    }
@@ -482,24 +482,24 @@ test "compile: multi-process interaction" {
         \\        a1: int = spawn Adder();
         \\        a2: int = spawn Adder();
         \\        match a1.Add(10) {
-        \\            :ok{v} => println(v);
-        \\            :error{e} => println("err");
+        \\            :ok{v} => Stdio.println(v);
+        \\            :error{e} => Stdio.println("err");
         \\        }
         \\        match a2.Add(20) {
-        \\            :ok{v} => println(v);
-        \\            :error{e} => println("err");
+        \\            :ok{v} => Stdio.println(v);
+        \\            :error{e} => Stdio.println("err");
         \\        }
         \\        match a1.Add(5) {
-        \\            :ok{v} => println(v);
-        \\            :error{e} => println("err");
+        \\            :ok{v} => Stdio.println(v);
+        \\            :error{e} => Stdio.println("err");
         \\        }
         \\        match a1.GetTotal() {
-        \\            :ok{v} => println(v);
-        \\            :error{e} => println("err");
+        \\            :ok{v} => Stdio.println(v);
+        \\            :error{e} => Stdio.println("err");
         \\        }
         \\        match a2.GetTotal() {
-        \\            :ok{v} => println(v);
-        \\            :error{e} => println("err");
+        \\            :ok{v} => Stdio.println(v);
+        \\            :error{e} => Stdio.println("err");
         \\        }
         \\        return 0;
         \\    }
@@ -530,8 +530,8 @@ test "compile: message throughput via tell" {
         \\            i = i + 1;
         \\        }
         \\        match c.GetCount() {
-        \\            :ok{val} => println(val);
-        \\            :error{e} => println("err");
+        \\            :ok{val} => Stdio.println(val);
+        \\            :error{e} => Stdio.println("err");
         \\        }
         \\        return 0;
         \\    }
@@ -550,9 +550,9 @@ test "compile: division by zero produces poison" {
         \\        x: int = 10 / 0;
         \\        // Poison prints as a large negative number (sentinel)
         \\        if x > 0 {
-        \\            println("wrong: positive");
+        \\            Stdio.println("wrong: positive");
         \\        } else {
-        \\            println("poison");
+        \\            Stdio.println("poison");
         \\        }
         \\        return 0;
         \\    }
@@ -568,9 +568,9 @@ test "compile: modulo by zero produces poison" {
         \\    fn main(args: list<string>) -> int {
         \\        x: int = 10 % 0;
         \\        if x > 0 {
-        \\            println("wrong");
+        \\            Stdio.println("wrong");
         \\        } else {
-        \\            println("poison");
+        \\            Stdio.println("poison");
         \\        }
         \\        return 0;
         \\    }
@@ -587,9 +587,9 @@ test "compile: poison propagates through addition" {
         \\        bad: int = 10 / 0;
         \\        result: int = bad + 5;
         \\        if result > 0 {
-        \\            println("wrong");
+        \\            Stdio.println("wrong");
         \\        } else {
-        \\            println("propagated");
+        \\            Stdio.println("propagated");
         \\        }
         \\        return 0;
         \\    }
@@ -606,9 +606,9 @@ test "compile: overflow on addition" {
         \\        max: int = 9223372036854775807;
         \\        result: int = max + 1;
         \\        if result > 0 {
-        \\            println("wrapped");
+        \\            Stdio.println("wrapped");
         \\        } else {
-        \\            println("poison");
+        \\            Stdio.println("poison");
         \\        }
         \\        return 0;
         \\    }
@@ -625,9 +625,9 @@ test "compile: overflow on multiplication" {
         \\        big: int = 9223372036854775807;
         \\        result: int = big * 2;
         \\        if result > 0 {
-        \\            println("wrapped");
+        \\            Stdio.println("wrapped");
         \\        } else {
-        \\            println("poison");
+        \\            Stdio.println("poison");
         \\        }
         \\        return 0;
         \\    }
@@ -645,15 +645,15 @@ test "compile: underflow on subtraction" {
         \\        result: int = min - 2;
         \\        // Poison: neither > 0 nor < 0 nor == 0
         \\        if result > 0 {
-        \\            println("positive");
+        \\            Stdio.println("positive");
         \\        } else {
         \\            if result == 0 {
-        \\                println("zero");
+        \\                Stdio.println("zero");
         \\            } else {
         \\                if result < 0 {
-        \\                    println("negative");
+        \\                    Stdio.println("negative");
         \\                } else {
-        \\                    println("poison");
+        \\                    Stdio.println("poison");
         \\                }
         \\            }
         \\        }
@@ -675,9 +675,9 @@ test "compile: poison propagates through multiple operations" {
         \\        r2: int = r1 * 3;
         \\        r3: int = r2 - 1;
         \\        if r3 > 0 {
-        \\            println("wrong");
+        \\            Stdio.println("wrong");
         \\        } else {
-        \\            println("still poison");
+        \\            Stdio.println("still poison");
         \\        }
         \\        return 0;
         \\    }
@@ -693,7 +693,7 @@ test "compile: poison does not affect independent values" {
         \\    fn main(args: list<string>) -> int {
         \\        bad: int = 10 / 0;
         \\        good: int = 3 + 4;
-        \\        println(good);
+        \\        Stdio.println(good);
         \\        return 0;
         \\    }
         \\}
@@ -706,12 +706,12 @@ test "compile: normal arithmetic still works" {
     const r = try compileAndCapture(
         \\module App {
         \\    fn main(args: list<string>) -> int {
-        \\        println(3 + 4);
-        \\        println(10 - 3);
-        \\        println(6 * 7);
-        \\        println(42 / 6);
-        \\        println(10 % 3);
-        \\        println(0 - 5);
+        \\        Stdio.println(3 + 4);
+        \\        Stdio.println(10 - 3);
+        \\        Stdio.println(6 * 7);
+        \\        Stdio.println(42 / 6);
+        \\        Stdio.println(10 % 3);
+        \\        Stdio.println(0 - 5);
         \\        return 0;
         \\    }
         \\}
@@ -746,8 +746,8 @@ test "compile: many tagged results dont crash (arena allocation)" {
         \\            }
         \\        }
         \\        match c.Inc() {
-        \\            :ok{v} => println(v);
-        \\            :error{e} => println("err");
+        \\            :ok{v} => Stdio.println(v);
+        \\            :error{e} => Stdio.println("err");
         \\        }
         \\        return 0;
         \\    }
@@ -766,7 +766,7 @@ test "compile: many string conversions dont crash (arena allocation)" {
         \\            s: string = Convert.to_string(i);
         \\            i = i + 1;
         \\        }
-        \\        println("survived");
+        \\        Stdio.println("survived");
         \\        return 0;
         \\    }
         \\}
@@ -785,7 +785,7 @@ test "compile: many string concats dont crash (arena allocation)" {
         \\            s = s + "a";
         \\            i = i + 1;
         \\        }
-        \\        println(String.len(s));
+        \\        Stdio.println(String.len(s));
         \\        return 0;
         \\    }
         \\}
@@ -801,7 +801,7 @@ test "compile: string concat literals" {
         \\module App {
         \\    fn main(args: list<string>) -> int {
         \\        s: string = "hello" + " " + "world";
-        \\        println(s);
+        \\        Stdio.println(s);
         \\        return 0;
         \\    }
         \\}
@@ -817,7 +817,7 @@ test "compile: string concat variables" {
         \\        a: string = "foo";
         \\        b: string = "bar";
         \\        c: string = a + b;
-        \\        println(c);
+        \\        Stdio.println(c);
         \\        return 0;
         \\    }
         \\}
@@ -831,7 +831,7 @@ test "compile: string concat length" {
         \\module App {
         \\    fn main(args: list<string>) -> int {
         \\        s: string = "ab" + "cd";
-        \\        println(String.len(s));
+        \\        Stdio.println(String.len(s));
         \\        return 0;
         \\    }
         \\}
@@ -845,9 +845,9 @@ test "compile: string concat empty" {
         \\module App {
         \\    fn main(args: list<string>) -> int {
         \\        s: string = "hello" + "";
-        \\        println(s);
+        \\        Stdio.println(s);
         \\        s2: string = "" + "world";
-        \\        println(s2);
+        \\        Stdio.println(s2);
         \\        return 0;
         \\    }
         \\}
@@ -861,8 +861,8 @@ test "compile: string concat chain" {
         \\module App {
         \\    fn main(args: list<string>) -> int {
         \\        s: string = "a" + "b" + "c" + "d" + "e";
-        \\        println(s);
-        \\        println(String.len(s));
+        \\        Stdio.println(s);
+        \\        Stdio.println(String.len(s));
         \\        return 0;
         \\    }
         \\}
@@ -878,7 +878,7 @@ test "compile: string concat with convert" {
         \\        name: string = "count";
         \\        num: string = Convert.to_string(42);
         \\        result: string = name + ": " + num;
-        \\        println(result);
+        \\        Stdio.println(result);
         \\        return 0;
         \\    }
         \\}
@@ -897,8 +897,8 @@ test "compile: string concat in loop" {
         \\            s = s + "x";
         \\            i = i + 1;
         \\        }
-        \\        println(s);
-        \\        println(String.len(s));
+        \\        Stdio.println(s);
+        \\        Stdio.println(String.len(s));
         \\        return 0;
         \\    }
         \\}
@@ -922,17 +922,17 @@ test "compile: string concat with stream read_line" {
         \\                            :ok{client} => {
         \\                                line: string = Stream.read_line(client);
         \\                                result: string = "hello " + line;
-        \\                                println(result);
+        \\                                Stdio.println(result);
         \\                                Stream.close(client);
         \\                            }
-        \\                            :error{e} => println("accept failed");
+        \\                            :error{e} => Stdio.println("accept failed");
         \\                        }
         \\                    }
-        \\                    :error{e} => println("open failed");
+        \\                    :error{e} => Stdio.println("open failed");
         \\                }
         \\                Stream.close(listener);
         \\            }
-        \\            :error{e} => println("listen failed");
+        \\            :error{e} => Stdio.println("listen failed");
         \\        }
         \\        return 0;
         \\    }
@@ -948,9 +948,9 @@ test "compile: string equality after concat" {
         \\    fn main(args: list<string>) -> int {
         \\        a: string = "hel" + "lo";
         \\        if a == "hello" {
-        \\            println("equal");
+        \\            Stdio.println("equal");
         \\        } else {
-        \\            println("not equal");
+        \\            Stdio.println("not equal");
         \\        }
         \\        return 0;
         \\    }
@@ -966,12 +966,12 @@ test "compile: math abs min max" {
     const r = try compileAndCapture(
         \\module App {
         \\    fn main(args: list<string>) -> int {
-        \\        println(Math.abs(-42));
-        \\        println(Math.min(10, 3));
-        \\        println(Math.max(10, 3));
-        \\        println(Math.clamp(50, 0, 100));
-        \\        println(Math.clamp(-5, 0, 100));
-        \\        println(Math.clamp(200, 0, 100));
+        \\        Stdio.println(Math.abs(-42));
+        \\        Stdio.println(Math.min(10, 3));
+        \\        Stdio.println(Math.max(10, 3));
+        \\        Stdio.println(Math.clamp(50, 0, 100));
+        \\        Stdio.println(Math.clamp(-5, 0, 100));
+        \\        Stdio.println(Math.clamp(200, 0, 100));
         \\        return 0;
         \\    }
         \\}
@@ -984,11 +984,11 @@ test "compile: math abs edge cases" {
     const r = try compileAndCapture(
         \\module App {
         \\    fn main(args: list<string>) -> int {
-        \\        println(Math.abs(0));
-        \\        println(Math.abs(1));
-        \\        println(Math.abs(-1));
-        \\        println(Math.abs(999999));
-        \\        println(Math.abs(-999999));
+        \\        Stdio.println(Math.abs(0));
+        \\        Stdio.println(Math.abs(1));
+        \\        Stdio.println(Math.abs(-1));
+        \\        Stdio.println(Math.abs(999999));
+        \\        Stdio.println(Math.abs(-999999));
         \\        return 0;
         \\    }
         \\}
@@ -1001,12 +1001,12 @@ test "compile: math min max edge cases" {
     const r = try compileAndCapture(
         \\module App {
         \\    fn main(args: list<string>) -> int {
-        \\        println(Math.min(0, 0));
-        \\        println(Math.min(-5, 5));
-        \\        println(Math.min(5, -5));
-        \\        println(Math.max(0, 0));
-        \\        println(Math.max(-5, 5));
-        \\        println(Math.max(5, -5));
+        \\        Stdio.println(Math.min(0, 0));
+        \\        Stdio.println(Math.min(-5, 5));
+        \\        Stdio.println(Math.min(5, -5));
+        \\        Stdio.println(Math.max(0, 0));
+        \\        Stdio.println(Math.max(-5, 5));
+        \\        Stdio.println(Math.max(5, -5));
         \\        return 0;
         \\    }
         \\}
@@ -1019,10 +1019,10 @@ test "compile: math clamp edge cases" {
     const r = try compileAndCapture(
         \\module App {
         \\    fn main(args: list<string>) -> int {
-        \\        println(Math.clamp(5, 5, 5));
-        \\        println(Math.clamp(0, -10, 10));
-        \\        println(Math.clamp(-100, -10, 10));
-        \\        println(Math.clamp(100, -10, 10));
+        \\        Stdio.println(Math.clamp(5, 5, 5));
+        \\        Stdio.println(Math.clamp(0, -10, 10));
+        \\        Stdio.println(Math.clamp(-100, -10, 10));
+        \\        Stdio.println(Math.clamp(100, -10, 10));
         \\        return 0;
         \\    }
         \\}
@@ -1035,12 +1035,12 @@ test "compile: math pow edge cases" {
     const r = try compileAndCapture(
         \\module App {
         \\    fn main(args: list<string>) -> int {
-        \\        println(Math.pow(2, 0));
-        \\        println(Math.pow(0, 5));
-        \\        println(Math.pow(1, 1000));
-        \\        println(Math.pow(-2, 3));
-        \\        println(Math.pow(-2, 4));
-        \\        println(Math.pow(10, 6));
+        \\        Stdio.println(Math.pow(2, 0));
+        \\        Stdio.println(Math.pow(0, 5));
+        \\        Stdio.println(Math.pow(1, 1000));
+        \\        Stdio.println(Math.pow(-2, 3));
+        \\        Stdio.println(Math.pow(-2, 4));
+        \\        Stdio.println(Math.pow(10, 6));
         \\        return 0;
         \\    }
         \\}
@@ -1053,13 +1053,13 @@ test "compile: math sqrt edge cases" {
     const r = try compileAndCapture(
         \\module App {
         \\    fn main(args: list<string>) -> int {
-        \\        println(Math.sqrt(0));
-        \\        println(Math.sqrt(1));
-        \\        println(Math.sqrt(4));
-        \\        println(Math.sqrt(9));
-        \\        println(Math.sqrt(10));
-        \\        println(Math.sqrt(10000));
-        \\        println(Math.sqrt(-1));
+        \\        Stdio.println(Math.sqrt(0));
+        \\        Stdio.println(Math.sqrt(1));
+        \\        Stdio.println(Math.sqrt(4));
+        \\        Stdio.println(Math.sqrt(9));
+        \\        Stdio.println(Math.sqrt(10));
+        \\        Stdio.println(Math.sqrt(10000));
+        \\        Stdio.println(Math.sqrt(-1));
         \\        return 0;
         \\    }
         \\}
@@ -1072,14 +1072,14 @@ test "compile: math log2 edge cases" {
     const r = try compileAndCapture(
         \\module App {
         \\    fn main(args: list<string>) -> int {
-        \\        println(Math.log2(1));
-        \\        println(Math.log2(2));
-        \\        println(Math.log2(3));
-        \\        println(Math.log2(8));
-        \\        println(Math.log2(1023));
-        \\        println(Math.log2(1024));
-        \\        println(Math.log2(0));
-        \\        println(Math.log2(-1));
+        \\        Stdio.println(Math.log2(1));
+        \\        Stdio.println(Math.log2(2));
+        \\        Stdio.println(Math.log2(3));
+        \\        Stdio.println(Math.log2(8));
+        \\        Stdio.println(Math.log2(1023));
+        \\        Stdio.println(Math.log2(1024));
+        \\        Stdio.println(Math.log2(0));
+        \\        Stdio.println(Math.log2(-1));
         \\        return 0;
         \\    }
         \\}
@@ -1092,12 +1092,12 @@ test "compile: math pow sqrt log2" {
     const r = try compileAndCapture(
         \\module App {
         \\    fn main(args: list<string>) -> int {
-        \\        println(Math.pow(2, 10));
-        \\        println(Math.pow(3, 3));
-        \\        println(Math.sqrt(144));
-        \\        println(Math.sqrt(2));
-        \\        println(Math.log2(1024));
-        \\        println(Math.log2(1));
+        \\        Stdio.println(Math.pow(2, 10));
+        \\        Stdio.println(Math.pow(3, 3));
+        \\        Stdio.println(Math.sqrt(144));
+        \\        Stdio.println(Math.sqrt(2));
+        \\        Stdio.println(Math.log2(1024));
+        \\        Stdio.println(Math.log2(1));
         \\        return 0;
         \\    }
         \\}
@@ -1114,9 +1114,9 @@ test "compile: system time_ms" {
         \\    fn main(args: list<string>) -> int {
         \\        t: int = System.time_ms();
         \\        if t > 0 {
-        \\            println("ok");
+        \\            Stdio.println("ok");
         \\        } else {
-        \\            println("bad");
+        \\            Stdio.println("bad");
         \\        }
         \\        return 0;
         \\    }
@@ -1132,15 +1132,15 @@ test "compile: math floor ceil round" {
     const r = try compileAndCapture(
         \\module App {
         \\    fn main(args: list<string>) -> int {
-        \\        println(Math.floor(3.7));
-        \\        println(Math.floor(3.0));
-        \\        println(Math.floor(0.5));
-        \\        println(Math.ceil(3.2));
-        \\        println(Math.ceil(3.0));
-        \\        println(Math.ceil(0.1));
-        \\        println(Math.round(3.5));
-        \\        println(Math.round(3.4));
-        \\        println(Math.round(0.5));
+        \\        Stdio.println(Math.floor(3.7));
+        \\        Stdio.println(Math.floor(3.0));
+        \\        Stdio.println(Math.floor(0.5));
+        \\        Stdio.println(Math.ceil(3.2));
+        \\        Stdio.println(Math.ceil(3.0));
+        \\        Stdio.println(Math.ceil(0.1));
+        \\        Stdio.println(Math.round(3.5));
+        \\        Stdio.println(Math.round(3.4));
+        \\        Stdio.println(Math.round(0.5));
         \\        return 0;
         \\    }
         \\}
@@ -1153,12 +1153,12 @@ test "compile: math floor ceil round zero" {
     const r = try compileAndCapture(
         \\module App {
         \\    fn main(args: list<string>) -> int {
-        \\        println(Math.floor(0.0));
-        \\        println(Math.ceil(0.0));
-        \\        println(Math.round(0.0));
-        \\        println(Math.floor(0.1));
-        \\        println(Math.floor(0.9));
-        \\        println(Math.ceil(0.1));
+        \\        Stdio.println(Math.floor(0.0));
+        \\        Stdio.println(Math.ceil(0.0));
+        \\        Stdio.println(Math.round(0.0));
+        \\        Stdio.println(Math.floor(0.1));
+        \\        Stdio.println(Math.floor(0.9));
+        \\        Stdio.println(Math.ceil(0.1));
         \\        return 0;
         \\    }
         \\}
@@ -1174,8 +1174,8 @@ test "compile: math sin cos tan" {
         \\        zero_sin: float = Math.sin(0.0);
         \\        zero_cos: float = Math.cos(0.0);
         \\        // sin(0) == 0, cos(0) == 1
-        \\        println(Math.round(zero_sin));
-        \\        println(Math.round(zero_cos));
+        \\        Stdio.println(Math.round(zero_sin));
+        \\        Stdio.println(Math.round(zero_cos));
         \\        return 0;
         \\    }
         \\}
@@ -1189,11 +1189,11 @@ test "compile: math sqrt_f" {
         \\module App {
         \\    fn main(args: list<string>) -> int {
         \\        r4: float = Math.sqrt_f(4.0);
-        \\        println(Math.round(r4));
+        \\        Stdio.println(Math.round(r4));
         \\        r9: float = Math.sqrt_f(9.0);
-        \\        println(Math.round(r9));
+        \\        Stdio.println(Math.round(r9));
         \\        r0: float = Math.sqrt_f(0.0);
-        \\        println(Math.round(r0));
+        \\        Stdio.println(Math.round(r0));
         \\        return 0;
         \\    }
         \\}
@@ -1207,12 +1207,12 @@ test "compile: math pow_f" {
         \\module App {
         \\    fn main(args: list<string>) -> int {
         \\        r1: float = Math.pow_f(2.0, 10.0);
-        \\        println(Math.round(r1));
+        \\        Stdio.println(Math.round(r1));
         \\        r2: float = Math.pow_f(3.0, 0.0);
-        \\        println(Math.round(r2));
+        \\        Stdio.println(Math.round(r2));
         \\        r3: float = Math.pow_f(2.0, -1.0);
         \\        // 2^-1 = 0.5, round = 1 (rounds half-up)
-        \\        println(Math.round(r3));
+        \\        Stdio.println(Math.round(r3));
         \\        return 0;
         \\    }
         \\}
@@ -1227,16 +1227,16 @@ test "compile: math log log10 exp" {
         \\    fn main(args: list<string>) -> int {
         \\        // exp(0) = 1
         \\        e0: float = Math.exp(0.0);
-        \\        println(Math.round(e0));
+        \\        Stdio.println(Math.round(e0));
         \\        // log(1) = 0
         \\        l1: float = Math.log(1.0);
-        \\        println(Math.round(l1));
+        \\        Stdio.println(Math.round(l1));
         \\        // log10(100) = 2
         \\        l100: float = Math.log10(100.0);
-        \\        println(Math.round(l100));
+        \\        Stdio.println(Math.round(l100));
         \\        // log10(1000) = 3
         \\        l1000: float = Math.log10(1000.0);
-        \\        println(Math.round(l1000));
+        \\        Stdio.println(Math.round(l1000));
         \\        return 0;
         \\    }
         \\}
@@ -1250,15 +1250,15 @@ test "compile: math abs_f min_f max_f" {
         \\module App {
         \\    fn main(args: list<string>) -> int {
         \\        a1: float = Math.abs_f(3.5);
-        \\        println(Math.round(a1));
+        \\        Stdio.println(Math.round(a1));
         \\        mn: float = Math.min_f(1.5, 2.5);
-        \\        println(Math.round(mn));
+        \\        Stdio.println(Math.round(mn));
         \\        mx: float = Math.max_f(1.5, 2.5);
-        \\        println(Math.round(mx));
+        \\        Stdio.println(Math.round(mx));
         \\        mn2: float = Math.min_f(0.1, 0.9);
-        \\        println(Math.round(mn2));
+        \\        Stdio.println(Math.round(mn2));
         \\        mx2: float = Math.max_f(0.1, 0.9);
-        \\        println(Math.round(mx2));
+        \\        Stdio.println(Math.round(mx2));
         \\        return 0;
         \\    }
         \\}
@@ -1274,13 +1274,13 @@ test "compile: convert to_float and to_int_f" {
         \\module App {
         \\    fn main(args: list<string>) -> int {
         \\        f: float = Convert.to_float(42);
-        \\        println(Math.round(f));
+        \\        Stdio.println(Math.round(f));
         \\        i: int = Convert.to_int_f(3.7);
-        \\        println(i);
+        \\        Stdio.println(i);
         \\        zero: int = Convert.to_int_f(0.0);
-        \\        println(zero);
+        \\        Stdio.println(zero);
         \\        big: float = Convert.to_float(1000);
-        \\        println(Math.round(big));
+        \\        Stdio.println(Math.round(big));
         \\        return 0;
         \\    }
         \\}
@@ -1294,9 +1294,9 @@ test "compile: convert float_to_string" {
         \\module App {
         \\    fn main(args: list<string>) -> int {
         \\        s: string = Convert.float_to_string(3.14);
-        \\        println(s);
+        \\        Stdio.println(s);
         \\        s0: string = Convert.float_to_string(0.0);
-        \\        println(s0);
+        \\        Stdio.println(s0);
         \\        return 0;
         \\    }
         \\}
@@ -1313,11 +1313,11 @@ test "compile: convert string_to_float" {
         \\module App {
         \\    fn main(args: list<string>) -> int {
         \\        f: float = Convert.string_to_float("3.14");
-        \\        println(Math.round(f));
+        \\        Stdio.println(Math.round(f));
         \\        f2: float = Convert.string_to_float("100.0");
-        \\        println(Math.round(f2));
+        \\        Stdio.println(Math.round(f2));
         \\        bad: float = Convert.string_to_float("abc");
-        \\        println(Math.round(bad));
+        \\        Stdio.println(Math.round(bad));
         \\        return 0;
         \\    }
         \\}
@@ -1334,9 +1334,9 @@ test "compile: convert float roundtrip" {
         \\        f: float = Convert.to_float(original);
         \\        back: int = Convert.to_int_f(f);
         \\        if back == original {
-        \\            println("roundtrip ok");
+        \\            Stdio.println("roundtrip ok");
         \\        } else {
-        \\            println("roundtrip failed");
+        \\            Stdio.println("roundtrip failed");
         \\        }
         \\        return 0;
         \\    }
@@ -1352,9 +1352,9 @@ test "compile: system exit with code" {
     const r = try compileAndCapture(
         \\module App {
         \\    fn main(args: list<string>) -> int {
-        \\        println("before");
+        \\        Stdio.println("before");
         \\        System.exit(0);
-        \\        println("after");
+        \\        Stdio.println("after");
         \\        return 0;
         \\    }
         \\}
@@ -1382,9 +1382,9 @@ test "compile: system time_ms increases" {
         \\        t1: int = System.time_ms();
         \\        t2: int = System.time_ms();
         \\        if t2 >= t1 {
-        \\            println("ok");
+        \\            Stdio.println("ok");
         \\        } else {
-        \\            println("time went backwards");
+        \\            Stdio.println("time went backwards");
         \\        }
         \\        return 0;
         \\    }
@@ -1401,11 +1401,11 @@ test "compile: convert int to string and back" {
         \\module App {
         \\    fn main(args: list<string>) -> int {
         \\        s: string = Convert.to_string(42);
-        \\        println(s);
+        \\        Stdio.println(s);
         \\        n: int = Convert.to_int("123");
-        \\        println(n);
+        \\        Stdio.println(n);
         \\        neg: string = Convert.to_string(-7);
-        \\        println(neg);
+        \\        Stdio.println(neg);
         \\        return 0;
         \\    }
         \\}
@@ -1419,13 +1419,13 @@ test "compile: convert to_string edge cases" {
         \\module App {
         \\    fn main(args: list<string>) -> int {
         \\        s0: string = Convert.to_string(0);
-        \\        println(s0);
+        \\        Stdio.println(s0);
         \\        s1: string = Convert.to_string(1);
-        \\        println(s1);
+        \\        Stdio.println(s1);
         \\        sn: string = Convert.to_string(-1);
-        \\        println(sn);
+        \\        Stdio.println(sn);
         \\        sb: string = Convert.to_string(1000000);
-        \\        println(sb);
+        \\        Stdio.println(sb);
         \\        return 0;
         \\    }
         \\}
@@ -1438,11 +1438,11 @@ test "compile: convert to_int edge cases" {
     const r = try compileAndCapture(
         \\module App {
         \\    fn main(args: list<string>) -> int {
-        \\        println(Convert.to_int("0"));
-        \\        println(Convert.to_int("-42"));
-        \\        println(Convert.to_int("999"));
-        \\        println(Convert.to_int("abc"));
-        \\        println(Convert.to_int(""));
+        \\        Stdio.println(Convert.to_int("0"));
+        \\        Stdio.println(Convert.to_int("-42"));
+        \\        Stdio.println(Convert.to_int("999"));
+        \\        Stdio.println(Convert.to_int("abc"));
+        \\        Stdio.println(Convert.to_int(""));
         \\        return 0;
         \\    }
         \\}
@@ -1459,9 +1459,9 @@ test "compile: convert roundtrip" {
         \\        s: string = Convert.to_string(original);
         \\        back: int = Convert.to_int(s);
         \\        if back == original {
-        \\            println("roundtrip ok");
+        \\            Stdio.println("roundtrip ok");
         \\        } else {
-        \\            println("roundtrip failed");
+        \\            Stdio.println("roundtrip failed");
         \\        }
         \\        return 0;
         \\    }
@@ -1479,9 +1479,9 @@ test "compile: env get existing var" {
         \\    fn main(args: list<string>) -> int {
         \\        home: string = Env.get("HOME");
         \\        if String.len(home) > 0 {
-        \\            println("has home");
+        \\            Stdio.println("has home");
         \\        } else {
-        \\            println("no home");
+        \\            Stdio.println("no home");
         \\        }
         \\        return 0;
         \\    }
@@ -1497,9 +1497,9 @@ test "compile: env get nonexistent var" {
         \\    fn main(args: list<string>) -> int {
         \\        val: string = Env.get("VERVE_DEFINITELY_NOT_SET_XYZ");
         \\        if String.len(val) == 0 {
-        \\            println("empty");
+        \\            Stdio.println("empty");
         \\        } else {
-        \\            println("unexpected");
+        \\            Stdio.println("unexpected");
         \\        }
         \\        return 0;
         \\    }
@@ -1517,7 +1517,7 @@ test "compile: json get_string from object" {
         \\    fn main(args: list<string>) -> int {
         \\        data: string = "{\"name\": \"verve\", \"version\": 1}";
         \\        name: string = Json.get_string(data, "name");
-        \\        println(name);
+        \\        Stdio.println(name);
         \\        return 0;
         \\    }
         \\}
@@ -1532,7 +1532,7 @@ test "compile: json get_int from object" {
         \\    fn main(args: list<string>) -> int {
         \\        data: string = "{\"count\": 42, \"name\": \"test\"}";
         \\        count: int = Json.get_int(data, "count");
-        \\        println(count);
+        \\        Stdio.println(count);
         \\        return 0;
         \\    }
         \\}
@@ -1547,14 +1547,14 @@ test "compile: json get_bool from object" {
         \\    fn main(args: list<string>) -> int {
         \\        data: string = "{\"active\": true, \"deleted\": false}";
         \\        if Json.get_bool(data, "active") {
-        \\            println("active");
+        \\            Stdio.println("active");
         \\        } else {
-        \\            println("not active");
+        \\            Stdio.println("not active");
         \\        }
         \\        if Json.get_bool(data, "deleted") {
-        \\            println("deleted");
+        \\            Stdio.println("deleted");
         \\        } else {
-        \\            println("not deleted");
+        \\            Stdio.println("not deleted");
         \\        }
         \\        return 0;
         \\    }
@@ -1572,8 +1572,8 @@ test "compile: json nested object" {
         \\        user: string = Json.get_object(data, "user");
         \\        name: string = Json.get_string(user, "name");
         \\        age: int = Json.get_int(user, "age");
-        \\        println(name);
-        \\        println(age);
+        \\        Stdio.println(name);
+        \\        Stdio.println(age);
         \\        return 0;
         \\    }
         \\}
@@ -1588,7 +1588,7 @@ test "compile: json missing key returns zero" {
         \\    fn main(args: list<string>) -> int {
         \\        data: string = "{\"name\": \"test\"}";
         \\        missing: int = Json.get_int(data, "nope");
-        \\        println(missing);
+        \\        Stdio.println(missing);
         \\        return 0;
         \\    }
         \\}
@@ -1602,10 +1602,10 @@ test "compile: json multiple fields" {
         \\module App {
         \\    fn main(args: list<string>) -> int {
         \\        data: string = "{\"a\": 1, \"b\": 2, \"c\": 3, \"d\": 4}";
-        \\        println(Json.get_int(data, "a"));
-        \\        println(Json.get_int(data, "b"));
-        \\        println(Json.get_int(data, "c"));
-        \\        println(Json.get_int(data, "d"));
+        \\        Stdio.println(Json.get_int(data, "a"));
+        \\        Stdio.println(Json.get_int(data, "b"));
+        \\        Stdio.println(Json.get_int(data, "c"));
+        \\        Stdio.println(Json.get_int(data, "d"));
         \\        return 0;
         \\    }
         \\}
@@ -1619,7 +1619,7 @@ test "compile: json negative number" {
         \\module App {
         \\    fn main(args: list<string>) -> int {
         \\        data: string = "{\"temp\": -5}";
-        \\        println(Json.get_int(data, "temp"));
+        \\        Stdio.println(Json.get_int(data, "temp"));
         \\        return 0;
         \\    }
         \\}
@@ -1634,7 +1634,7 @@ test "compile: json string with spaces and special chars" {
         \\    fn main(args: list<string>) -> int {
         \\        data: string = "{\"msg\": \"hello world!\"}";
         \\        msg: string = Json.get_string(data, "msg");
-        \\        println(msg);
+        \\        Stdio.println(msg);
         \\        return 0;
         \\    }
         \\}
@@ -1651,7 +1651,7 @@ test "compile: json deeply nested" {
         \\        a: string = Json.get_object(data, "a");
         \\        b: string = Json.get_object(a, "b");
         \\        c: int = Json.get_int(b, "c");
-        \\        println(c);
+        \\        Stdio.println(c);
         \\        return 0;
         \\    }
         \\}
@@ -1664,10 +1664,10 @@ test "compile: json to_int and to_bool leaf extraction" {
     const r = try compileAndCapture(
         \\module App {
         \\    fn main(args: list<string>) -> int {
-        \\        println(Json.to_int("42"));
-        \\        println(Json.to_int("-7"));
-        \\        println(Json.to_bool("true"));
-        \\        println(Json.to_bool("false"));
+        \\        Stdio.println(Json.to_int("42"));
+        \\        Stdio.println(Json.to_int("-7"));
+        \\        Stdio.println(Json.to_bool("true"));
+        \\        Stdio.println(Json.to_bool("false"));
         \\        return 0;
         \\    }
         \\}
@@ -1688,15 +1688,15 @@ test "compile: json typed parse struct" {
         \\        data: string = "{\"name\": \"alice\", \"age\": 30, \"active\": true}";
         \\        match Json.parse(data, User) {
         \\            :ok{user} => {
-        \\                println(user.name);
-        \\                println(user.age);
+        \\                Stdio.println(user.name);
+        \\                Stdio.println(user.age);
         \\                if user.active {
-        \\                    println("active");
+        \\                    Stdio.println("active");
         \\                } else {
-        \\                    println("not active");
+        \\                    Stdio.println("not active");
         \\                }
         \\            }
-        \\            :error{e} => println("parse failed");
+        \\            :error{e} => Stdio.println("parse failed");
         \\        }
         \\        return 0;
         \\    }
@@ -1718,14 +1718,14 @@ test "compile: json typed parse missing fields use zero defaults" {
         \\        data: string = "{\"port\": 3000}";
         \\        match Json.parse(data, Config) {
         \\            :ok{cfg} => {
-        \\                println(cfg.port);
+        \\                Stdio.println(cfg.port);
         \\                if cfg.debug {
-        \\                    println("debug on");
+        \\                    Stdio.println("debug on");
         \\                } else {
-        \\                    println("debug off");
+        \\                    Stdio.println("debug off");
         \\                }
         \\            }
-        \\            :error{e} => println("parse failed");
+        \\            :error{e} => Stdio.println("parse failed");
         \\        }
         \\        return 0;
         \\    }
@@ -1744,8 +1744,8 @@ test "compile: json typed parse extra fields ignored" {
         \\    fn main(args: list<string>) -> int {
         \\        data: string = "{\"id\": 42, \"name\": \"widget\", \"price\": 9.99}";
         \\        match Json.parse(data, Item) {
-        \\            :ok{item} => println(item.id);
-        \\            :error{e} => println("parse failed");
+        \\            :ok{item} => Stdio.println(item.id);
+        \\            :error{e} => Stdio.println("parse failed");
         \\        }
         \\        return 0;
         \\    }
@@ -1764,8 +1764,8 @@ test "compile: json typed parse invalid json returns error" {
         \\    fn main(args: list<string>) -> int {
         \\        data: string = "not json at all";
         \\        match Json.parse(data, Thing) {
-        \\            :ok{t} => println("unexpected success");
-        \\            :error{e} => println("correctly failed");
+        \\            :ok{t} => Stdio.println("unexpected success");
+        \\            :error{e} => Stdio.println("correctly failed");
         \\        }
         \\        return 0;
         \\    }
@@ -1788,10 +1788,10 @@ test "compile: json typed parse with http request body" {
         \\        body: string = Http.req_body(req);
         \\        match Json.parse(body, CreateUser) {
         \\            :ok{user} => {
-        \\                println(user.name);
-        \\                println(user.email);
+        \\                Stdio.println(user.name);
+        \\                Stdio.println(user.email);
         \\            }
-        \\            :error{e} => println("parse failed");
+        \\            :error{e} => Stdio.println("parse failed");
         \\        }
         \\        return 0;
         \\    }
@@ -1809,7 +1809,7 @@ test "compile: json build simple object" {
         \\        Json.build_add_string(b, "name", "verve");
         \\        Json.build_add_int(b, "version", 1);
         \\        result: string = Json.build_end(b);
-        \\        println(result);
+        \\        Stdio.println(result);
         \\        return 0;
         \\    }
         \\}
@@ -1826,7 +1826,7 @@ test "compile: json build with bool" {
         \\        Json.build_add_bool(b, "yes", true);
         \\        Json.build_add_bool(b, "no", false);
         \\        result: string = Json.build_end(b);
-        \\        println(result);
+        \\        Stdio.println(result);
         \\        return 0;
         \\    }
         \\}
@@ -1841,7 +1841,7 @@ test "compile: json build empty object" {
         \\    fn main(args: list<string>) -> int {
         \\        b: int = Json.build_object();
         \\        result: string = Json.build_end(b);
-        \\        println(result);
+        \\        Stdio.println(result);
         \\        return 0;
         \\    }
         \\}
@@ -1860,8 +1860,8 @@ test "compile: json build then parse roundtrip" {
         \\        json: string = Json.build_end(b);
         \\        msg: string = Json.get_string(json, "msg");
         \\        num: int = Json.get_int(json, "num");
-        \\        println(msg);
-        \\        println(num);
+        \\        Stdio.println(msg);
+        \\        Stdio.println(num);
         \\        return 0;
         \\    }
         \\}
@@ -1877,7 +1877,7 @@ test "compile: json build with special chars in string" {
         \\        b: int = Json.build_object();
         \\        Json.build_add_string(b, "msg", "hello world!");
         \\        result: string = Json.build_end(b);
-        \\        println(result);
+        \\        Stdio.println(result);
         \\        return 0;
         \\    }
         \\}
@@ -1892,7 +1892,7 @@ test "compile: json array length" {
         \\    fn main(args: list<string>) -> int {
         \\        data: string = "{\"items\": [1, 2, 3, 4, 5]}";
         \\        count: int = Json.get_array_len(data, "items");
-        \\        println(count);
+        \\        Stdio.println(count);
         \\        return 0;
         \\    }
         \\}
@@ -1907,7 +1907,7 @@ test "compile: json empty array length" {
         \\    fn main(args: list<string>) -> int {
         \\        data: string = "{\"items\": []}";
         \\        count: int = Json.get_array_len(data, "items");
-        \\        println(count);
+        \\        Stdio.println(count);
         \\        return 0;
         \\    }
         \\}
@@ -1932,17 +1932,17 @@ test "compile: tcp listen and connect loopback" {
         \\                        match Tcp.accept(listener) {
         \\                            :ok{client} => {
         \\                                line: string = Stream.read_line(client);
-        \\                                println(line);
+        \\                                Stdio.println(line);
         \\                                Stream.close(client);
         \\                            }
-        \\                            :error{e} => println("accept failed");
+        \\                            :error{e} => Stdio.println("accept failed");
         \\                        }
         \\                    }
-        \\                    :error{e} => println("connect failed");
+        \\                    :error{e} => Stdio.println("connect failed");
         \\                }
         \\                Stream.close(listener);
         \\            }
-        \\            :error{e} => println("listen failed");
+        \\            :error{e} => Stdio.println("listen failed");
         \\        }
         \\        return 0;
         \\    }
@@ -1957,8 +1957,8 @@ test "compile: tcp connect refused" {
         \\module App {
         \\    fn main(args: list<string>) -> int {
         \\        match Tcp.open("127.0.0.1", 1) {
-        \\            :ok{conn} => println("unexpected success");
-        \\            :error{e} => println("refused");
+        \\            :ok{conn} => Stdio.println("unexpected success");
+        \\            :error{e} => Stdio.println("refused");
         \\        }
         \\        return 0;
         \\    }
@@ -1982,17 +1982,17 @@ test "compile: tcp read eof on peer close" {
         \\                        match Tcp.accept(listener) {
         \\                            :ok{client} => {
         \\                                line: string = Stream.read_line(client);
-        \\                                println(line);
+        \\                                Stdio.println(line);
         \\                                Stream.close(client);
         \\                            }
-        \\                            :error{e} => println("accept failed");
+        \\                            :error{e} => Stdio.println("accept failed");
         \\                        }
         \\                    }
-        \\                    :error{e} => println("connect failed");
+        \\                    :error{e} => Stdio.println("connect failed");
         \\                }
         \\                Stream.close(listener);
         \\            }
-        \\            :error{e} => println("listen failed");
+        \\            :error{e} => Stdio.println("listen failed");
         \\        }
         \\        return 0;
         \\    }
@@ -2015,21 +2015,21 @@ test "compile: tcp bidirectional echo" {
         \\                            :ok{client} => {
         \\                                Stream.write_line(conn, "ping");
         \\                                req: string = Stream.read_line(client);
-        \\                                println(req);
+        \\                                Stdio.println(req);
         \\                                Stream.write_line(client, "pong");
         \\                                resp: string = Stream.read_line(conn);
-        \\                                println(resp);
+        \\                                Stdio.println(resp);
         \\                                Stream.close(client);
         \\                                Stream.close(conn);
         \\                            }
-        \\                            :error{e} => println("accept failed");
+        \\                            :error{e} => Stdio.println("accept failed");
         \\                        }
         \\                    }
-        \\                    :error{e} => println("connect failed");
+        \\                    :error{e} => Stdio.println("connect failed");
         \\                }
         \\                Stream.close(listener);
         \\            }
-        \\            :error{e} => println("listen failed");
+        \\            :error{e} => Stdio.println("listen failed");
         \\        }
         \\        return 0;
         \\    }
@@ -2055,19 +2055,19 @@ test "compile: tcp multiple sequential connections" {
         \\                            match Tcp.accept(listener) {
         \\                                :ok{client} => {
         \\                                    line: string = Stream.read_line(client);
-        \\                                    println(line);
+        \\                                    Stdio.println(line);
         \\                                    Stream.close(client);
         \\                                }
-        \\                                :error{e} => println("accept failed");
+        \\                                :error{e} => Stdio.println("accept failed");
         \\                            }
         \\                        }
-        \\                        :error{e} => println("connect failed");
+        \\                        :error{e} => Stdio.println("connect failed");
         \\                    }
         \\                    i = i + 1;
         \\                }
         \\                Stream.close(listener);
         \\            }
-        \\            :error{e} => println("listen failed");
+        \\            :error{e} => Stdio.println("listen failed");
         \\        }
         \\        return 0;
         \\    }
@@ -2085,13 +2085,13 @@ test "compile: tcp listen port zero assigns port" {
         \\            :ok{listener} => {
         \\                port: int = Tcp.port(listener);
         \\                if port > 0 {
-        \\                    println("ok");
+        \\                    Stdio.println("ok");
         \\                } else {
-        \\                    println("bad port");
+        \\                    Stdio.println("bad port");
         \\                }
         \\                Stream.close(listener);
         \\            }
-        \\            :error{e} => println("listen failed");
+        \\            :error{e} => Stdio.println("listen failed");
         \\        }
         \\        return 0;
         \\    }
@@ -2110,14 +2110,14 @@ test "compile: tcp double bind fails" {
         \\                port: int = Tcp.port(listener1);
         \\                match Tcp.listen("127.0.0.1", port) {
         \\                    :ok{listener2} => {
-        \\                        println("unexpected success");
+        \\                        Stdio.println("unexpected success");
         \\                        Stream.close(listener2);
         \\                    }
-        \\                    :error{e} => println("address in use");
+        \\                    :error{e} => Stdio.println("address in use");
         \\                }
         \\                Stream.close(listener1);
         \\            }
-        \\            :error{e} => println("listen failed");
+        \\            :error{e} => Stdio.println("listen failed");
         \\        }
         \\        return 0;
         \\    }
@@ -2145,19 +2145,19 @@ test "compile: tcp data before close all delivered" {
         \\                                l1: string = Stream.read_line(client);
         \\                                l2: string = Stream.read_line(client);
         \\                                l3: string = Stream.read_line(client);
-        \\                                println(l1);
-        \\                                println(l2);
-        \\                                println(l3);
+        \\                                Stdio.println(l1);
+        \\                                Stdio.println(l2);
+        \\                                Stdio.println(l3);
         \\                                Stream.close(client);
         \\                            }
-        \\                            :error{e} => println("accept failed");
+        \\                            :error{e} => Stdio.println("accept failed");
         \\                        }
         \\                    }
-        \\                    :error{e} => println("open failed");
+        \\                    :error{e} => Stdio.println("open failed");
         \\                }
         \\                Stream.close(listener);
         \\            }
-        \\            :error{e} => println("listen failed");
+        \\            :error{e} => Stdio.println("listen failed");
         \\        }
         \\        return 0;
         \\    }
@@ -2194,17 +2194,17 @@ test "compile: tcp large transfer" {
         \\                                        done = true;
         \\                                    }
         \\                                }
-        \\                                println(count);
+        \\                                Stdio.println(count);
         \\                                Stream.close(client);
         \\                            }
-        \\                            :error{e} => println("accept failed");
+        \\                            :error{e} => Stdio.println("accept failed");
         \\                        }
         \\                    }
-        \\                    :error{e} => println("open failed");
+        \\                    :error{e} => Stdio.println("open failed");
         \\                }
         \\                Stream.close(listener);
         \\            }
-        \\            :error{e} => println("listen failed");
+        \\            :error{e} => Stdio.println("listen failed");
         \\        }
         \\        return 0;
         \\    }
@@ -2227,17 +2227,17 @@ test "compile: tcp write after peer close" {
         \\                            :ok{client} => {
         \\                                Stream.close(client);
         \\                                Stream.write_line(conn, "should not crash");
-        \\                                println("survived");
+        \\                                Stdio.println("survived");
         \\                                Stream.close(conn);
         \\                            }
-        \\                            :error{e} => println("accept failed");
+        \\                            :error{e} => Stdio.println("accept failed");
         \\                        }
         \\                    }
-        \\                    :error{e} => println("open failed");
+        \\                    :error{e} => Stdio.println("open failed");
         \\                }
         \\                Stream.close(listener);
         \\            }
-        \\            :error{e} => println("listen failed");
+        \\            :error{e} => Stdio.println("listen failed");
         \\        }
         \\        return 0;
         \\    }
@@ -2262,17 +2262,17 @@ test "compile: tcp operations on closed stream" {
         \\                                Stream.close(client);
         \\                                Stream.close(client);
         \\                                Stream.write_line(client, "noop");
-        \\                                println("ok");
+        \\                                Stdio.println("ok");
         \\                                Stream.close(conn);
         \\                            }
-        \\                            :error{e} => println("accept failed");
+        \\                            :error{e} => Stdio.println("accept failed");
         \\                        }
         \\                    }
-        \\                    :error{e} => println("open failed");
+        \\                    :error{e} => Stdio.println("open failed");
         \\                }
         \\                Stream.close(listener);
         \\            }
-        \\            :error{e} => println("listen failed");
+        \\            :error{e} => Stdio.println("listen failed");
         \\        }
         \\        return 0;
         \\    }
@@ -2291,11 +2291,11 @@ test "compile: tcp accept on closed listener" {
         \\            :ok{listener} => {
         \\                Stream.close(listener);
         \\                match Tcp.accept(listener) {
-        \\                    :ok{client} => println("unexpected");
-        \\                    :error{e} => println("rejected");
+        \\                    :ok{client} => Stdio.println("unexpected");
+        \\                    :error{e} => Stdio.println("rejected");
         \\                }
         \\            }
-        \\            :error{e} => println("listen failed");
+        \\            :error{e} => Stdio.println("listen failed");
         \\        }
         \\        return 0;
         \\    }
@@ -2315,8 +2315,8 @@ test "compile: http parse request method and path" {
         \\        req: int = Http.parse_request(data);
         \\        method: string = Http.req_method(req);
         \\        path: string = Http.req_path(req);
-        \\        println(method);
-        \\        println(path);
+        \\        Stdio.println(method);
+        \\        Stdio.println(path);
         \\        return 0;
         \\    }
         \\}
@@ -2333,8 +2333,8 @@ test "compile: http parse request header" {
         \\        req: int = Http.parse_request(data);
         \\        host: string = Http.req_header(req, "Host");
         \\        ct: string = Http.req_header(req, "Content-Type");
-        \\        println(host);
-        \\        println(ct);
+        \\        Stdio.println(host);
+        \\        Stdio.println(ct);
         \\        return 0;
         \\    }
         \\}
@@ -2348,7 +2348,7 @@ test "compile: http build response" {
         \\module App {
         \\    fn main(args: list<string>) -> int {
         \\        response: string = Http.respond(200, "text/plain", "hello");
-        \\        println(response);
+        \\        Stdio.println(response);
         \\        return 0;
         \\    }
         \\}
@@ -2379,18 +2379,18 @@ test "compile: http server loopback" {
         \\                                Stream.write(conn, response);
         \\                                Stream.close(conn);
         \\                                reply: string = Stream.read_line(client);
-        \\                                println(reply);
-        \\                                println(path);
+        \\                                Stdio.println(reply);
+        \\                                Stdio.println(path);
         \\                                Stream.close(client);
         \\                            }
-        \\                            :error{e} => println("accept failed");
+        \\                            :error{e} => Stdio.println("accept failed");
         \\                        }
         \\                    }
-        \\                    :error{e} => println("connect failed");
+        \\                    :error{e} => Stdio.println("connect failed");
         \\                }
         \\                Stream.close(listener);
         \\            }
-        \\            :error{e} => println("listen failed");
+        \\            :error{e} => Stdio.println("listen failed");
         \\        }
         \\        return 0;
         \\    }
@@ -2406,7 +2406,7 @@ test "compile: http 404 response" {
         \\module App {
         \\    fn main(args: list<string>) -> int {
         \\        response: string = Http.respond(404, "text/plain", "not found");
-        \\        println(response);
+        \\        Stdio.println(response);
         \\        return 0;
         \\    }
         \\}
@@ -2437,17 +2437,17 @@ test "compile: http json response end to end" {
         \\                                Stream.write(conn, response);
         \\                                Stream.close(conn);
         \\                                reply: string = Stream.read_line(client);
-        \\                                println(reply);
+        \\                                Stdio.println(reply);
         \\                                Stream.close(client);
         \\                            }
-        \\                            :error{e} => println("accept failed");
+        \\                            :error{e} => Stdio.println("accept failed");
         \\                        }
         \\                    }
-        \\                    :error{e} => println("connect failed");
+        \\                    :error{e} => Stdio.println("connect failed");
         \\                }
         \\                Stream.close(listener);
         \\            }
-        \\            :error{e} => println("listen failed");
+        \\            :error{e} => Stdio.println("listen failed");
         \\        }
         \\        return 0;
         \\    }
@@ -2465,10 +2465,10 @@ test "compile: http parse POST with body" {
         \\        req: int = Http.parse_request(data);
         \\        method: string = Http.req_method(req);
         \\        body: string = Http.req_body(req);
-        \\        println(method);
-        \\        println(body);
+        \\        Stdio.println(method);
+        \\        Stdio.println(body);
         \\        name: string = Json.get_string(body, "key");
-        \\        println(name);
+        \\        Stdio.println(name);
         \\        return 0;
         \\    }
         \\}
@@ -2483,16 +2483,16 @@ test "compile: http parse different methods" {
         \\    fn main(args: list<string>) -> int {
         \\        get: int = Http.parse_request("GET / HTTP/1.1\r\n\r\n");
         \\        m1: string = Http.req_method(get);
-        \\        println(m1);
+        \\        Stdio.println(m1);
         \\        post: int = Http.parse_request("POST /data HTTP/1.1\r\n\r\n");
         \\        m2: string = Http.req_method(post);
-        \\        println(m2);
+        \\        Stdio.println(m2);
         \\        put: int = Http.parse_request("PUT /item HTTP/1.1\r\n\r\n");
         \\        m3: string = Http.req_method(put);
-        \\        println(m3);
+        \\        Stdio.println(m3);
         \\        del: int = Http.parse_request("DELETE /item HTTP/1.1\r\n\r\n");
         \\        m4: string = Http.req_method(del);
-        \\        println(m4);
+        \\        Stdio.println(m4);
         \\        return 0;
         \\    }
         \\}
@@ -2510,7 +2510,7 @@ test "compile: http response status codes" {
         \\        r400: string = Http.respond(400, "text/plain", "bad");
         \\        r500: string = Http.respond(500, "text/plain", "error");
         \\        // Check first line of each
-        \\        println(r200);
+        \\        Stdio.println(r200);
         \\        return 0;
         \\    }
         \\}
@@ -2541,17 +2541,17 @@ test "compile: http server with json request and response" {
         \\                                b: int = Json.build_object();
         \\                                Json.build_add_string(b, "hello", name);
         \\                                resp_body: string = Json.build_end(b);
-        \\                                println(resp_body);
+        \\                                Stdio.println(resp_body);
         \\                                Stream.close(conn);
         \\                            }
-        \\                            :error{e} => println("accept failed");
+        \\                            :error{e} => Stdio.println("accept failed");
         \\                        }
         \\                    }
-        \\                    :error{e} => println("open failed");
+        \\                    :error{e} => Stdio.println("open failed");
         \\                }
         \\                Stream.close(listener);
         \\            }
-        \\            :error{e} => println("listen failed");
+        \\            :error{e} => Stdio.println("listen failed");
         \\        }
         \\        return 0;
         \\    }
@@ -2568,7 +2568,7 @@ test "compile: http missing header returns empty" {
         \\        data: string = "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n";
         \\        req: int = Http.parse_request(data);
         \\        ct: string = Http.req_header(req, "Content-Type");
-        \\        println(String.len(ct));
+        \\        Stdio.println(String.len(ct));
         \\        return 0;
         \\    }
         \\}
@@ -2586,9 +2586,9 @@ test "compile: http case insensitive headers" {
         \\        ct1: string = Http.req_header(req, "content-type");
         \\        ct2: string = Http.req_header(req, "CONTENT-TYPE");
         \\        ct3: string = Http.req_header(req, "Content-Type");
-        \\        println(ct1);
-        \\        println(ct2);
-        \\        println(ct3);
+        \\        Stdio.println(ct1);
+        \\        Stdio.println(ct2);
+        \\        Stdio.println(ct3);
         \\        return 0;
         \\    }
         \\}
@@ -2604,7 +2604,7 @@ test "compile: http path with query string" {
         \\        data: string = "GET /search?q=verve&page=1 HTTP/1.1\r\n\r\n";
         \\        req: int = Http.parse_request(data);
         \\        path: string = Http.req_path(req);
-        \\        println(path);
+        \\        Stdio.println(path);
         \\        return 0;
         \\    }
         \\}
@@ -2632,19 +2632,19 @@ test "compile: http multiple requests on same listener" {
         \\                                    data: string = Stream.read_bytes(conn, 4096);
         \\                                    req: int = Http.parse_request(data);
         \\                                    path: string = Http.req_path(req);
-        \\                                    println(path);
+        \\                                    Stdio.println(path);
         \\                                    Stream.close(conn);
         \\                                }
-        \\                                :error{e} => println("accept failed");
+        \\                                :error{e} => Stdio.println("accept failed");
         \\                            }
         \\                        }
-        \\                        :error{e} => println("open failed");
+        \\                        :error{e} => Stdio.println("open failed");
         \\                    }
         \\                    i = i + 1;
         \\                }
         \\                Stream.close(listener);
         \\            }
-        \\            :error{e} => println("listen failed");
+        \\            :error{e} => Stdio.println("listen failed");
         \\        }
         \\        return 0;
         \\    }
@@ -2674,17 +2674,17 @@ test "compile: json and http integration - parse json body and respond" {
         \\                                b: int = Json.build_object();
         \\                                Json.build_add_string(b, "output", input);
         \\                                resp: string = Json.build_end(b);
-        \\                                println(resp);
+        \\                                Stdio.println(resp);
         \\                                Stream.close(conn);
         \\                            }
-        \\                            :error{e} => println("accept failed");
+        \\                            :error{e} => Stdio.println("accept failed");
         \\                        }
         \\                    }
-        \\                    :error{e} => println("open failed");
+        \\                    :error{e} => Stdio.println("open failed");
         \\                }
         \\                Stream.close(listener);
         \\            }
-        \\            :error{e} => println("listen failed");
+        \\            :error{e} => Stdio.println("listen failed");
         \\        }
         \\        return 0;
         \\    }
@@ -2701,7 +2701,7 @@ test "compile: http GET without body" {
         \\        data: string = "GET /api HTTP/1.1\r\nHost: localhost\r\n\r\n";
         \\        req: int = Http.parse_request(data);
         \\        body: string = Http.req_body(req);
-        \\        println(String.len(body));
+        \\        Stdio.println(String.len(body));
         \\        return 0;
         \\    }
         \\}
@@ -2719,9 +2719,9 @@ test "compile: http POST with form encoded body" {
         \\        method: string = Http.req_method(req);
         \\        body: string = Http.req_body(req);
         \\        ct: string = Http.req_header(req, "Content-Type");
-        \\        println(method);
-        \\        println(body);
-        \\        println(ct);
+        \\        Stdio.println(method);
+        \\        Stdio.println(body);
+        \\        Stdio.println(ct);
         \\        return 0;
         \\    }
         \\}
@@ -2737,7 +2737,7 @@ test "compile: http request line only no headers" {
         \\        data: string = "GET / HTTP/1.1\r\n\r\n";
         \\        req: int = Http.parse_request(data);
         \\        path: string = Http.req_path(req);
-        \\        println(path);
+        \\        Stdio.println(path);
         \\        return 0;
         \\    }
         \\}
@@ -2763,20 +2763,20 @@ test "compile: http lazy parsing - path only never touches headers" {
         \\                                req: int = Http.parse_request(data);
         \\                                path: string = Http.req_path(req);
         \\                                if path == "/health" {
-        \\                                    println("healthy");
+        \\                                    Stdio.println("healthy");
         \\                                } else {
-        \\                                    println("unknown");
+        \\                                    Stdio.println("unknown");
         \\                                }
         \\                                Stream.close(conn);
         \\                            }
-        \\                            :error{e} => println("accept failed");
+        \\                            :error{e} => Stdio.println("accept failed");
         \\                        }
         \\                    }
-        \\                    :error{e} => println("open failed");
+        \\                    :error{e} => Stdio.println("open failed");
         \\                }
         \\                Stream.close(listener);
         \\            }
-        \\            :error{e} => println("listen failed");
+        \\            :error{e} => Stdio.println("listen failed");
         \\        }
         \\        return 0;
         \\    }
@@ -2795,10 +2795,10 @@ test "compile: http GET with body (elasticsearch style)" {
         \\        method: string = Http.req_method(req);
         \\        path: string = Http.req_path(req);
         \\        body: string = Http.req_body(req);
-        \\        println(method);
-        \\        println(path);
+        \\        Stdio.println(method);
+        \\        Stdio.println(path);
         \\        q: string = Json.get_string(body, "query");
-        \\        println(q);
+        \\        Stdio.println(q);
         \\        return 0;
         \\    }
         \\}
@@ -2817,10 +2817,10 @@ test "compile: http multiple headers" {
         \\        accept: string = Http.req_header(req, "Accept");
         \\        ua: string = Http.req_header(req, "User-Agent");
         \\        custom: string = Http.req_header(req, "X-Custom");
-        \\        println(host);
-        \\        println(accept);
-        \\        println(ua);
-        \\        println(custom);
+        \\        Stdio.println(host);
+        \\        Stdio.println(accept);
+        \\        Stdio.println(ua);
+        \\        Stdio.println(custom);
         \\        return 0;
         \\    }
         \\}
@@ -2855,24 +2855,24 @@ test "compile: process state with new struct syntax" {
         \\    fn main(args: list<string>) -> int {
         \\        p: int = spawn Point();
         \\        match p.MoveX(10) {
-        \\            :ok{v} => println(v);
-        \\            :error{e} => println("err");
+        \\            :ok{v} => Stdio.println(v);
+        \\            :error{e} => Stdio.println("err");
         \\        }
         \\        match p.MoveY(20) {
-        \\            :ok{v} => println(v);
-        \\            :error{e} => println("err");
+        \\            :ok{v} => Stdio.println(v);
+        \\            :error{e} => Stdio.println("err");
         \\        }
         \\        match p.MoveX(5) {
-        \\            :ok{v} => println(v);
-        \\            :error{e} => println("err");
+        \\            :ok{v} => Stdio.println(v);
+        \\            :error{e} => Stdio.println("err");
         \\        }
         \\        match p.GetX() {
-        \\            :ok{v} => println(v);
-        \\            :error{e} => println("err");
+        \\            :ok{v} => Stdio.println(v);
+        \\            :error{e} => Stdio.println("err");
         \\        }
         \\        match p.GetY() {
-        \\            :ok{v} => println(v);
-        \\            :error{e} => println("err");
+        \\            :ok{v} => Stdio.println(v);
+        \\            :error{e} => Stdio.println("err");
         \\        }
         \\        return 0;
         \\    }

@@ -1,6 +1,6 @@
 module Main {
 	fn main() -> int {
-		println("=== List Test ===");
+		Stdio.println("=== List Test ===");
 
 		// Create a list and append to it
 		numbers: list<int> = list();
@@ -8,9 +8,9 @@ module Main {
 		append numbers { 20; }
 		append numbers { 30; }
 
-		println("List length: ", numbers.len);
-		println("First: ", numbers[0]);
-		println("Last: ", numbers[2]);
+		Stdio.println("List length: ", numbers.len);
+		Stdio.println("First: ", numbers[0]);
+		Stdio.println("Last: ", numbers[2]);
 
 		// Sum with while loop
 		total: int = 0;
@@ -19,7 +19,7 @@ module Main {
 			total = total + numbers[i];
 			i = i + 1;
 		}
-		println("Sum: ", total);
+		Stdio.println("Sum: ", total);
 
 		// Build a list of squares
 		squares: list<int> = list();
@@ -28,9 +28,9 @@ module Main {
 			append squares { i * i; }
 			i = i + 1;
 		}
-		println("Squares: ", squares);
+		Stdio.println("Squares: ", squares);
 
-		println("=== Done ===");
+		Stdio.println("=== Done ===");
 		return 0;
 	}
 }

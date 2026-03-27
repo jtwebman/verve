@@ -1,8 +1,8 @@
 module App {
 	fn main(args: list<string>) -> int {
-		println("Hello from Verve!");
-		println("2 + 3 = ", 2 + 3);
-		println("10 * 42 = ", 10 * 42);
+		Stdio.println("Hello from Verve!");
+		Stdio.println("2 + 3 = ", 2 + 3);
+		Stdio.println("10 * 42 = ", 10 * 42);
 
 		// While loop
 		i: int = 0;
@@ -11,17 +11,17 @@ module App {
 			total = total + i;
 			i = i + 1;
 		}
-		println("Sum of 0..9 = ", total);
+		Stdio.println("Sum of 0..9 = ", total);
 
 		// Match
 		match total == 45 {
-			true => println("Correct!");
-			false => println("Wrong!");
+			true => Stdio.println("Correct!");
+			false => Stdio.println("Wrong!");
 		}
 
 		// Function calls
-		println("Factorial of 10 = ", factorial(10));
-		println("Fibonacci of 20 = ", fib(20));
+		Stdio.println("Factorial of 10 = ", factorial(10));
+		Stdio.println("Fibonacci of 20 = ", fib(20));
 
 		return 0;
 	}

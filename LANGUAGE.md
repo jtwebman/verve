@@ -284,11 +284,18 @@ Map indexing: `m["key"]` returns value or `none`. `.len` returns entry count.
 | `Convert.to_string(n)` | `int -> string` | Integer to string |
 | `Convert.to_int(s)` | `string -> int` | String to integer (0 on failure) |
 
+### Stdio
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `Stdio.out()` | `-> stream` | stdout write stream |
+| `Stdio.err()` | `-> stream` | stderr write stream |
+| `Stdio.in()` | `-> stream` | stdin read stream |
+| `Stdio.println(...)` | `any... -> void` | Print values to stdout + newline (auto-converts ints) |
+| `Stdio.print(...)` | `any... -> void` | Print values to stdout |
+
 ### Global functions
 | Function | Description |
 |----------|-------------|
-| `println(...)` | Print values to stderr + newline |
-| `print(...)` | Print values to stderr |
 | `list()` | Create empty list |
 | `map()` | Create empty map |
 | `set()` | Create empty set |

@@ -41,7 +41,7 @@ module Main {
 	fn main() -> int {
 		match Tcp.listen("127.0.0.1", 8080) {
 			:ok{listener} => {
-				println("HTTP server on http://127.0.0.1:8080 (spawn per connection)");
+				Stdio.println("HTTP server on http://127.0.0.1:8080 (spawn per connection)");
 				i: int = 0;
 				while i < 1000000 {
 					match Tcp.accept(listener) {
@@ -57,7 +57,7 @@ module Main {
 				}
 				Stream.close(listener);
 			}
-			:error{e} => println("Listen failed");
+			:error{e} => Stdio.println("Listen failed");
 		}
 		return 0;
 	}

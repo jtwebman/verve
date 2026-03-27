@@ -285,7 +285,7 @@ module Parser {
 	fn expect_kind(tokens: list<Token>, pos: int, kind: string) -> int {
 		tok: Token = current(tokens, pos);
 		if tok.kind != kind {
-			println("Parse error at pos ", tok.pos, ": expected ", kind, " but got ", tok.kind, " '", tok.value, "'");
+			Stdio.println("Parse error at pos ", tok.pos, ": expected ", kind, " but got ", tok.kind, " '", tok.value, "'");
 			return pos;
 		}
 		return pos + 1;
@@ -295,11 +295,11 @@ module Parser {
 	fn expect_kw(tokens: list<Token>, pos: int, word: string) -> int {
 		tok: Token = current(tokens, pos);
 		if tok.kind != "kw" {
-			println("Parse error at pos ", tok.pos, ": expected keyword '", word, "' but got ", tok.kind);
+			Stdio.println("Parse error at pos ", tok.pos, ": expected keyword '", word, "' but got ", tok.kind);
 			return pos;
 		}
 		if tok.value != word {
-			println("Parse error at pos ", tok.pos, ": expected '", word, "' but got '", tok.value, "'");
+			Stdio.println("Parse error at pos ", tok.pos, ": expected '", word, "' but got '", tok.value, "'");
 			return pos;
 		}
 		return pos + 1;
@@ -373,7 +373,7 @@ module Parser {
 				pos = expect_kind(tokens, pos, "semi");
 				append decls { node("import", path, ""); }
 			} else {
-				println("Unexpected token: ", tok.kind, " '", tok.value, "'");
+				Stdio.println("Unexpected token: ", tok.kind, " '", tok.value, "'");
 				pos = pos + 1;
 			}
 		}
@@ -442,7 +442,7 @@ module Parser {
 				pos = expect_kind(tokens, pos, "semi");
 				append members { node("const", cname, tname); }
 			} else {
-				println("Unexpected in module: ", current(tokens, pos).kind, " '", current(tokens, pos).value, "'");
+				Stdio.println("Unexpected in module: ", current(tokens, pos).kind, " '", current(tokens, pos).value, "'");
 				pos = pos + 1;
 			}
 		}
@@ -530,33 +530,33 @@ module Printer {
 		}
 
 		if n.kind == "module" {
-			println(indent, "module ", n.name);
+			Stdio.println(indent, "module ", n.name);
 		} else if n.kind == "module_exported" {
-			println(indent, "export module ", n.name);
+			Stdio.println(indent, "export module ", n.name);
 		} else if n.kind == "fn" {
-			print(indent, "fn ", n.name, "(");
+			Stdio.print(indent, "fn ", n.name, "(");
 			pi: int = 0;
 			while pi < n.children.len {
 				p: AstNode = n.children[pi];
-				if pi > 0 { print(", "); }
-				print(p.name, ": ", p.value);
+				if pi > 0 { Stdio.print(", "); }
+				Stdio.print(p.name, ": ", p.value);
 				pi = pi + 1;
 			}
-			println(") -> ", n.value);
+			Stdio.println(") -> ", n.value);
 		} else if n.kind == "const" {
-			println(indent, n.name, ": ", n.value);
+			Stdio.println(indent, n.name, ": ", n.value);
 		} else if n.kind == "use" {
-			println(indent, "use ", n.name);
+			Stdio.println(indent, "use ", n.name);
 		} else if n.kind == "struct" {
-			println(indent, "struct ", n.name);
+			Stdio.println(indent, "struct ", n.name);
 		} else if n.kind == "field" {
-			println(indent, n.name, ": ", n.value);
+			Stdio.println(indent, n.name, ": ", n.value);
 		} else if n.kind == "import" {
-			println(indent, "import ", n.name);
+			Stdio.println(indent, "import ", n.name);
 		} else if n.kind == "param" {
-			println(indent, n.name, ": ", n.value);
+			Stdio.println(indent, n.name, ": ", n.value);
 		} else {
-			println(indent, n.kind, " ", n.name);
+			Stdio.println(indent, n.kind, " ", n.name);
 		}
 	}
 
@@ -590,7 +590,7 @@ module Printer {
 module App {
 	fn main(args: list<string>) -> int {
 		if args.len < 1 {
-			println("Usage: verve run parser.vv <file.vv>");
+			Stdio.println("Usage: verve run parser.vv <file.vv>");
 			return 1;
 		}
 
@@ -604,12 +604,12 @@ module App {
 
 				// Tokenize
 				tokens: list<Token> = Tokenizer.tokenize(source);
-				println("Tokenized: ", tokens.len, " tokens");
+				Stdio.println("Tokenized: ", tokens.len, " tokens");
 
 				// Parse
 				decls: list<AstNode> = Parser.parse_file(tokens);
-				println("Parsed: ", decls.len, " declarations");
-				println("");
+				Stdio.println("Parsed: ", decls.len, " declarations");
+				Stdio.println("");
 
 				// Print AST
 				i: int = 0;
@@ -621,7 +621,7 @@ module App {
 				return 0;
 			}
 			:error{reason} => {
-				println("Error: could not open ", path);
+				Stdio.println("Error: could not open ", path);
 				return 1;
 			}
 		}

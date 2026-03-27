@@ -21,30 +21,30 @@ process Counter<CounterState> {
 
 module Main {
 	fn main() -> int {
-		println("=== Verve Process Test ===");
+		Stdio.println("=== Verve Process Test ===");
 		counter: int = spawn Counter();
-		println("Spawned counter process");
+		Stdio.println("Spawned counter process");
 		match counter.Increment() {
-			:ok{val} => println("After increment: ", val);
-			:error{reason} => println("Error: ", reason);
+			:ok{val} => Stdio.println("After increment: ", val);
+			:error{reason} => Stdio.println("Error: ", reason);
 		}
 		match counter.Increment() {
-			:ok{val} => println("After increment: ", val);
-			:error{reason} => println("Error: ", reason);
+			:ok{val} => Stdio.println("After increment: ", val);
+			:error{reason} => Stdio.println("Error: ", reason);
 		}
 		match counter.Increment() {
-			:ok{val} => println("After increment: ", val);
-			:error{reason} => println("Error: ", reason);
+			:ok{val} => Stdio.println("After increment: ", val);
+			:error{reason} => Stdio.println("Error: ", reason);
 		}
 		match counter.Add(10) {
-			:ok{val} => println("After add 10: ", val);
-			:error{reason} => println("Error: ", reason);
+			:ok{val} => Stdio.println("After add 10: ", val);
+			:error{reason} => Stdio.println("Error: ", reason);
 		}
 		match counter.GetCount() {
-			:ok{val} => println("Final count: ", val);
-			:error{reason} => println("Error: ", reason);
+			:ok{val} => Stdio.println("Final count: ", val);
+			:error{reason} => Stdio.println("Error: ", reason);
 		}
-		println("=== Done ===");
+		Stdio.println("=== Done ===");
 		return 0;
 	}
 }

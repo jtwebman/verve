@@ -26,8 +26,8 @@ module App {
 			i = i + 1;
 		}
 		match c.GetCount() {
-			:ok{val} => println("Messages delivered: ", val);
-			:error{e} => println("Error");
+			:ok{val} => Stdio.println("Messages delivered: ", val);
+			:error{e} => Stdio.println("Error");
 		}
 		return 0;
 	}
