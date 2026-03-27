@@ -960,6 +960,305 @@ test "compile: string equality after concat" {
     try testing.expectEqualStrings("equal\n", r.stdout);
 }
 
+// ── String builtin tests ───────────────────────────
+
+test "compile: String.contains" {
+    const r = try compileAndCapture(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        if String.contains("hello world", "world") {
+        \\            Stdio.println("yes");
+        \\        } else {
+        \\            Stdio.println("no");
+        \\        }
+        \\        if String.contains("hello", "xyz") {
+        \\            Stdio.println("yes");
+        \\        } else {
+        \\            Stdio.println("no");
+        \\        }
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("yes\nno\n", r.stdout);
+}
+
+test "compile: String.starts_with and ends_with" {
+    const r = try compileAndCapture(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        if String.starts_with("hello world", "hello") {
+        \\            Stdio.println("starts");
+        \\        } else {
+        \\            Stdio.println("no");
+        \\        }
+        \\        if String.ends_with("hello world", "world") {
+        \\            Stdio.println("ends");
+        \\        } else {
+        \\            Stdio.println("no");
+        \\        }
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("starts\nends\n", r.stdout);
+}
+
+test "compile: String.trim" {
+    const r = try compileAndCapture(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        s: string = String.trim("  hello  ");
+        \\        Stdio.println(s);
+        \\        Stdio.println(String.len(s));
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("hello\n5\n", r.stdout);
+}
+
+test "compile: String.replace" {
+    const r = try compileAndCapture(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        s: string = String.replace("hello world", "world", "verve");
+        \\        Stdio.println(s);
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("hello verve\n", r.stdout);
+}
+
+// ── Struct with string fields tests ────────────────
+
+test "compile: struct with string and int fields" {
+    const r = try compileAndCapture(
+        \\struct User {
+        \\    name: string = "";
+        \\    age: int = 0;
+        \\    active: bool = false;
+        \\}
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        data: string = "{\"name\": \"bob\", \"age\": 25, \"active\": true}";
+        \\        match Json.parse(data, User) {
+        \\            :ok{user} => {
+        \\                Stdio.println(user.name);
+        \\                Stdio.println(user.age);
+        \\                if user.active {
+        \\                    Stdio.println("active");
+        \\                } else {
+        \\                    Stdio.println("inactive");
+        \\                }
+        \\            }
+        \\            :error{e} => Stdio.println("fail");
+        \\        }
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("bob\n25\nactive\n", r.stdout);
+}
+
+test "compile: struct string field length tracked (no strlen)" {
+    const r = try compileAndCapture(
+        \\struct Item {
+        \\    name: string = "";
+        \\    count: int = 0;
+        \\}
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        data: string = "{\"name\": \"widget\", \"count\": 5}";
+        \\        match Json.parse(data, Item) {
+        \\            :ok{item} => {
+        \\                Stdio.println(String.len(item.name));
+        \\                Stdio.println(item.count);
+        \\            }
+        \\            :error{e} => Stdio.println("fail");
+        \\        }
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("6\n5\n", r.stdout);
+}
+
+// ── Process feature tests ──────────────────────────
+
+test "compile: process state with string field" {
+    const r = try compileAndCapture(
+        \\struct NameState {
+        \\    name: string = "";
+        \\    count: int = 0;
+        \\}
+        \\process NameKeeper<NameState> {
+        \\    receive SetName(state: NameState, n: string) -> int {
+        \\        state.name = n;
+        \\        state.count = state.count + 1;
+        \\        return state.count;
+        \\    }
+        \\    receive GetName(state: NameState) -> int {
+        \\        return state.count;
+        \\    }
+        \\}
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        k: int = spawn NameKeeper();
+        \\        match k.SetName("alice") {
+        \\            :ok{v} => Stdio.println(v);
+        \\            :error{e} => Stdio.println("err");
+        \\        }
+        \\        match k.SetName("bob") {
+        \\            :ok{v} => Stdio.println(v);
+        \\            :error{e} => Stdio.println("err");
+        \\        }
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("1\n2\n", r.stdout);
+}
+
+test "compile: Process.exit terminates handler" {
+    const r = try compileAndCapture(
+        \\struct WState { x: int = 0; }
+        \\process Worker<WState> {
+        \\    receive DoWork(state: WState, val: int) -> int {
+        \\        Stdio.println(val);
+        \\        Process.exit();
+        \\        return 0;
+        \\    }
+        \\}
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        w: int = spawn Worker();
+        \\        tell w.DoWork(42);
+        \\        Stdio.println("done");
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("42\ndone\n", r.stdout);
+}
+
+// ── Poison edge case tests ─────────────────────────
+
+test "compile: float division by zero is poison" {
+    const r = try compileAndCapture(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        x: float = 1.0 / 0.0;
+        \\        r: int = Math.round(x);
+        \\        if r == 0 {
+        \\            Stdio.println("zero");
+        \\        } else {
+        \\            if r > 0 {
+        \\                Stdio.println("positive");
+        \\            } else {
+        \\                if r < 0 {
+        \\                    Stdio.println("negative");
+        \\                } else {
+        \\                    Stdio.println("poison");
+        \\                }
+        \\            }
+        \\        }
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("poison\n", r.stdout);
+}
+
+test "compile: poison propagation through function return" {
+    const r = try compileAndCapture(
+        \\module Math2 {
+        \\    fn double(x: int) -> int {
+        \\        return x * 2;
+        \\    }
+        \\}
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        bad: int = 10 / 0;
+        \\        result: int = Math2.double(bad);
+        \\        if result > 0 {
+        \\            Stdio.println("wrong");
+        \\        } else {
+        \\            if result == 0 {
+        \\                Stdio.println("wrong");
+        \\            } else {
+        \\                if result < 0 {
+        \\                    Stdio.println("wrong");
+        \\                } else {
+        \\                    Stdio.println("propagated");
+        \\                }
+        \\            }
+        \\        }
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("propagated\n", r.stdout);
+}
+
+// ── Type system tests ──────────────────────────────
+
+test "compile: if/else with string comparison" {
+    const r = try compileAndCapture(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        s: string = "hello";
+        \\        if s == "hello" {
+        \\            Stdio.println("match");
+        \\        } else {
+        \\            Stdio.println("no match");
+        \\        }
+        \\        if s == "world" {
+        \\            Stdio.println("match");
+        \\        } else {
+        \\            Stdio.println("no match");
+        \\        }
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("match\nno match\n", r.stdout);
+}
+
+test "compile: nested struct field access" {
+    const r = try compileAndCapture(
+        \\struct Inner { value: int = 0; }
+        \\struct Outer { name: string = ""; count: int = 0; }
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        data: string = "{\"name\": \"test\", \"count\": 42}";
+        \\        match Json.parse(data, Outer) {
+        \\            :ok{obj} => {
+        \\                Stdio.println(obj.name);
+        \\                Stdio.println(obj.count);
+        \\            }
+        \\            :error{e} => Stdio.println("fail");
+        \\        }
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("test\n42\n", r.stdout);
+}
+
 // ── Math tests ─────────────────────────────────────
 
 test "compile: math abs min max" {

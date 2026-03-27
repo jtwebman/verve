@@ -247,6 +247,14 @@ pub const Lower = struct {
         const user_params = if (skip_state) handler.params[1..] else handler.params;
         for (user_params) |p| {
             try params.append(self.alloc, .{ .name = p.name, .type_ = resolveType(p.type_expr) });
+            switch (p.type_expr) {
+                .simple => |tn| {
+                    if (self.struct_decls.get(tn) != null) self.var_types.put(self.alloc, p.name, tn) catch {};
+                    if (std.mem.eql(u8, tn, "string")) self.string_vars.put(self.alloc, p.name, {}) catch {};
+                    if (std.mem.eql(u8, tn, "float")) self.float_vars.put(self.alloc, p.name, {}) catch {};
+                },
+                else => {},
+            }
         }
         f.params = try params.toOwnedSlice(self.alloc);
         f.return_type = resolveType(handler.return_type);
@@ -829,16 +837,18 @@ pub const Lower = struct {
                             }
                             if (std.mem.eql(u8, fn_name, "replace")) {
                                 // (str, old, new) — all need ptr+len
-                                var str_args = std.ArrayListUnmanaged(ir.Reg){};
+                                var rargs = std.ArrayListUnmanaged(ir.Reg){};
                                 for (c.args) |arg| {
                                     const r = self.lowerExpr(arg);
-                                    str_args.append(self.alloc, r) catch {};
-                                    str_args.append(self.alloc, self.getStringLen(func, r)) catch {};
+                                    rargs.append(self.alloc, r) catch {};
+                                    rargs.append(self.alloc, self.getStringLen(func, r)) catch {};
                                 }
-                                self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = "string_replace", .args = str_args.toOwnedSlice(self.alloc) catch &.{} } });
-                                // Result is null-terminated, compute length via strlen
+                                self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = "string_replace", .args = rargs.toOwnedSlice(self.alloc) catch &.{} } });
+                                // Result is null-terminated — use stream_read_line_len (strlen on ptr)
                                 const len_reg = func.newReg();
-                                self.appendInst(.{ .string_len = .{ .dest = len_reg, .str = dest } });
+                                const largs = self.alloc.alloc(ir.Reg, 1) catch return dest;
+                                largs[0] = dest;
+                                self.appendInst(.{ .call_builtin = .{ .dest = len_reg, .name = "stream_read_line_len", .args = largs } });
                                 self.string_lens.put(self.alloc, dest, len_reg) catch {};
                                 return dest;
                             }
@@ -1519,6 +1529,61 @@ pub const Lower = struct {
             }
         }
         return slot;
+    }
+
+    /// Emit a runtime function call that returns a string, plus its companion _len call.
+    /// Automatically tracks the result length in string_lens. No strlen fallback.
+    fn emitStringCall(self: *Lower, func: *ir.Function, dest: ir.Reg, name: []const u8, args: []const ast.Expr) void {
+        // Build (ptr, len) pairs for all arguments
+        var call_args = std.ArrayListUnmanaged(ir.Reg){};
+        for (args) |arg| {
+            const r = self.lowerExpr(arg);
+            call_args.append(self.alloc, r) catch {};
+            // Add string length
+            if (arg == .string_literal) {
+                const lr = func.newReg();
+                self.appendInst(.{ .const_int = .{ .dest = lr, .value = @intCast(arg.string_literal.len) } });
+                call_args.append(self.alloc, lr) catch {};
+            } else if (self.string_lens.get(r)) |tracked| {
+                call_args.append(self.alloc, tracked) catch {};
+            } else if (arg == .identifier and self.string_vars.get(arg.identifier) != null) {
+                const len_name = std.fmt.allocPrint(self.alloc, "{s}__len", .{arg.identifier}) catch "";
+                const lr = func.newReg();
+                self.appendInst(.{ .load_local = .{ .dest = lr, .name = len_name } });
+                call_args.append(self.alloc, lr) catch {};
+            } else {
+                // Non-string arg — just pass the value as its own "length" (for int args like indices)
+                call_args.append(self.alloc, r) catch {};
+            }
+        }
+        const final_args = call_args.toOwnedSlice(self.alloc) catch &.{};
+        self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = name, .args = final_args } });
+
+        // Call companion _len function with same args
+        const len_name = std.fmt.allocPrint(self.alloc, "{s}_len", .{name}) catch name;
+        const len_reg = func.newReg();
+        // Re-emit args for len call
+        var len_call_args = std.ArrayListUnmanaged(ir.Reg){};
+        for (args) |arg| {
+            const r2 = self.lowerExpr(arg);
+            len_call_args.append(self.alloc, r2) catch {};
+            if (arg == .string_literal) {
+                const lr2 = func.newReg();
+                self.appendInst(.{ .const_int = .{ .dest = lr2, .value = @intCast(arg.string_literal.len) } });
+                len_call_args.append(self.alloc, lr2) catch {};
+            } else if (self.string_lens.get(r2)) |tracked2| {
+                len_call_args.append(self.alloc, tracked2) catch {};
+            } else if (arg == .identifier and self.string_vars.get(arg.identifier) != null) {
+                const lname2 = std.fmt.allocPrint(self.alloc, "{s}__len", .{arg.identifier}) catch "";
+                const lr2 = func.newReg();
+                self.appendInst(.{ .load_local = .{ .dest = lr2, .name = lname2 } });
+                len_call_args.append(self.alloc, lr2) catch {};
+            } else {
+                len_call_args.append(self.alloc, r2) catch {};
+            }
+        }
+        self.appendInst(.{ .call_builtin = .{ .dest = len_reg, .name = len_name, .args = len_call_args.toOwnedSlice(self.alloc) catch &.{} } });
+        self.string_lens.put(self.alloc, dest, len_reg) catch {};
     }
 
     fn isStringFieldAccess(self: *Lower, fa: ast.FieldAccess) bool {
