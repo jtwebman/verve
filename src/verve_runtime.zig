@@ -682,6 +682,19 @@ pub fn string_char_len(str_ptr: i64, str_len: i64) i64 {
     return str_len;
 }
 
+/// Return list of single-character strings (each is ptr+len=1).
+pub fn string_chars(str_ptr: i64, str_len: i64) i64 {
+    const str = sliceFromPtr(str_ptr, str_len);
+    const list_mem = arena_alloc(@sizeOf(List)) orelse return 0;
+    const list = @as(*List, @ptrCast(@alignCast(list_mem)));
+    list.* = List.init();
+    for (str) |*byte| {
+        list.append(@intCast(@intFromPtr(byte)));
+        list.append(1);
+    }
+    return @intCast(@intFromPtr(list));
+}
+
 /// Split a string by delimiter. Returns pointer to a List of (ptr, len) pairs.
 pub fn string_split(str_ptr: i64, str_len: i64, delim_ptr: i64, delim_len: i64) i64 {
     const str = sliceFromPtr(str_ptr, str_len);

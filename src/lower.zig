@@ -764,6 +764,16 @@ pub const Lower = struct {
                                 }
                             }
                             // String functions that take (str, pattern) — both need ptr+len
+                            if (std.mem.eql(u8, fn_name, "chars")) {
+                                var str_args = std.ArrayListUnmanaged(ir.Reg){};
+                                if (c.args.len >= 1) {
+                                    const r = self.lowerExpr(c.args[0]);
+                                    str_args.append(self.alloc, r) catch {};
+                                    str_args.append(self.alloc, self.getStringLen(func, r)) catch {};
+                                }
+                                self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = "string_chars", .args = str_args.toOwnedSlice(self.alloc) catch &.{} } });
+                                return dest;
+                            }
                             if (std.mem.eql(u8, fn_name, "contains") or std.mem.eql(u8, fn_name, "starts_with") or std.mem.eql(u8, fn_name, "ends_with") or std.mem.eql(u8, fn_name, "split")) {
                                 var str_args = std.ArrayListUnmanaged(ir.Reg){};
                                 for (c.args) |arg| {

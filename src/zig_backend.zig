@@ -927,7 +927,7 @@ pub const ZigBackend = struct {
         } else if (std.mem.eql(u8, name, "string_split")) {
             if (args.len >= 4) self.lineFmt("{s} = rt.string_split({s}, {s}, {s}, {s});", .{ self.regName(dest), self.regName(args[0]), self.regName(args[1]), self.regName(args[2]), self.regName(args[3]) });
         } else if (std.mem.eql(u8, name, "string_chars")) {
-            self.lineFmt("{s} = 0; // TODO: string_chars", .{self.regName(dest)});
+            if (args.len >= 2) self.lineFmt("{s} = rt.string_chars({s}, {s});", .{ self.regName(dest), self.regName(args[0]), self.regName(args[1]) });
         } else if (std.mem.eql(u8, name, "tcp_port")) {
             if (args.len >= 1) {
                 self.lineFmt("{s} = rt.tcp_port({s});", .{ self.regName(dest), self.regName(args[0]) });
