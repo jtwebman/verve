@@ -1,11 +1,14 @@
 const std = @import("std");
 
 // ── Constants ──────────────────────────────────────
-pub const MAILBOX_CAPACITY = 64;
+pub const MAILBOX_BUF_SIZE = 64 * 1024; // 64KB byte ring buffer per process
 pub const MAX_PROCESSES = 256; // initial capacity, grows dynamically
 pub const MAX_STATE_FIELDS = 16;
 pub const MAX_WATCHERS = 64;
-pub const MAX_MSG_ARGS = 8;
+pub const MAX_INLINE_STRING = 4096; // strings > this use arena reference
+
+/// Message argument type tags for the binary protocol.
+pub const ArgType = enum(u8) { int = 0, float = 1, boolean = 2, string = 3, string_ref = 4 };
 
 // HTTP limits (sane defaults, engineers can recompile with different values)
 pub const HTTP_MAX_HEADER_SIZE = 8 * 1024; // 8KB per header section
@@ -1465,33 +1468,51 @@ pub fn arena_alloc(size: usize) ?[*]u8 {
 
 // ── Process runtime ────────────────────────────────
 
-pub const Message = struct {
-    handler_id: i64,
-    args: [MAX_MSG_ARGS]i64,
-    arg_count: i64,
-    reply_slot: ?*i64,
-};
-
+/// Byte ring buffer mailbox. Messages are variable-size binary-encoded byte sequences.
+/// Format per message: [msg_len: u16][handler_id: u8][param_count: u8][params...]
+/// The msg_len prefix allows popping without decoding the full message.
 pub const Mailbox = struct {
-    buf: [MAILBOX_CAPACITY]Message = undefined,
+    buf: [MAILBOX_BUF_SIZE]u8 = undefined,
     head: usize = 0,
-    tail: usize = 0,
-    count: usize = 0,
+    used: usize = 0, // bytes used in buffer
+    count: usize = 0, // number of messages
+    reply_slot: ?*i64 = null, // for synchronous send
 
-    pub fn push(self: *Mailbox, msg: Message) bool {
-        if (self.count >= MAILBOX_CAPACITY) return false;
-        self.buf[self.tail] = msg;
-        self.tail = (self.tail + 1) % MAILBOX_CAPACITY;
+    /// Push a message (raw bytes) into the mailbox. Returns false if no room.
+    pub fn push(self: *Mailbox, msg: [*]const u8, msg_len: usize) bool {
+        const total = msg_len + 2; // 2-byte length prefix
+        if (self.used + total > MAILBOX_BUF_SIZE) return false;
+        const write_pos = (self.head + self.used) % MAILBOX_BUF_SIZE;
+        // Write length prefix (little-endian u16)
+        const len_u16: u16 = @intCast(msg_len);
+        self.buf[write_pos % MAILBOX_BUF_SIZE] = @truncate(len_u16);
+        self.buf[(write_pos + 1) % MAILBOX_BUF_SIZE] = @truncate(len_u16 >> 8);
+        // Write message bytes (handle wrap-around)
+        for (0..msg_len) |i| {
+            self.buf[(write_pos + 2 + i) % MAILBOX_BUF_SIZE] = msg[i];
+        }
+        self.used += total;
         self.count += 1;
         return true;
     }
 
-    pub fn pop(self: *Mailbox) ?Message {
+    /// Pop a message from the mailbox. Returns slice pointing into a provided buffer.
+    /// Caller provides a scratch buffer to copy the message into (for wrap-around safety).
+    pub fn pop(self: *Mailbox, out_buf: []u8) ?[]const u8 {
         if (self.count == 0) return null;
-        const msg = self.buf[self.head];
-        self.head = (self.head + 1) % MAILBOX_CAPACITY;
+        // Read length prefix
+        const lo: u16 = self.buf[self.head % MAILBOX_BUF_SIZE];
+        const hi: u16 = self.buf[(self.head + 1) % MAILBOX_BUF_SIZE];
+        const msg_len: usize = lo | (hi << 8);
+        // Copy message into out_buf (handles ring buffer wrap-around)
+        const capped = @min(msg_len, out_buf.len);
+        for (0..capped) |i| {
+            out_buf[i] = self.buf[(self.head + 2 + i) % MAILBOX_BUF_SIZE];
+        }
+        self.head = (self.head + 2 + msg_len) % MAILBOX_BUF_SIZE;
+        self.used -= (2 + msg_len);
         self.count -= 1;
-        return msg;
+        return out_buf[0..capped];
     }
 };
 
@@ -1506,7 +1527,8 @@ pub const VerveProcess = struct {
     arena: Arena,
 };
 
-pub const DispatchFn = *const fn (i64, [*]const i64, i64) i64;
+/// Dispatch function receives raw message bytes: (msg_ptr, msg_len) -> result i64
+pub const DispatchFn = *const fn ([*]const u8, usize) i64;
 
 /// Dynamic process table — heap-allocated, grows by doubling.
 /// Supports millions of lightweight processes.
@@ -1543,7 +1565,7 @@ pub fn ensureProcessCapacity(min_count: usize) void {
     dispatch_table = new_dispatch;
 }
 
-fn dispatch_noop(_: i64, _: [*]const i64, _: i64) i64 {
+fn dispatch_noop(_: [*]const u8, _: usize) i64 {
     return makeTagged(1, 0);
 }
 
@@ -1605,16 +1627,15 @@ pub fn verve_kill(target_pid: i64) void {
     const idx = pidx(target_pid);
     const proc = &process_table[idx];
     proc.alive = false;
-    // Notify watchers before freeing arena
+    // Notify watchers before freeing arena — send a 2-byte death notification
+    // Format: [handler_id=0xFF (sentinel for death)][param_count=0]
     for (0..proc.watcher_count) |i| {
         const watcher_pid = proc.watcher_pids[i];
         const widx = pidx(watcher_pid);
         const watcher = &process_table[widx];
         if (!watcher.alive) continue;
-        var msg: Message = .{ .handler_id = -1, .args = @splat(0), .arg_count = 2, .reply_slot = null };
-        msg.args[0] = target_pid;
-        msg.args[1] = 0;
-        _ = watcher.mailbox.push(msg);
+        const death_msg = [_]u8{ 0xFF, 0 };
+        _ = watcher.mailbox.push(&death_msg, 2);
     }
     // Free all memory owned by this process
     proc.arena.freeAll();
@@ -1636,62 +1657,51 @@ pub fn verve_exit_self() void {
 pub fn verve_drain(target_pid: i64) void {
     const idx = pidx(target_pid);
     const proc = &process_table[idx];
-    while (proc.mailbox.pop()) |msg| {
+    var pop_buf: [8192]u8 = undefined;
+    while (proc.mailbox.pop(&pop_buf)) |msg| {
         if (!proc.alive) break;
-        if (msg.handler_id == -1) continue;
+        if (msg.len >= 1 and msg[0] == 0xFF) continue; // death notification sentinel
         const saved = current_process_id;
         current_process_id = target_pid;
         const pt: usize = @intCast(@as(u64, @bitCast(proc.process_type)));
-        const result = dispatch_table[pt](msg.handler_id, &msg.args, msg.arg_count);
+        const result = dispatch_table[pt](msg.ptr, msg.len);
         current_process_id = saved;
-        if (msg.reply_slot) |slot| {
+        if (proc.mailbox.reply_slot) |slot| {
             slot.* = result;
+            proc.mailbox.reply_slot = null;
         }
     }
 }
 
-fn build_msg(handler_id: i64, args: [*]const i64, arg_count: i64) Message {
-    var msg: Message = .{ .handler_id = handler_id, .args = @splat(0), .arg_count = arg_count, .reply_slot = null };
-    const ac: usize = @intCast(@as(u64, @bitCast(arg_count)));
-    for (0..ac) |i| {
-        msg.args[i] = args[i];
-    }
-    return msg;
-}
-
-pub fn verve_send(target_pid: i64, handler_id: i64, args: [*]const i64, arg_count: i64) i64 {
+/// Synchronous send: encode message, push to mailbox, drain, return result.
+pub fn verve_send(target_pid: i64, msg_ptr: [*]const u8, msg_len: usize) i64 {
     const idx = pidx(target_pid);
     const proc = &process_table[idx];
     if (!proc.alive) return makeTagged(1, 0);
-    var msg = build_msg(handler_id, args, arg_count);
     var result: i64 = 0;
-    msg.reply_slot = &result;
-    if (!proc.mailbox.push(msg)) return makeTagged(1, 0);
+    proc.mailbox.reply_slot = &result;
+    if (!proc.mailbox.push(msg_ptr, msg_len)) {
+        proc.mailbox.reply_slot = null;
+        return makeTagged(1, 0);
+    }
     verve_drain(target_pid);
+    proc.mailbox.reply_slot = null;
     if (result > 0x10000 and getTag(result) == 1) return result;
     return makeTagged(0, result);
 }
 
-pub fn verve_tell(target_pid: i64, handler_id: i64, args: [*]const i64, arg_count: i64) void {
+/// Fire-and-forget tell: encode message, push to mailbox, drain.
+pub fn verve_tell(target_pid: i64, msg_ptr: [*]const u8, msg_len: usize) void {
     const idx = pidx(target_pid);
     if (idx >= process_table.len) return;
     const proc = &process_table[idx];
     if (!proc.alive) return;
-    const msg = build_msg(handler_id, args, arg_count);
-    if (!proc.mailbox.push(msg)) return;
+    if (!proc.mailbox.push(msg_ptr, msg_len)) return;
     verve_drain(target_pid);
 }
 
-pub fn verve_send_timeout(target_pid: i64, handler_id: i64, args: [*]const i64, arg_count: i64, timeout_ms: i64) i64 {
-    const idx = pidx(target_pid);
-    const proc = &process_table[idx];
-    if (!proc.alive) return makeTagged(1, 0);
-    var msg = build_msg(handler_id, args, arg_count);
-    var result: i64 = 0;
-    msg.reply_slot = &result;
-    if (!proc.mailbox.push(msg)) return makeTagged(1, 0);
-    _ = timeout_ms; // enforced in future multi-threaded runtime
-    verve_drain(target_pid);
-    if (result > 0x10000 and getTag(result) == 1) return result;
-    return makeTagged(0, result);
+/// Send with timeout (timeout not enforced in single-threaded runtime).
+pub fn verve_send_timeout(target_pid: i64, msg_ptr: [*]const u8, msg_len: usize, timeout_ms: i64) i64 {
+    _ = timeout_ms;
+    return verve_send(target_pid, msg_ptr, msg_len);
 }

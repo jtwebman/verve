@@ -268,19 +268,17 @@ pub const ZigBackend = struct {
             self.line("");
         }
 
-        // Emit per-process dispatch functions
+        // Emit per-process dispatch functions (binary message protocol)
         if (program.process_decls.items.len > 0) {
             for (program.process_decls.items, 0..) |pd, pdi| {
-                self.writeFmt("fn verve_dispatch_{d}(handler_id: i64, args: [*]const i64, arg_count: i64) i64 {{\n", .{pdi});
+                self.writeFmt("fn verve_dispatch_{d}(_msg_ptr: [*]const u8, _msg_len: usize) i64 {{\n", .{pdi});
                 self.indent += 1;
-                self.line("_ = arg_count;");
-                self.line("_ = &args;");
-                self.line("return switch (handler_id) {");
+                self.line("_ = _msg_len;");
+                self.line("const _hid = _msg_ptr[0];");
+                self.line("return switch (_hid) {");
                 self.indent += 1;
                 for (pd.handler_names, 0..) |hname, hi| {
-                    self.writeIndent();
-                    self.writeFmt("{d} => verve_{s}_{s}(", .{ hi, pd.name, hname });
-                    // Find the function to get param types
+                    // Find handler function for param types
                     var handler_func: ?ir.Function = null;
                     for (program.functions.items) |f| {
                         if (std.mem.eql(u8, f.module, pd.name) and std.mem.eql(u8, f.name, hname)) {
@@ -289,25 +287,30 @@ pub const ZigBackend = struct {
                         }
                     }
                     if (handler_func) |hf| {
-                        var arg_idx: usize = 0;
-                        for (hf.params, 0..) |param, pi| {
-                            if (pi > 0) self.write(", ");
-                            if (param.type_ == .string) {
-                                self.writeFmt("rt.sliceFromPair(args[{d}], args[{d}])", .{ arg_idx, arg_idx + 1 });
-                                arg_idx += 2;
-                            } else if (param.type_ == .f64) {
-                                self.writeFmt("@as(f64, @bitCast(args[{d}]))", .{arg_idx});
-                                arg_idx += 1;
-                            } else if (param.type_ == .bool) {
-                                self.writeFmt("(args[{d}] != 0)", .{arg_idx});
-                                arg_idx += 1;
-                            } else {
-                                self.writeFmt("args[{d}]", .{arg_idx});
-                                arg_idx += 1;
+                        if (hf.params.len == 0) {
+                            self.lineFmt("{d} => verve_{s}_{s}(),", .{ hi, pd.name, hname });
+                        } else {
+                            self.lineFmt("{d} => blk: {{", .{hi});
+                            self.indent += 1;
+                            // Decode params from binary message: skip header (2 bytes: handler_id + param_count)
+                            self.line("var _pos: usize = 2;");
+                            for (hf.params) |param| {
+                                self.emitMsgDecode(param);
                             }
+                            // Call handler with decoded params
+                            self.writeIndent();
+                            self.writeFmt("break :blk verve_{s}_{s}(", .{ pd.name, hname });
+                            for (hf.params, 0..) |param, pi| {
+                                if (pi > 0) self.write(", ");
+                                self.writeFmt("_p_{s}", .{param.name});
+                            }
+                            self.write(");\n");
+                            self.indent -= 1;
+                            self.line("},");
                         }
+                    } else {
+                        self.lineFmt("{d} => verve_{s}_{s}(),", .{ hi, pd.name, hname });
                     }
-                    self.write("),\n");
                 }
                 self.line("else => rt.makeTagged(1, 0),");
                 self.indent -= 1;
@@ -381,18 +384,16 @@ pub const ZigBackend = struct {
             self.line("");
         }
 
-        // Emit dispatch init if processes exist
+        // Emit dispatch init if processes exist (same binary protocol as emit())
         if (program.process_decls.items.len > 0) {
             for (program.process_decls.items, 0..) |pd, pdi| {
-                self.writeFmt("fn verve_dispatch_{d}(handler_id: i64, args_ptr: [*]const i64, arg_count: i64) i64 {{\n", .{pdi});
+                self.writeFmt("fn verve_dispatch_{d}(_msg_ptr: [*]const u8, _msg_len: usize) i64 {{\n", .{pdi});
                 self.indent += 1;
-                self.line("_ = arg_count;");
-                self.line("_ = &args_ptr;");
-                self.line("return switch (handler_id) {");
+                self.line("_ = _msg_len;");
+                self.line("const _hid = _msg_ptr[0];");
+                self.line("return switch (_hid) {");
                 self.indent += 1;
                 for (pd.handler_names, 0..) |hname, hi| {
-                    self.writeIndent();
-                    self.writeFmt("{d} => verve_{s}_{s}(", .{ hi, pd.name, hname });
                     var handler_func: ?ir.Function = null;
                     for (program.functions.items) |f| {
                         if (std.mem.eql(u8, f.module, pd.name) and std.mem.eql(u8, f.name, hname)) {
@@ -401,25 +402,28 @@ pub const ZigBackend = struct {
                         }
                     }
                     if (handler_func) |hf| {
-                        var arg_idx: usize = 0;
-                        for (hf.params, 0..) |param, pi| {
-                            if (pi > 0) self.write(", ");
-                            if (param.type_ == .string) {
-                                self.writeFmt("rt.sliceFromPair(args_ptr[{d}], args_ptr[{d}])", .{ arg_idx, arg_idx + 1 });
-                                arg_idx += 2;
-                            } else if (param.type_ == .f64) {
-                                self.writeFmt("@as(f64, @bitCast(args_ptr[{d}]))", .{arg_idx});
-                                arg_idx += 1;
-                            } else if (param.type_ == .bool) {
-                                self.writeFmt("(args_ptr[{d}] != 0)", .{arg_idx});
-                                arg_idx += 1;
-                            } else {
-                                self.writeFmt("args_ptr[{d}]", .{arg_idx});
-                                arg_idx += 1;
+                        if (hf.params.len == 0) {
+                            self.lineFmt("{d} => verve_{s}_{s}(),", .{ hi, pd.name, hname });
+                        } else {
+                            self.lineFmt("{d} => blk: {{", .{hi});
+                            self.indent += 1;
+                            self.line("var _pos: usize = 2;");
+                            for (hf.params) |param| {
+                                self.emitMsgDecode(param);
                             }
+                            self.writeIndent();
+                            self.writeFmt("break :blk verve_{s}_{s}(", .{ pd.name, hname });
+                            for (hf.params, 0..) |param, pi| {
+                                if (pi > 0) self.write(", ");
+                                self.writeFmt("_p_{s}", .{param.name});
+                            }
+                            self.write(");\n");
+                            self.indent -= 1;
+                            self.line("},");
                         }
+                    } else {
+                        self.lineFmt("{d} => verve_{s}_{s}(),", .{ hi, pd.name, hname });
                     }
-                    self.write("),\n");
                 }
                 self.line("else => rt.makeTagged(1, 0),");
                 self.indent -= 1;
@@ -876,16 +880,37 @@ pub const ZigBackend = struct {
                 self.lineFmt("{s} = rt.verve_spawn({d});", .{ self.regName(ps.dest), ps.process_type });
             },
             .process_send => |ps| {
-                // String args need expansion to (ptr, len) i64 pairs
-                self.emitProcessArgs(ps.args, reg_types);
-                const total = self.countProcessArgs(ps.args, reg_types);
-                self.lineFmt("{s} = rt.verve_send({s}, {d}, &_proc_args, {d});", .{ self.regName(ps.dest), self.regName(ps.target), ps.handler_index, total });
+                self.writeIndent();
+                self.write("{\n");
+                self.indent += 1;
+                self.line("var _msg_buf: [8192]u8 = undefined;");
+                self.lineFmt("_msg_buf[0] = {d};", .{ps.handler_index});
+                self.lineFmt("_msg_buf[1] = {d};", .{ps.args.len});
+                if (ps.args.len > 0) {
+                    self.line("var _mpos: usize = 2;");
+                    for (ps.args) |arg| self.emitMsgEncode(arg, reg_types);
+                    self.lineFmt("{s} = rt.verve_send({s}, &_msg_buf, _mpos);", .{ self.regName(ps.dest), self.regName(ps.target) });
+                } else {
+                    self.lineFmt("{s} = rt.verve_send({s}, &_msg_buf, 2);", .{ self.regName(ps.dest), self.regName(ps.target) });
+                }
+                self.indent -= 1;
                 self.line("}");
             },
             .process_tell => |pt| {
-                self.emitProcessArgs(pt.args, reg_types);
-                const total = self.countProcessArgs(pt.args, reg_types);
-                self.lineFmt("rt.verve_tell({s}, {d}, &_proc_args, {d});", .{ self.regName(pt.target), pt.handler_index, total });
+                self.writeIndent();
+                self.write("{\n");
+                self.indent += 1;
+                self.line("var _msg_buf: [8192]u8 = undefined;");
+                self.lineFmt("_msg_buf[0] = {d};", .{pt.handler_index});
+                self.lineFmt("_msg_buf[1] = {d};", .{pt.args.len});
+                if (pt.args.len > 0) {
+                    self.line("var _mpos: usize = 2;");
+                    for (pt.args) |arg| self.emitMsgEncode(arg, reg_types);
+                    self.lineFmt("rt.verve_tell({s}, &_msg_buf, _mpos);", .{self.regName(pt.target)});
+                } else {
+                    self.lineFmt("rt.verve_tell({s}, &_msg_buf, 2);", .{self.regName(pt.target)});
+                }
+                self.indent -= 1;
                 self.line("}");
             },
             .process_state_get => |sg| {
@@ -914,9 +939,20 @@ pub const ZigBackend = struct {
                 self.lineFmt("rt.verve_watch({s});", .{self.regName(pw.target)});
             },
             .process_send_timeout => |ps| {
-                self.emitProcessArgs(ps.args, reg_types);
-                const total = self.countProcessArgs(ps.args, reg_types);
-                self.lineFmt("{s} = rt.verve_send_timeout({s}, {d}, &_proc_args, {d}, {s});", .{ self.regName(ps.dest), self.regName(ps.target), ps.handler_index, total, self.regName(ps.timeout_ms) });
+                self.writeIndent();
+                self.write("{\n");
+                self.indent += 1;
+                self.line("var _msg_buf: [8192]u8 = undefined;");
+                self.lineFmt("_msg_buf[0] = {d};", .{ps.handler_index});
+                self.lineFmt("_msg_buf[1] = {d};", .{ps.args.len});
+                if (ps.args.len > 0) {
+                    self.line("var _mpos: usize = 2;");
+                    for (ps.args) |arg| self.emitMsgEncode(arg, reg_types);
+                    self.lineFmt("{s} = rt.verve_send_timeout({s}, &_msg_buf, _mpos, {s});", .{ self.regName(ps.dest), self.regName(ps.target), self.regName(ps.timeout_ms) });
+                } else {
+                    self.lineFmt("{s} = rt.verve_send_timeout({s}, &_msg_buf, 2, {s});", .{ self.regName(ps.dest), self.regName(ps.target), self.regName(ps.timeout_ms) });
+                }
+                self.indent -= 1;
                 self.line("}");
             },
 
@@ -1185,49 +1221,52 @@ pub const ZigBackend = struct {
         }
     }
 
+    /// Emit binary message decode for a single parameter from _msg_ptr at _pos.
+    fn emitMsgDecode(self: *ZigBackend, param: ir.Function.Param) void {
+        // Skip the type tag byte (1 byte)
+        self.line("_pos += 1;");
+        if (param.type_ == .string) {
+            // Read u32 length, then slice the bytes
+            self.lineFmt("const _p_{s}_len: usize = @as(u32, @bitCast([4]u8{{ _msg_ptr[_pos], _msg_ptr[_pos+1], _msg_ptr[_pos+2], _msg_ptr[_pos+3] }}));", .{param.name});
+            self.line("_pos += 4;");
+            self.lineFmt("const _p_{s}: []const u8 = _msg_ptr[_pos.._pos + _p_{s}_len];", .{ param.name, param.name });
+            self.lineFmt("_pos += _p_{s}_len;", .{param.name});
+        } else if (param.type_ == .f64) {
+            // Read 8 bytes as f64
+            self.lineFmt("const _p_{s}: f64 = @bitCast([8]u8{{ _msg_ptr[_pos], _msg_ptr[_pos+1], _msg_ptr[_pos+2], _msg_ptr[_pos+3], _msg_ptr[_pos+4], _msg_ptr[_pos+5], _msg_ptr[_pos+6], _msg_ptr[_pos+7] }});", .{param.name});
+            self.line("_pos += 8;");
+        } else if (param.type_ == .bool) {
+            // Read 1 byte
+            self.lineFmt("const _p_{s}: bool = (_msg_ptr[_pos] != 0);", .{param.name});
+            self.line("_pos += 1;");
+        } else {
+            // Read 8 bytes as i64 (little-endian)
+            self.lineFmt("const _p_{s}: i64 = @bitCast([8]u8{{ _msg_ptr[_pos], _msg_ptr[_pos+1], _msg_ptr[_pos+2], _msg_ptr[_pos+3], _msg_ptr[_pos+4], _msg_ptr[_pos+5], _msg_ptr[_pos+6], _msg_ptr[_pos+7] }});", .{param.name});
+            self.line("_pos += 8;");
+        }
+    }
+
+    /// Emit binary message encode for a single parameter. Writes to _msg_buf at _mpos.
+    fn emitMsgEncode(self: *ZigBackend, reg: ir.Reg, reg_types: []const RegType) void {
+        const t = getRegType(reg_types, reg);
+        if (t == .string) {
+            self.lineFmt("_msg_buf[_mpos] = 3; _mpos += 1;", .{}); // ArgType.string
+            self.lineFmt("const _slen: u32 = @intCast({s}.len);", .{self.regName(reg)});
+            self.line("_msg_buf[_mpos] = @truncate(_slen); _msg_buf[_mpos+1] = @truncate(_slen >> 8); _msg_buf[_mpos+2] = @truncate(_slen >> 16); _msg_buf[_mpos+3] = @truncate(_slen >> 24); _mpos += 4;");
+            self.lineFmt("@memcpy(_msg_buf[_mpos.._mpos + {s}.len], {s}); _mpos += {s}.len;", .{ self.regName(reg), self.regName(reg), self.regName(reg) });
+        } else if (t == .float) {
+            self.lineFmt("_msg_buf[_mpos] = 1; _mpos += 1;", .{}); // ArgType.float
+            self.lineFmt("const _fb: [8]u8 = @bitCast({s}); @memcpy(_msg_buf[_mpos.._mpos+8], &_fb); _mpos += 8;", .{self.regName(reg)});
+        } else if (t == .boolean) {
+            self.lineFmt("_msg_buf[_mpos] = 2; _mpos += 1;", .{}); // ArgType.boolean
+            self.lineFmt("_msg_buf[_mpos] = if ({s}) 1 else 0; _mpos += 1;", .{self.regName(reg)});
+        } else {
+            self.lineFmt("_msg_buf[_mpos] = 0; _mpos += 1;", .{}); // ArgType.int
+            self.lineFmt("const _ib: [8]u8 = @bitCast({s}); @memcpy(_msg_buf[_mpos.._mpos+8], &_ib); _mpos += 8;", .{self.regName(reg)});
+        }
+    }
+
     /// Emit process message args array, expanding string []const u8 to (ptr, len) i64 pairs.
-    fn emitProcessArgs(self: *ZigBackend, args: []const ir.Reg, reg_types: []const RegType) void {
-        if (args.len == 0) {
-            self.line("{ const _proc_args = [_]i64{0};");
-            return;
-        }
-        self.writeIndent();
-        self.write("{ ");
-        // Count total i64 slots needed
-        const total = self.countProcessArgs(args, reg_types);
-        self.writeFmt("var _proc_args: [{d}]i64 = undefined; ", .{total});
-        var slot: usize = 0;
-        for (args) |arg| {
-            if (getRegType(reg_types, arg) == .string) {
-                self.writeFmt("_proc_args[{d}] = @intCast(@intFromPtr({s}.ptr)); _proc_args[{d}] = @intCast({s}.len); ", .{ slot, self.regName(arg), slot + 1, self.regName(arg) });
-                slot += 2;
-            } else if (getRegType(reg_types, arg) == .float) {
-                self.writeFmt("_proc_args[{d}] = @bitCast({s}); ", .{ slot, self.regName(arg) });
-                slot += 1;
-            } else if (getRegType(reg_types, arg) == .boolean) {
-                self.writeFmt("_proc_args[{d}] = if ({s}) @as(i64, 1) else @as(i64, 0); ", .{ slot, self.regName(arg) });
-                slot += 1;
-            } else {
-                self.writeFmt("_proc_args[{d}] = {s}; ", .{ slot, self.regName(arg) });
-                slot += 1;
-            }
-        }
-        self.write("\n");
-    }
-
-    fn countProcessArgs(self: *ZigBackend, args: []const ir.Reg, reg_types: []const RegType) usize {
-        _ = self;
-        var total: usize = 0;
-        for (args) |arg| {
-            if (getRegType(reg_types, arg) == .string) {
-                total += 2;
-            } else {
-                total += 1;
-            }
-        }
-        return if (total == 0) 1 else total; // at least 1 for empty args
-    }
-
     fn findOrAddLocal(self: *ZigBackend, name: []const u8, local_names: *[128][]const u8, local_count: *usize) usize {
         _ = self;
         var i: usize = 0;
