@@ -520,12 +520,12 @@ pub const ZigBackend = struct {
             .lte_f64 => |op| self.lineFmt("{s} = if (@as(f64, @bitCast({s})) <= @as(f64, @bitCast({s}))) @as(i64, 1) else @as(i64, 0);", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
             .gte_f64 => |op| self.lineFmt("{s} = if (@as(f64, @bitCast({s})) >= @as(f64, @bitCast({s}))) @as(i64, 1) else @as(i64, 0);", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
 
-            .eq_i64 => |op| self.lineFmt("{s} = if ({s} == {s}) @as(i64, 1) else @as(i64, 0);", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
-            .neq_i64 => |op| self.lineFmt("{s} = if ({s} != {s}) @as(i64, 1) else @as(i64, 0);", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
-            .lt_i64 => |op| self.lineFmt("{s} = if ({s} < {s}) @as(i64, 1) else @as(i64, 0);", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
-            .gt_i64 => |op| self.lineFmt("{s} = if ({s} > {s}) @as(i64, 1) else @as(i64, 0);", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
-            .lte_i64 => |op| self.lineFmt("{s} = if ({s} <= {s}) @as(i64, 1) else @as(i64, 0);", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
-            .gte_i64 => |op| self.lineFmt("{s} = if ({s} >= {s}) @as(i64, 1) else @as(i64, 0);", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
+            .eq_i64 => |op| self.lineFmt("{s} = rt.verve_eq({s}, {s});", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
+            .neq_i64 => |op| self.lineFmt("{s} = rt.verve_neq({s}, {s});", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
+            .lt_i64 => |op| self.lineFmt("{s} = rt.verve_lt({s}, {s});", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
+            .gt_i64 => |op| self.lineFmt("{s} = rt.verve_gt({s}, {s});", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
+            .lte_i64 => |op| self.lineFmt("{s} = rt.verve_lte({s}, {s});", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
+            .gte_i64 => |op| self.lineFmt("{s} = rt.verve_gte({s}, {s});", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
 
             .and_bool => |op| self.lineFmt("{s} = if ({s} != 0 and {s} != 0) @as(i64, 1) else @as(i64, 0);", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
             .or_bool => |op| self.lineFmt("{s} = if ({s} != 0 or {s} != 0) @as(i64, 1) else @as(i64, 0);", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
@@ -905,8 +905,23 @@ pub const ZigBackend = struct {
             if (args.len >= 1) {
                 self.lineFmt("if ({s} == 0) {{ {s} = 0; }} else {{ const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s})))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; {s} = @intCast(sl); }}", .{ self.regName(args[0]), self.regName(dest), self.regName(args[0]), self.regName(dest) });
             }
-        } else if (std.mem.eql(u8, name, "string_contains") or std.mem.eql(u8, name, "string_split") or std.mem.eql(u8, name, "string_trim") or std.mem.eql(u8, name, "string_replace") or std.mem.eql(u8, name, "string_starts_with") or std.mem.eql(u8, name, "string_ends_with") or std.mem.eql(u8, name, "string_char_at") or std.mem.eql(u8, name, "string_char_len") or std.mem.eql(u8, name, "string_chars")) {
-            // String builtins not yet implemented in compiler — return 0
+        } else if (std.mem.eql(u8, name, "string_contains") or std.mem.eql(u8, name, "string_starts_with") or std.mem.eql(u8, name, "string_ends_with")) {
+            // (str_ptr, str_len, pattern_ptr, pattern_len) -> bool
+            if (args.len >= 4) self.lineFmt("{s} = rt.{s}({s}, {s}, {s}, {s});", .{ self.regName(dest), name, self.regName(args[0]), self.regName(args[1]), self.regName(args[2]), self.regName(args[3]) });
+        } else if (std.mem.eql(u8, name, "string_trim") or std.mem.eql(u8, name, "string_trim_len")) {
+            if (args.len >= 2) {
+                self.lineFmt("{s} = rt.{s}({s}, {s});", .{ self.regName(dest), name, self.regName(args[0]), self.regName(args[1]) });
+            }
+        } else if (std.mem.eql(u8, name, "string_replace") or std.mem.eql(u8, name, "string_replace_len")) {
+            if (args.len >= 6) {
+                self.lineFmt("{s} = rt.string_replace({s}, {s}, {s}, {s}, {s}, {s});", .{ self.regName(dest), self.regName(args[0]), self.regName(args[1]), self.regName(args[2]), self.regName(args[3]), self.regName(args[4]), self.regName(args[5]) });
+            }
+        } else if (std.mem.eql(u8, name, "string_char_at")) {
+            if (args.len >= 3) self.lineFmt("{s} = rt.string_char_at({s}, {s}, {s});", .{ self.regName(dest), self.regName(args[0]), self.regName(args[1]), self.regName(args[2]) });
+        } else if (std.mem.eql(u8, name, "string_char_len")) {
+            if (args.len >= 2) self.lineFmt("{s} = rt.string_char_len({s}, {s});", .{ self.regName(dest), self.regName(args[0]), self.regName(args[1]) });
+        } else if (std.mem.eql(u8, name, "string_split") or std.mem.eql(u8, name, "string_chars")) {
+            // These return lists — not yet implemented
             self.lineFmt("{s} = 0; // TODO: {s}", .{ self.regName(dest), name });
         } else if (std.mem.eql(u8, name, "tcp_port")) {
             if (args.len >= 1) {

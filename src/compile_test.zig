@@ -643,16 +643,26 @@ test "compile: underflow on subtraction" {
         \\    fn main(args: list<string>) -> int {
         \\        min: int = 0 - 9223372036854775807;
         \\        result: int = min - 2;
-        \\        if result < 0 {
-        \\            println("poison");
+        \\        // Poison: neither > 0 nor < 0 nor == 0
+        \\        if result > 0 {
+        \\            println("positive");
         \\        } else {
-        \\            println("wrapped");
+        \\            if result == 0 {
+        \\                println("zero");
+        \\            } else {
+        \\                if result < 0 {
+        \\                    println("negative");
+        \\                } else {
+        \\                    println("poison");
+        \\                }
+        \\            }
         \\        }
         \\        return 0;
         \\    }
         \\}
     );
     try testing.expectEqual(@as(u8, 0), r.exit);
+    // Poison is not > 0, not == 0, not < 0 — falls through to "poison"
     try testing.expectEqualStrings("poison\n", r.stdout);
 }
 

@@ -588,6 +588,97 @@ pub fn getTagValue(ptr: i64) i64 {
     return @as(*const Tagged, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(ptr)))))).value;
 }
 
+// ── String operations ──────────────────────────────
+
+pub fn string_contains(hay_ptr: i64, hay_len: i64, needle_ptr: i64, needle_len: i64) i64 {
+    const hay = sliceFromPtr(hay_ptr, hay_len);
+    const needle = sliceFromPtr(needle_ptr, needle_len);
+    if (std.mem.indexOf(u8, hay, needle) != null) return 1;
+    return 0;
+}
+
+pub fn string_starts_with(str_ptr: i64, str_len: i64, prefix_ptr: i64, prefix_len: i64) i64 {
+    const str = sliceFromPtr(str_ptr, str_len);
+    const prefix = sliceFromPtr(prefix_ptr, prefix_len);
+    if (std.mem.startsWith(u8, str, prefix)) return 1;
+    return 0;
+}
+
+pub fn string_ends_with(str_ptr: i64, str_len: i64, suffix_ptr: i64, suffix_len: i64) i64 {
+    const str = sliceFromPtr(str_ptr, str_len);
+    const suffix = sliceFromPtr(suffix_ptr, suffix_len);
+    if (std.mem.endsWith(u8, str, suffix)) return 1;
+    return 0;
+}
+
+pub fn string_trim(str_ptr: i64, str_len: i64) i64 {
+    const str = sliceFromPtr(str_ptr, str_len);
+    const trimmed = std.mem.trim(u8, str, " \t\n\r");
+    return @intCast(@intFromPtr(trimmed.ptr));
+}
+
+pub fn string_trim_len(str_ptr: i64, str_len: i64) i64 {
+    const str = sliceFromPtr(str_ptr, str_len);
+    const trimmed = std.mem.trim(u8, str, " \t\n\r");
+    return @intCast(trimmed.len);
+}
+
+pub fn string_replace(str_ptr: i64, str_len: i64, old_ptr: i64, old_len: i64, new_ptr: i64, new_len: i64) i64 {
+    const str = sliceFromPtr(str_ptr, str_len);
+    const old = sliceFromPtr(old_ptr, old_len);
+    const new = sliceFromPtr(new_ptr, new_len);
+    // Count occurrences to compute result size
+    var count: usize = 0;
+    var pos: usize = 0;
+    while (std.mem.indexOfPos(u8, str, pos, old)) |idx| {
+        count += 1;
+        pos = idx + old.len;
+    }
+    if (count == 0) return str_ptr; // no replacements
+    const result_len = str.len - (count * old.len) + (count * new.len);
+    const buf = arena_alloc(result_len + 1) orelse return str_ptr;
+    var out: usize = 0;
+    pos = 0;
+    while (std.mem.indexOfPos(u8, str, pos, old)) |idx| {
+        @memcpy(buf[out .. out + (idx - pos)], str[pos..idx]);
+        out += idx - pos;
+        @memcpy(buf[out .. out + new.len], new);
+        out += new.len;
+        pos = idx + old.len;
+    }
+    @memcpy(buf[out .. out + (str.len - pos)], str[pos..]);
+    out += str.len - pos;
+    buf[out] = 0;
+    return @intCast(@intFromPtr(buf));
+}
+
+pub fn string_replace_len(str_ptr: i64, str_len: i64, old_ptr: i64, old_len: i64, new_ptr: i64, new_len: i64) i64 {
+    const str = sliceFromPtr(str_ptr, str_len);
+    const old = sliceFromPtr(old_ptr, old_len);
+    const new_s = sliceFromPtr(new_ptr, new_len);
+    var count: usize = 0;
+    var pos: usize = 0;
+    while (std.mem.indexOfPos(u8, str, pos, old)) |idx| {
+        count += 1;
+        pos = idx + old.len;
+    }
+    return @intCast(str.len - (count * old.len) + (count * new_s.len));
+}
+
+pub fn string_char_at(str_ptr: i64, str_len: i64, idx: i64) i64 {
+    const str = sliceFromPtr(str_ptr, str_len);
+    const i: usize = @intCast(@as(u64, @bitCast(idx)));
+    if (i >= str.len) return 0;
+    // Return pointer to the byte at index (single-char string)
+    return @intCast(@intFromPtr(&str[i]));
+}
+
+pub fn string_char_len(str_ptr: i64, str_len: i64) i64 {
+    // For now, char_len == byte len (UTF-8 support later)
+    _ = str_ptr;
+    return str_len;
+}
+
 // ── String helpers ─────────────────────────────────
 
 pub fn strEql(a: [*]const u8, a_len: i64, b: [*]const u8, b_len: i64) bool {
@@ -676,6 +767,37 @@ pub fn verve_neg_checked(a: i64) i64 {
 /// Check if a value is poison (for comparisons — poison is never equal to anything).
 pub fn verve_is_poison(v: i64) i64 {
     return if (isPoison(v)) @as(i64, 1) else @as(i64, 0);
+}
+
+/// Comparison operators that return 0 (false) if either operand is poison.
+pub fn verve_eq(a: i64, b: i64) i64 {
+    if (isPoison(a) or isPoison(b)) return 0;
+    return if (a == b) @as(i64, 1) else @as(i64, 0);
+}
+
+pub fn verve_neq(a: i64, b: i64) i64 {
+    if (isPoison(a) or isPoison(b)) return 0;
+    return if (a != b) @as(i64, 1) else @as(i64, 0);
+}
+
+pub fn verve_lt(a: i64, b: i64) i64 {
+    if (isPoison(a) or isPoison(b)) return 0;
+    return if (a < b) @as(i64, 1) else @as(i64, 0);
+}
+
+pub fn verve_gt(a: i64, b: i64) i64 {
+    if (isPoison(a) or isPoison(b)) return 0;
+    return if (a > b) @as(i64, 1) else @as(i64, 0);
+}
+
+pub fn verve_lte(a: i64, b: i64) i64 {
+    if (isPoison(a) or isPoison(b)) return 0;
+    return if (a <= b) @as(i64, 1) else @as(i64, 0);
+}
+
+pub fn verve_gte(a: i64, b: i64) i64 {
+    if (isPoison(a) or isPoison(b)) return 0;
+    return if (a >= b) @as(i64, 1) else @as(i64, 0);
 }
 
 // ── JSON scanning ──────────────────────────────────

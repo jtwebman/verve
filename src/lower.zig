@@ -749,6 +749,73 @@ pub const Lower = struct {
                                     return dest;
                                 }
                             }
+                            // String functions that take (str, pattern) — both need ptr+len
+                            if (std.mem.eql(u8, fn_name, "contains") or std.mem.eql(u8, fn_name, "starts_with") or std.mem.eql(u8, fn_name, "ends_with")) {
+                                var str_args = std.ArrayListUnmanaged(ir.Reg){};
+                                for (c.args) |arg| {
+                                    const r = self.lowerExpr(arg);
+                                    str_args.append(self.alloc, r) catch {};
+                                    str_args.append(self.alloc, self.getStringLen(func, r)) catch {};
+                                }
+                                const bname = std.fmt.allocPrint(self.alloc, "string_{s}", .{fn_name}) catch fn_name;
+                                self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = bname, .args = str_args.toOwnedSlice(self.alloc) catch &.{} } });
+                                return dest;
+                            }
+                            if (std.mem.eql(u8, fn_name, "trim")) {
+                                var str_args = std.ArrayListUnmanaged(ir.Reg){};
+                                if (c.args.len >= 1) {
+                                    const r = self.lowerExpr(c.args[0]);
+                                    str_args.append(self.alloc, r) catch {};
+                                    str_args.append(self.alloc, self.getStringLen(func, r)) catch {};
+                                }
+                                self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = "string_trim", .args = str_args.toOwnedSlice(self.alloc) catch &.{} } });
+                                // Track trimmed result length
+                                const len_reg = func.newReg();
+                                var len_args = std.ArrayListUnmanaged(ir.Reg){};
+                                if (c.args.len >= 1) {
+                                    const r2 = self.lowerExpr(c.args[0]);
+                                    len_args.append(self.alloc, r2) catch {};
+                                    len_args.append(self.alloc, self.getStringLen(func, r2)) catch {};
+                                }
+                                self.appendInst(.{ .call_builtin = .{ .dest = len_reg, .name = "string_trim_len", .args = len_args.toOwnedSlice(self.alloc) catch &.{} } });
+                                self.string_lens.put(self.alloc, dest, len_reg) catch {};
+                                return dest;
+                            }
+                            if (std.mem.eql(u8, fn_name, "replace")) {
+                                // (str, old, new) — all need ptr+len
+                                var str_args = std.ArrayListUnmanaged(ir.Reg){};
+                                for (c.args) |arg| {
+                                    const r = self.lowerExpr(arg);
+                                    str_args.append(self.alloc, r) catch {};
+                                    str_args.append(self.alloc, self.getStringLen(func, r)) catch {};
+                                }
+                                self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = "string_replace", .args = str_args.toOwnedSlice(self.alloc) catch &.{} } });
+                                // Result is null-terminated, compute length via strlen
+                                const len_reg = func.newReg();
+                                self.appendInst(.{ .string_len = .{ .dest = len_reg, .str = dest } });
+                                self.string_lens.put(self.alloc, dest, len_reg) catch {};
+                                return dest;
+                            }
+                            if (std.mem.eql(u8, fn_name, "char_at")) {
+                                var str_args = std.ArrayListUnmanaged(ir.Reg){};
+                                for (c.args) |arg| {
+                                    const r = self.lowerExpr(arg);
+                                    str_args.append(self.alloc, r) catch {};
+                                    str_args.append(self.alloc, self.getStringLen(func, r)) catch {};
+                                }
+                                self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = "string_char_at", .args = str_args.toOwnedSlice(self.alloc) catch &.{} } });
+                                return dest;
+                            }
+                            if (std.mem.eql(u8, fn_name, "char_len")) {
+                                var str_args = std.ArrayListUnmanaged(ir.Reg){};
+                                if (c.args.len >= 1) {
+                                    const r = self.lowerExpr(c.args[0]);
+                                    str_args.append(self.alloc, r) catch {};
+                                    str_args.append(self.alloc, self.getStringLen(func, r)) catch {};
+                                }
+                                self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = "string_char_len", .args = str_args.toOwnedSlice(self.alloc) catch &.{} } });
+                                return dest;
+                            }
                             const builtin_name = std.fmt.allocPrint(self.alloc, "string_{s}", .{fn_name}) catch fn_name;
                             self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = builtin_name, .args = args } });
                             return dest;
