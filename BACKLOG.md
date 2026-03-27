@@ -96,3 +96,9 @@ What's needed to build the 20 benchmark apps.
 - [ ] GPU backend (SPIR-V)
 - [ ] LLVM backend
 - [ ] Self-hosting compiler
+
+## NEXT: Typed IR + Zig Slices (approved, in progress)
+
+Eliminate string_lens hashmap forever. Strings become []const u8 in generated Zig code.
+Runtime functions take/return slices. Backend emits typed registers.
+All _len companion functions removed. See plans/fluffy-snacking-pretzel.md for full plan.
