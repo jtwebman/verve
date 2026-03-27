@@ -581,8 +581,8 @@ pub const ZigBackend = struct {
             },
 
             .list_new => |ln| {
-                self.lineFmt("var list_{d} = rt.List.init();", .{ln.dest});
-                self.lineFmt("{s} = @intCast(@intFromPtr(&list_{d}));", .{ self.regName(ln.dest), ln.dest });
+                // Allocate List struct in arena (not stack) so pointer survives
+                self.lineFmt("{{ const lm = rt.arena_alloc(@sizeOf(rt.List)) orelse @as([*]u8, undefined); const lp = @as(*rt.List, @ptrCast(@alignCast(lm))); lp.* = rt.List.init(); {s} = @intCast(@intFromPtr(lp)); }}", .{self.regName(ln.dest)});
             },
             .list_append => |la| {
                 self.lineFmt("@as(*rt.List, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s})))))).append({s});", .{ self.regName(la.list), self.regName(la.value) });
@@ -920,9 +920,10 @@ pub const ZigBackend = struct {
             if (args.len >= 3) self.lineFmt("{s} = rt.string_char_at({s}, {s}, {s});", .{ self.regName(dest), self.regName(args[0]), self.regName(args[1]), self.regName(args[2]) });
         } else if (std.mem.eql(u8, name, "string_char_len")) {
             if (args.len >= 2) self.lineFmt("{s} = rt.string_char_len({s}, {s});", .{ self.regName(dest), self.regName(args[0]), self.regName(args[1]) });
-        } else if (std.mem.eql(u8, name, "string_split") or std.mem.eql(u8, name, "string_chars")) {
-            // These return lists — not yet implemented
-            self.lineFmt("{s} = 0; // TODO: {s}", .{ self.regName(dest), name });
+        } else if (std.mem.eql(u8, name, "string_split")) {
+            if (args.len >= 4) self.lineFmt("{s} = rt.string_split({s}, {s}, {s}, {s});", .{ self.regName(dest), self.regName(args[0]), self.regName(args[1]), self.regName(args[2]), self.regName(args[3]) });
+        } else if (std.mem.eql(u8, name, "string_chars")) {
+            self.lineFmt("{s} = 0; // TODO: string_chars", .{self.regName(dest)});
         } else if (std.mem.eql(u8, name, "tcp_port")) {
             if (args.len >= 1) {
                 self.lineFmt("{s} = rt.tcp_port({s});", .{ self.regName(dest), self.regName(args[0]) });

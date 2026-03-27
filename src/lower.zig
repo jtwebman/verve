@@ -750,7 +750,7 @@ pub const Lower = struct {
                                 }
                             }
                             // String functions that take (str, pattern) — both need ptr+len
-                            if (std.mem.eql(u8, fn_name, "contains") or std.mem.eql(u8, fn_name, "starts_with") or std.mem.eql(u8, fn_name, "ends_with")) {
+                            if (std.mem.eql(u8, fn_name, "contains") or std.mem.eql(u8, fn_name, "starts_with") or std.mem.eql(u8, fn_name, "ends_with") or std.mem.eql(u8, fn_name, "split")) {
                                 var str_args = std.ArrayListUnmanaged(ir.Reg){};
                                 for (c.args) |arg| {
                                     const r = self.lowerExpr(arg);
@@ -1283,7 +1283,9 @@ pub const Lower = struct {
                                     builtin_args.append(self.alloc, lr) catch {};
                                 }
                             } else {
-                                // Non-string: mark with -1 so backend knows to format as int
+                                // Non-string: mark with -1 so backend formats as integer.
+                                // Known limitation: function return values not tracked as strings
+                                // unless stored to a typed variable first.
                                 const marker = func.newReg();
                                 self.appendInst(.{ .const_int = .{ .dest = marker, .value = -1 } });
                                 builtin_args.append(self.alloc, marker) catch {};

@@ -679,6 +679,36 @@ pub fn string_char_len(str_ptr: i64, str_len: i64) i64 {
     return str_len;
 }
 
+/// Split a string by delimiter. Returns pointer to a List of (ptr, len) pairs.
+pub fn string_split(str_ptr: i64, str_len: i64, delim_ptr: i64, delim_len: i64) i64 {
+    const str = sliceFromPtr(str_ptr, str_len);
+    const delim = sliceFromPtr(delim_ptr, delim_len);
+    const list_mem = arena_alloc(@sizeOf(List)) orelse return 0;
+    const list = @as(*List, @ptrCast(@alignCast(list_mem)));
+    list.* = List.init();
+    if (delim.len == 0) {
+        // Empty delimiter — return original string as single element
+        list.append(@intCast(@intFromPtr(str.ptr)));
+        list.append(str_len);
+        return @intCast(@intFromPtr(list));
+    }
+    var pos: usize = 0;
+    while (pos <= str.len) {
+        if (std.mem.indexOfPos(u8, str, pos, delim)) |idx| {
+            const part = str[pos..idx];
+            list.append(@intCast(@intFromPtr(part.ptr)));
+            list.append(@intCast(part.len));
+            pos = idx + delim.len;
+        } else {
+            const part = str[pos..];
+            list.append(@intCast(@intFromPtr(part.ptr)));
+            list.append(@intCast(part.len));
+            break;
+        }
+    }
+    return @intCast(@intFromPtr(list));
+}
+
 // ── String helpers ─────────────────────────────────
 
 pub fn strEql(a: [*]const u8, a_len: i64, b: [*]const u8, b_len: i64) bool {
