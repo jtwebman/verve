@@ -82,9 +82,9 @@ pub const Inst = union(enum) {
     /// Allocate N 8-byte stack slots, store base address in dest.
     struct_alloc: struct { dest: Reg, num_fields: u32 },
     /// Store value into struct field: mem[base + index*8] = src
-    struct_store: struct { base: Reg, field_index: u32, src: Reg },
+    struct_store: struct { base: Reg, field_index: u32, src: Reg, is_string: bool = false },
     /// Load value from struct field: dest = mem[base + index*8]
-    struct_load: struct { dest: Reg, base: Reg, field_index: u32 },
+    struct_load: struct { dest: Reg, base: Reg, field_index: u32, is_string: bool = false },
 
     // ── Lists ───────────────────────────────────────────
     /// Allocate a new list (returns pointer to list header)
@@ -101,12 +101,12 @@ pub const Inst = union(enum) {
     string_byte_at: struct { dest: Reg, str: Reg, index: Reg },
     /// Get pointer to byte at index (single-char string): dest = &string[index]
     string_index: struct { dest: Reg, str: Reg, index: Reg },
-    /// Slice a string: dest_ptr = str + start, dest_len = end - start
-    string_slice: struct { dest_ptr: Reg, dest_len: Reg, str: Reg, start: Reg, end: Reg },
-    /// Get string byte length: dest = len(string)
+    /// Slice a string: dest = str[start..end] ([]const u8)
+    string_slice: struct { dest: Reg, str: Reg, start: Reg, end: Reg },
+    /// Get string byte length: dest = str.len (i64 from []const u8)
     string_len: struct { dest: Reg, str: Reg },
-    /// Compare two strings for equality: dest = (a == b)
-    string_eq: struct { dest: Reg, lhs: Reg, lhs_len: Reg, rhs: Reg, rhs_len: Reg },
+    /// Compare two strings for equality: dest = (a == b), both are []const u8
+    string_eq: struct { dest: Reg, lhs: Reg, rhs: Reg },
 
     /// Call a platform builtin. The backend maps these to OS-specific operations.
     /// Examples: "exit", "write_stdout", "write_stderr"
@@ -120,9 +120,9 @@ pub const Inst = union(enum) {
     /// Tell a process (fire-and-forget).
     process_tell: struct { target: Reg, handler_index: u32, args: []const Reg },
     /// Read process state field into dest.
-    process_state_get: struct { dest: Reg, field_index: u32 },
+    process_state_get: struct { dest: Reg, field_index: u32, is_string: bool = false },
     /// Write value to process state field.
-    process_state_set: struct { field_index: u32, src: Reg },
+    process_state_set: struct { field_index: u32, src: Reg, is_string: bool = false },
     /// Register current process as watcher of target.
     process_watch: struct { target: Reg },
     /// Send with timeout (milliseconds). Returns :error{:timeout} if exceeded.

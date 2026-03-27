@@ -31,26 +31,27 @@ pub fn verve_runtime_init() void {
 
 // ── IO helpers ─────────────────────────────────────
 
-pub fn verve_write(fd: i64, ptr: [*]const u8, len: i64) void {
-    const f = std.posix.STDOUT_FILENO;
+pub fn verve_write(fd: i64, s: []const u8) void {
     _ = fd;
-    const actual_len: usize = if (len > 0) @intCast(@as(u64, @bitCast(len))) else blk: {
-        var l: usize = 0;
-        while (ptr[l] != 0) l += 1;
-        break :blk l;
-    };
-    const slice = ptr[0..actual_len];
-    _ = std.posix.write(f, slice) catch 0;
+    _ = std.posix.write(std.posix.STDOUT_FILENO, s) catch 0;
 }
 
-pub fn fileOpen(path_ptr: i64, path_len: i64) i64 {
-    const ptr = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(path_ptr))))));
-    const len: usize = if (path_len > 0) @intCast(@as(u64, @bitCast(path_len))) else blk: {
-        var l: usize = 0;
-        while (ptr[l] != 0) l += 1;
-        break :blk l;
-    };
-    const path = ptr[0..len];
+pub fn verve_write_int(fd: i64, val: i64) void {
+    _ = fd;
+    var buf: [32]u8 = undefined;
+    const s = std.fmt.bufPrint(&buf, "{d}", .{val}) catch return;
+    _ = std.posix.write(std.posix.STDOUT_FILENO, s) catch 0;
+}
+
+pub fn verve_write_float(fd: i64, val: i64) void {
+    _ = fd;
+    var buf: [64]u8 = undefined;
+    const f: f64 = @bitCast(val);
+    const s = std.fmt.bufPrint(&buf, "{d}", .{f}) catch return;
+    _ = std.posix.write(std.posix.STDOUT_FILENO, s) catch 0;
+}
+
+pub fn fileOpen(path: []const u8) i64 {
     const data = std.fs.cwd().readFileAlloc(std.heap.page_allocator, path, 10 * 1024 * 1024) catch return makeTagged(1, 0);
     const stream_mem = arena_alloc(3 * @sizeOf(i64)) orelse return makeTagged(1, 0);
     const stream = @as([*]i64, @ptrCast(@alignCast(stream_mem)));
@@ -60,14 +61,11 @@ pub fn fileOpen(path_ptr: i64, path_len: i64) i64 {
     return makeTagged(0, @intCast(@intFromPtr(stream)));
 }
 
-pub fn streamReadAll(stream_ptr: i64) i64 {
+pub fn streamReadAll(stream_ptr: i64) []const u8 {
     const s = @as([*]i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(stream_ptr))))));
-    return s[0];
-}
-
-pub fn streamReadAllLen(stream_ptr: i64) i64 {
-    const s = @as([*]i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(stream_ptr))))));
-    return s[1];
+    const ptr = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(s[0]))))));
+    const len: usize = @intCast(@as(u64, @bitCast(s[1])));
+    return ptr[0..len];
 }
 
 // ── Streams ────────────────────────────────────────
@@ -99,16 +97,17 @@ fn toStream(ptr: i64) ?*VerveStream {
     return @as(*VerveStream, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(ptr))))));
 }
 
-fn sliceFromPtr(ptr: i64, len: i64) []const u8 {
-    const p = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(ptr))))));
-    const l: usize = @intCast(@as(u64, @bitCast(len)));
+/// Convert i64 pair (ptr, len) back to []const u8 — used at struct boundaries.
+pub fn sliceFromPair(ptr_val: i64, len_val: i64) []const u8 {
+    if (ptr_val == 0) return "";
+    const p = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(ptr_val))))));
+    const l: usize = @intCast(@as(u64, @bitCast(len_val)));
     return p[0..l];
 }
 
-pub fn stream_write(stream_ptr: i64, data_ptr: i64, data_len: i64) void {
+pub fn stream_write(stream_ptr: i64, data: []const u8) void {
     const s = toStream(stream_ptr) orelse return;
     if (s.closed) return;
-    const data = sliceFromPtr(data_ptr, data_len);
     switch (s.kind) {
         .tcp_client => {
             var written: usize = 0;
@@ -123,8 +122,8 @@ pub fn stream_write(stream_ptr: i64, data_ptr: i64, data_len: i64) void {
     }
 }
 
-pub fn stream_write_line(stream_ptr: i64, data_ptr: i64, data_len: i64) void {
-    stream_write(stream_ptr, data_ptr, data_len);
+pub fn stream_write_line(stream_ptr: i64, data: []const u8) void {
+    stream_write(stream_ptr, data);
     const s = toStream(stream_ptr) orelse return;
     if (s.closed) return;
     switch (s.kind) {
@@ -135,28 +134,26 @@ pub fn stream_write_line(stream_ptr: i64, data_ptr: i64, data_len: i64) void {
     }
 }
 
-/// Read one line from a stream. Returns a null-terminated string pointer as i64.
-/// Returns 0 on EOF.
-pub fn stream_read_line(stream_ptr: i64) i64 {
-    const s = toStream(stream_ptr) orelse return 0;
-    if (s.closed) return 0;
+/// Read one line from a stream. Returns the line as []const u8.
+/// Returns "" on EOF.
+pub fn stream_read_line(stream_ptr: i64) []const u8 {
+    const s = toStream(stream_ptr) orelse return "";
+    if (s.closed) return "";
     switch (s.kind) {
         .file_read => {
-            const data = s.file_data orelse return 0;
-            if (s.file_pos >= s.file_len) return 0;
+            const data = s.file_data orelse return "";
+            if (s.file_pos >= s.file_len) return "";
             var end = s.file_pos;
             while (end < s.file_len and data[end] != '\n') : (end += 1) {}
             const line_len = end - s.file_pos;
-            // Copy to null-terminated buffer
-            const buf_mem = arena_alloc(line_len + 1) orelse return 0;
+            const buf_mem = arena_alloc(line_len) orelse return "";
             const buf = @as([*]u8, buf_mem);
             @memcpy(buf[0..line_len], data[s.file_pos..end]);
-            buf[line_len] = 0;
             s.file_pos = if (end < s.file_len) end + 1 else end;
-            return @intCast(@intFromPtr(buf));
+            return buf[0..line_len];
         },
         .tcp_client => {
-            const line_mem = arena_alloc(4096) orelse return 0;
+            const line_mem = arena_alloc(4096) orelse return "";
             var line_buf = @as([*]u8, line_mem)[0..4096];
             var line_len: usize = 0;
             while (true) {
@@ -164,57 +161,41 @@ pub fn stream_read_line(stream_ptr: i64) i64 {
                     const byte = s.read_buf[s.read_pos];
                     s.read_pos += 1;
                     if (byte == '\n') {
-                        // Null-terminate and return
-                        if (line_len < line_buf.len) line_buf[line_len] = 0;
-                        return @intCast(@intFromPtr(line_buf.ptr));
+                        return line_buf[0..line_len];
                     }
                     if (line_len < line_buf.len - 1) {
                         line_buf[line_len] = byte;
                         line_len += 1;
                     }
                 }
-                const n = std.posix.read(s.fd, &s.read_buf) catch return 0;
+                const n = std.posix.read(s.fd, &s.read_buf) catch return "";
                 if (n == 0) {
-                    if (line_len > 0) {
-                        if (line_len < line_buf.len) line_buf[line_len] = 0;
-                        return @intCast(@intFromPtr(line_buf.ptr));
-                    }
-                    return 0;
+                    if (line_len > 0) return line_buf[0..line_len];
+                    return "";
                 }
                 s.read_pos = 0;
                 s.read_len = n;
             }
         },
-        else => return 0,
+        else => return "",
     }
 }
 
-/// Get the byte length of a stream_read_line result (null-terminated string).
-pub fn stream_read_line_len(ptr: i64) i64 {
-    if (ptr == 0) return 0;
-    const p = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(ptr))))));
-    var l: usize = 0;
-    while (p[l] != 0) l += 1;
-    return @intCast(l);
-}
-
-/// Read all remaining data from a stream. Returns string pointer as i64.
-pub fn stream_read_all_new(stream_ptr: i64) i64 {
-    const s = toStream(stream_ptr) orelse return 0;
-    if (s.closed) return 0;
+/// Read all remaining data from a stream. Returns []const u8.
+pub fn stream_read_all_new(stream_ptr: i64) []const u8 {
+    const s = toStream(stream_ptr) orelse return "";
+    if (s.closed) return "";
     switch (s.kind) {
         .file_read => {
-            // For file streams, return pointer to remaining data
-            const data = s.file_data orelse return 0;
-            const ptr = @intFromPtr(data + s.file_pos);
+            const data = s.file_data orelse return "";
+            const remaining = data[s.file_pos..s.file_len];
             s.file_pos = s.file_len;
-            return @intCast(ptr);
+            return remaining;
         },
         .tcp_client => {
             var buf = std.ArrayList(u8).init(std.heap.page_allocator);
-            // Drain read buffer first
             if (s.read_pos < s.read_len) {
-                buf.appendSlice(s.read_buf[s.read_pos..s.read_len]) catch return 0;
+                buf.appendSlice(s.read_buf[s.read_pos..s.read_len]) catch return "";
                 s.read_pos = s.read_len;
             }
             var tmp: [4096]u8 = undefined;
@@ -223,11 +204,9 @@ pub fn stream_read_all_new(stream_ptr: i64) i64 {
                 if (n == 0) break;
                 buf.appendSlice(tmp[0..n]) catch break;
             }
-            // Null-terminate
-            buf.append(0) catch {};
-            return @intCast(@intFromPtr(buf.items.ptr));
+            return buf.items;
         },
-        else => return 0,
+        else => return "",
     }
 }
 
@@ -244,8 +223,7 @@ pub fn stream_close(stream_ptr: i64) void {
 
 // ── TCP ────────────────────────────────────────────
 
-pub fn tcp_open(host_ptr: i64, host_len: i64, port: i64) i64 {
-    const host = sliceFromPtr(host_ptr, host_len);
+pub fn tcp_open(host: []const u8, port: i64) i64 {
     const port_u16: u16 = @intCast(@as(u64, @bitCast(port)));
 
     const addr = std.net.Address.resolveIp(host, port_u16) catch return makeTagged(1, 0);
@@ -271,8 +249,7 @@ pub fn tcp_open(host_ptr: i64, host_len: i64, port: i64) i64 {
     return makeTagged(0, s.streamPtr());
 }
 
-pub fn tcp_listen(host_ptr: i64, host_len: i64, port: i64) i64 {
-    const host = sliceFromPtr(host_ptr, host_len);
+pub fn tcp_listen(host: []const u8, port: i64) i64 {
     const port_u16: u16 = @intCast(@as(u64, @bitCast(port)));
 
     const addr = std.net.Address.resolveIp(host, port_u16) catch return makeTagged(1, 0);
@@ -482,42 +459,26 @@ pub fn convert_to_int_f(x: i64) i64 {
     return @intFromFloat(f);
 }
 
-pub fn float_to_string(val: i64) i64 {
+pub fn float_to_string(val: i64) []const u8 {
     const f = f64_from_i64(val);
     var buf: [64]u8 = undefined;
-    const s = std.fmt.bufPrint(&buf, "{d}", .{f}) catch return 0;
-    const result_mem = arena_alloc(s.len + 1) orelse return 0;
+    const s = std.fmt.bufPrint(&buf, "{d}", .{f}) catch return "";
+    const result_mem = arena_alloc(s.len) orelse return "";
     const result = @as([*]u8, result_mem);
     @memcpy(result[0..s.len], s);
-    result[s.len] = 0;
-    return @intCast(@intFromPtr(result));
+    return result[0..s.len];
 }
 
-pub fn float_to_string_len(val: i64) i64 {
-    const f = f64_from_i64(val);
-    var buf: [64]u8 = undefined;
-    const s = std.fmt.bufPrint(&buf, "{d}", .{f}) catch return 0;
-    return @intCast(s.len);
-}
-
-pub fn string_to_float(ptr: i64, len: i64) i64 {
-    const s = sliceFromPtr(ptr, len);
+pub fn string_to_float(s: []const u8) i64 {
     const f = std.fmt.parseFloat(f64, s) catch return i64_from_f64(0.0);
     return i64_from_f64(f);
 }
 
 // ── Env ────────────────────────────────────────────
 
-pub fn env_get(name_ptr: i64, name_len: i64) i64 {
-    const name = sliceFromPtr(name_ptr, name_len);
-    const val = std.posix.getenv(name) orelse return 0;
-    return @intCast(@intFromPtr(val.ptr));
-}
-
-pub fn env_get_len(name_ptr: i64, name_len: i64) i64 {
-    const name = sliceFromPtr(name_ptr, name_len);
-    const val = std.posix.getenv(name) orelse return 0;
-    return @intCast(val.len);
+pub fn env_get(name: []const u8) []const u8 {
+    const val = std.posix.getenv(name) orelse return "";
+    return val;
 }
 
 // ── System ─────────────────────────────────────────
@@ -532,24 +493,16 @@ pub fn system_time_ms() i64 {
 
 // ── Int/String conversion ──────────────────────────
 
-pub fn int_to_string(val: i64) i64 {
+pub fn int_to_string(val: i64) []const u8 {
     var buf: [32]u8 = undefined;
-    const s = std.fmt.bufPrint(&buf, "{d}", .{val}) catch return 0;
-    const result_mem = arena_alloc(s.len + 1) orelse return 0;
+    const s = std.fmt.bufPrint(&buf, "{d}", .{val}) catch return "";
+    const result_mem = arena_alloc(s.len) orelse return "";
     const result = @as([*]u8, result_mem);
     @memcpy(result[0..s.len], s);
-    result[s.len] = 0;
-    return @intCast(@intFromPtr(result));
+    return result[0..s.len];
 }
 
-pub fn int_to_string_len(val: i64) i64 {
-    var buf: [32]u8 = undefined;
-    const s = std.fmt.bufPrint(&buf, "{d}", .{val}) catch return 0;
-    return @intCast(s.len);
-}
-
-pub fn string_to_int(ptr: i64, len: i64) i64 {
-    const s = sliceFromPtr(ptr, len);
+pub fn string_to_int(s: []const u8) i64 {
     return std.fmt.parseInt(i64, s, 10) catch 0;
 }
 
@@ -600,53 +553,35 @@ pub fn getTagValue(ptr: i64) i64 {
 
 // ── String operations ──────────────────────────────
 
-pub fn string_contains(hay_ptr: i64, hay_len: i64, needle_ptr: i64, needle_len: i64) i64 {
-    const hay = sliceFromPtr(hay_ptr, hay_len);
-    const needle = sliceFromPtr(needle_ptr, needle_len);
-    if (std.mem.indexOf(u8, hay, needle) != null) return 1;
+pub fn string_contains(haystack: []const u8, needle: []const u8) i64 {
+    if (std.mem.indexOf(u8, haystack, needle) != null) return 1;
     return 0;
 }
 
-pub fn string_starts_with(str_ptr: i64, str_len: i64, prefix_ptr: i64, prefix_len: i64) i64 {
-    const str = sliceFromPtr(str_ptr, str_len);
-    const prefix = sliceFromPtr(prefix_ptr, prefix_len);
+pub fn string_starts_with(str: []const u8, prefix: []const u8) i64 {
     if (std.mem.startsWith(u8, str, prefix)) return 1;
     return 0;
 }
 
-pub fn string_ends_with(str_ptr: i64, str_len: i64, suffix_ptr: i64, suffix_len: i64) i64 {
-    const str = sliceFromPtr(str_ptr, str_len);
-    const suffix = sliceFromPtr(suffix_ptr, suffix_len);
+pub fn string_ends_with(str: []const u8, suffix: []const u8) i64 {
     if (std.mem.endsWith(u8, str, suffix)) return 1;
     return 0;
 }
 
-pub fn string_trim(str_ptr: i64, str_len: i64) i64 {
-    const str = sliceFromPtr(str_ptr, str_len);
-    const trimmed = std.mem.trim(u8, str, " \t\n\r");
-    return @intCast(@intFromPtr(trimmed.ptr));
+pub fn string_trim(str: []const u8) []const u8 {
+    return std.mem.trim(u8, str, " \t\n\r");
 }
 
-pub fn string_trim_len(str_ptr: i64, str_len: i64) i64 {
-    const str = sliceFromPtr(str_ptr, str_len);
-    const trimmed = std.mem.trim(u8, str, " \t\n\r");
-    return @intCast(trimmed.len);
-}
-
-pub fn string_replace(str_ptr: i64, str_len: i64, old_ptr: i64, old_len: i64, new_ptr: i64, new_len: i64) i64 {
-    const str = sliceFromPtr(str_ptr, str_len);
-    const old = sliceFromPtr(old_ptr, old_len);
-    const new = sliceFromPtr(new_ptr, new_len);
-    // Count occurrences to compute result size
+pub fn string_replace(str: []const u8, old: []const u8, new: []const u8) []const u8 {
     var count: usize = 0;
     var pos: usize = 0;
     while (std.mem.indexOfPos(u8, str, pos, old)) |idx| {
         count += 1;
         pos = idx + old.len;
     }
-    if (count == 0) return str_ptr; // no replacements
+    if (count == 0) return str;
     const result_len = str.len - (count * old.len) + (count * new.len);
-    const buf = arena_alloc(result_len + 1) orelse return str_ptr;
+    const buf = arena_alloc(result_len) orelse return str;
     var out: usize = 0;
     pos = 0;
     while (std.mem.indexOfPos(u8, str, pos, old)) |idx| {
@@ -658,61 +593,39 @@ pub fn string_replace(str_ptr: i64, str_len: i64, old_ptr: i64, old_len: i64, ne
     }
     @memcpy(buf[out .. out + (str.len - pos)], str[pos..]);
     out += str.len - pos;
-    buf[out] = 0;
-    return @intCast(@intFromPtr(buf));
+    return buf[0..out];
 }
 
-pub fn string_replace_len(str_ptr: i64, str_len: i64, old_ptr: i64, old_len: i64, new_ptr: i64, new_len: i64) i64 {
-    const str = sliceFromPtr(str_ptr, str_len);
-    const old = sliceFromPtr(old_ptr, old_len);
-    const new_s = sliceFromPtr(new_ptr, new_len);
-    var count: usize = 0;
-    var pos: usize = 0;
-    while (std.mem.indexOfPos(u8, str, pos, old)) |idx| {
-        count += 1;
-        pos = idx + old.len;
-    }
-    return @intCast(str.len - (count * old.len) + (count * new_s.len));
-}
-
-pub fn string_char_at(str_ptr: i64, str_len: i64, idx: i64) i64 {
-    const str = sliceFromPtr(str_ptr, str_len);
+pub fn string_char_at(str: []const u8, idx: i64) []const u8 {
     const i: usize = @intCast(@as(u64, @bitCast(idx)));
-    if (i >= str.len) return 0;
-    // Return pointer to the byte at index (single-char string)
-    return @intCast(@intFromPtr(&str[i]));
+    if (i >= str.len) return "";
+    return str[i .. i + 1];
 }
 
-pub fn string_char_len(str_ptr: i64, str_len: i64) i64 {
-    // For now, char_len == byte len (UTF-8 support later)
-    _ = str_ptr;
-    return str_len;
+pub fn string_char_len(str: []const u8) i64 {
+    return @intCast(str.len);
 }
 
-/// Return list of single-character strings (each is ptr+len=1).
-pub fn string_chars(str_ptr: i64, str_len: i64) i64 {
-    const str = sliceFromPtr(str_ptr, str_len);
+/// Return list of single-character strings stored as (ptr+len) pairs in a List.
+pub fn string_chars(str: []const u8) i64 {
     const list_mem = arena_alloc(@sizeOf(List)) orelse return 0;
     const list = @as(*List, @ptrCast(@alignCast(list_mem)));
     list.* = List.init();
-    for (str) |*byte| {
-        list.append(@intCast(@intFromPtr(byte)));
+    for (0..str.len) |i| {
+        list.append(@intCast(@intFromPtr(&str[i])));
         list.append(1);
     }
     return @intCast(@intFromPtr(list));
 }
 
 /// Split a string by delimiter. Returns pointer to a List of (ptr, len) pairs.
-pub fn string_split(str_ptr: i64, str_len: i64, delim_ptr: i64, delim_len: i64) i64 {
-    const str = sliceFromPtr(str_ptr, str_len);
-    const delim = sliceFromPtr(delim_ptr, delim_len);
+pub fn string_split(str: []const u8, delim: []const u8) i64 {
     const list_mem = arena_alloc(@sizeOf(List)) orelse return 0;
     const list = @as(*List, @ptrCast(@alignCast(list_mem)));
     list.* = List.init();
     if (delim.len == 0) {
-        // Empty delimiter — return original string as single element
         list.append(@intCast(@intFromPtr(str.ptr)));
-        list.append(str_len);
+        list.append(@intCast(str.len));
         return @intCast(@intFromPtr(list));
     }
     var pos: usize = 0;
@@ -734,30 +647,18 @@ pub fn string_split(str_ptr: i64, str_len: i64, delim_ptr: i64, delim_len: i64) 
 
 // ── String helpers ─────────────────────────────────
 
-pub fn strEql(a: [*]const u8, a_len: i64, b: [*]const u8, b_len: i64) bool {
-    if (a_len != b_len) return false;
-    const len: usize = @intCast(@as(u64, @bitCast(a_len)));
-    return std.mem.eql(u8, a[0..len], b[0..len]);
+pub fn strEql(a: []const u8, b: []const u8) bool {
+    return std.mem.eql(u8, a, b);
 }
 
-/// Concatenate two strings. Returns pointer to new buffer.
-/// Caller tracks length as a_len + b_len.
-pub fn verve_string_concat(a_ptr: i64, a_len: i64, b_ptr: i64, b_len: i64) i64 {
-    const al: usize = @intCast(@as(u64, @bitCast(a_len)));
-    const bl: usize = @intCast(@as(u64, @bitCast(b_len)));
-    const total = al + bl;
-    const buf_ptr = arena_alloc(total + 1) orelse return 0; // +1 for null terminator
-    const buf = @as([*]u8, buf_ptr)[0 .. total + 1];
-    if (a_ptr != 0 and al > 0) {
-        const a = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(a_ptr))))));
-        @memcpy(buf[0..al], a[0..al]);
-    }
-    if (b_ptr != 0 and bl > 0) {
-        const b = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(b_ptr))))));
-        @memcpy(buf[al..total], b[0..bl]);
-    }
-    buf[total] = 0; // null-terminate for backward compat with strlen
-    return @intCast(@intFromPtr(buf.ptr));
+/// Concatenate two strings. Returns new []const u8.
+pub fn verve_string_concat(a: []const u8, b: []const u8) []const u8 {
+    const total = a.len + b.len;
+    const buf_ptr = arena_alloc(total) orelse return "";
+    const buf = @as([*]u8, buf_ptr)[0..total];
+    @memcpy(buf[0..a.len], a);
+    @memcpy(buf[a.len..total], b);
+    return buf;
 }
 
 // ── Checked arithmetic (poison values) ─────────────
@@ -1008,117 +909,76 @@ fn json_extract_string(src: []const u8, start: usize, end: usize) struct { ptr: 
 // ── JSON public API ────────────────────────────────
 
 /// Get a string value from a JSON object by key.
-pub fn json_get_string(json_ptr: i64, json_len: i64, key_ptr: i64, key_len: i64) i64 {
-    const src = sliceFromPtr(json_ptr, json_len);
-    const key = sliceFromPtr(key_ptr, key_len);
-    const found = json_find_key(src, key) orelse return 0;
-    const result = json_extract_string(src, found.start, found.end);
-    return result.ptr;
-}
-
-pub fn json_get_string_len(json_ptr: i64, json_len: i64, key_ptr: i64, key_len: i64) i64 {
-    const src = sliceFromPtr(json_ptr, json_len);
-    const key = sliceFromPtr(key_ptr, key_len);
-    const found = json_find_key(src, key) orelse return 0;
-    const result = json_extract_string(src, found.start, found.end);
-    return result.len;
+pub fn json_get_string(json: []const u8, key: []const u8) []const u8 {
+    const found = json_find_key(json, key) orelse return "";
+    const result = json_extract_string(json, found.start, found.end);
+    return sliceFromPair(result.ptr, result.len);
 }
 
 /// Get an int value from a JSON object by key.
-pub fn json_get_int(json_ptr: i64, json_len: i64, key_ptr: i64, key_len: i64) i64 {
-    const src = sliceFromPtr(json_ptr, json_len);
-    const key = sliceFromPtr(key_ptr, key_len);
-    const found = json_find_key(src, key) orelse return 0;
-    const num_str = src[found.start..found.end];
+pub fn json_get_int(json: []const u8, key: []const u8) i64 {
+    const found = json_find_key(json, key) orelse return 0;
+    const num_str = json[found.start..found.end];
     return std.fmt.parseInt(i64, num_str, 10) catch 0;
 }
 
 /// Get a float value from a JSON object by key (returned as bitcast i64).
-pub fn json_get_float(json_ptr: i64, json_len: i64, key_ptr: i64, key_len: i64) i64 {
-    const src = sliceFromPtr(json_ptr, json_len);
-    const key = sliceFromPtr(key_ptr, key_len);
-    const found = json_find_key(src, key) orelse return i64_from_f64(0.0);
-    const num_str = src[found.start..found.end];
+pub fn json_get_float(json: []const u8, key: []const u8) i64 {
+    const found = json_find_key(json, key) orelse return i64_from_f64(0.0);
+    const num_str = json[found.start..found.end];
     const f = std.fmt.parseFloat(f64, num_str) catch return i64_from_f64(0.0);
     return i64_from_f64(f);
 }
 
 /// Get a bool value from a JSON object by key.
-pub fn json_get_bool(json_ptr: i64, json_len: i64, key_ptr: i64, key_len: i64) i64 {
-    const src = sliceFromPtr(json_ptr, json_len);
-    const key = sliceFromPtr(key_ptr, key_len);
-    const found = json_find_key(src, key) orelse return 0;
-    if (found.end - found.start >= 4 and std.mem.eql(u8, src[found.start .. found.start + 4], "true")) return 1;
+pub fn json_get_bool(json: []const u8, key: []const u8) i64 {
+    const found = json_find_key(json, key) orelse return 0;
+    if (found.end - found.start >= 4 and std.mem.eql(u8, json[found.start .. found.start + 4], "true")) return 1;
     return 0;
 }
 
 /// Get a sub-object from a JSON object by key (returns JSON string).
-pub fn json_get_object(json_ptr: i64, json_len: i64, key_ptr: i64, key_len: i64) i64 {
-    const src = sliceFromPtr(json_ptr, json_len);
-    const key = sliceFromPtr(key_ptr, key_len);
-    const found = json_find_key(src, key) orelse return 0;
-    return @intCast(@intFromPtr(src[found.start..found.end].ptr));
-}
-
-pub fn json_get_object_len(json_ptr: i64, json_len: i64, key_ptr: i64, key_len: i64) i64 {
-    const src = sliceFromPtr(json_ptr, json_len);
-    const key = sliceFromPtr(key_ptr, key_len);
-    const found = json_find_key(src, key) orelse return 0;
-    return @intCast(found.end - found.start);
+pub fn json_get_object(json: []const u8, key: []const u8) []const u8 {
+    const found = json_find_key(json, key) orelse return "";
+    return json[found.start..found.end];
 }
 
 /// Parse a single JSON value string as int.
-pub fn json_to_int(json_ptr: i64, json_len: i64) i64 {
-    const src = sliceFromPtr(json_ptr, json_len);
-    const trimmed = std.mem.trim(u8, src, " \t\n\r");
+pub fn json_to_int(json: []const u8) i64 {
+    const trimmed = std.mem.trim(u8, json, " \t\n\r");
     return std.fmt.parseInt(i64, trimmed, 10) catch 0;
 }
 
 /// Parse a single JSON value string as float (returned as bitcast i64).
-pub fn json_to_float(json_ptr: i64, json_len: i64) i64 {
-    const src = sliceFromPtr(json_ptr, json_len);
-    const trimmed = std.mem.trim(u8, src, " \t\n\r");
+pub fn json_to_float(json: []const u8) i64 {
+    const trimmed = std.mem.trim(u8, json, " \t\n\r");
     const f = std.fmt.parseFloat(f64, trimmed) catch return i64_from_f64(0.0);
     return i64_from_f64(f);
 }
 
 /// Parse a single JSON value string as bool.
-pub fn json_to_bool(json_ptr: i64, json_len: i64) i64 {
-    const src = sliceFromPtr(json_ptr, json_len);
-    const trimmed = std.mem.trim(u8, src, " \t\n\r");
+pub fn json_to_bool(json: []const u8) i64 {
+    const trimmed = std.mem.trim(u8, json, " \t\n\r");
     if (trimmed.len >= 4 and std.mem.eql(u8, trimmed[0..4], "true")) return 1;
     return 0;
 }
 
 /// Unquote a JSON string value.
-pub fn json_to_string(json_ptr: i64, json_len: i64) i64 {
-    const src = sliceFromPtr(json_ptr, json_len);
-    const trimmed = std.mem.trim(u8, src, " \t\n\r");
+pub fn json_to_string(json: []const u8) []const u8 {
+    const trimmed = std.mem.trim(u8, json, " \t\n\r");
     const result = json_extract_string(trimmed, 0, trimmed.len);
-    return result.ptr;
-}
-
-pub fn json_to_string_len(json_ptr: i64, json_len: i64) i64 {
-    const src = sliceFromPtr(json_ptr, json_len);
-    const trimmed = std.mem.trim(u8, src, " \t\n\r");
-    const result = json_extract_string(trimmed, 0, trimmed.len);
-    return result.len;
+    return sliceFromPair(result.ptr, result.len);
 }
 
 /// Split a JSON array into a List of (ptr, len) pairs for each element.
-/// Returns pointer to a List where even indices are ptrs and odd are lens.
-pub fn json_get_array(json_ptr: i64, json_len: i64, key_ptr: i64, key_len: i64) i64 {
-    const src = sliceFromPtr(json_ptr, json_len);
-    const key = sliceFromPtr(key_ptr, key_len);
-    const found = json_find_key(src, key) orelse return 0;
-    return json_split_array(src, found.start, found.end);
+pub fn json_get_array(json: []const u8, key: []const u8) i64 {
+    const found = json_find_key(json, key) orelse return 0;
+    return json_split_array(json, found.start, found.end);
 }
 
-pub fn json_get_array_len(json_ptr: i64, json_len: i64, key_ptr: i64, key_len: i64) i64 {
-    const src = sliceFromPtr(json_ptr, json_len);
-    const key = sliceFromPtr(key_ptr, key_len);
-    const found = json_find_key(src, key) orelse return 0;
-    return json_count_array(src, found.start, found.end);
+pub fn json_get_array_len(json: []const u8, key: []const u8) i64 {
+    const found = json_find_key(json, key) orelse return 0;
+    return json_count_array(json, found.start, found.end);
 }
 
 fn json_count_array(src: []const u8, start: usize, end: usize) i64 {
@@ -1232,108 +1092,88 @@ pub fn json_build_object() i64 {
 }
 
 /// Add a string field to a JSON builder.
-pub fn json_build_add_string(builder_ptr: i64, key_ptr: i64, key_len: i64, val_ptr: i64, val_len: i64) void {
-    if (builder_ptr == 0) return;
-    const b = @as(*JsonBuilder, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(builder_ptr))))));
-    if (b.len > 1) b.appendByte(','); // comma between fields
-    b.appendQuotedString(sliceFromPtr(key_ptr, key_len));
-    b.appendByte(':');
-    b.appendQuotedString(sliceFromPtr(val_ptr, val_len));
-}
-
-/// Add an int field to a JSON builder.
-pub fn json_build_add_int(builder_ptr: i64, key_ptr: i64, key_len: i64, val: i64) void {
+pub fn json_build_add_string(builder_ptr: i64, key: []const u8, val: []const u8) void {
     if (builder_ptr == 0) return;
     const b = @as(*JsonBuilder, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(builder_ptr))))));
     if (b.len > 1) b.appendByte(',');
-    b.appendQuotedString(sliceFromPtr(key_ptr, key_len));
+    b.appendQuotedString(key);
+    b.appendByte(':');
+    b.appendQuotedString(val);
+}
+
+/// Add an int field to a JSON builder.
+pub fn json_build_add_int(builder_ptr: i64, key: []const u8, val: i64) void {
+    if (builder_ptr == 0) return;
+    const b = @as(*JsonBuilder, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(builder_ptr))))));
+    if (b.len > 1) b.appendByte(',');
+    b.appendQuotedString(key);
     b.appendByte(':');
     b.appendInt(val);
 }
 
 /// Add a float field to a JSON builder.
-pub fn json_build_add_float(builder_ptr: i64, key_ptr: i64, key_len: i64, val: i64) void {
+pub fn json_build_add_float(builder_ptr: i64, key: []const u8, val: i64) void {
     if (builder_ptr == 0) return;
     const b = @as(*JsonBuilder, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(builder_ptr))))));
     if (b.len > 1) b.appendByte(',');
-    b.appendQuotedString(sliceFromPtr(key_ptr, key_len));
+    b.appendQuotedString(key);
     b.appendByte(':');
     b.appendFloat(f64_from_i64(val));
 }
 
 /// Add a bool field to a JSON builder.
-pub fn json_build_add_bool(builder_ptr: i64, key_ptr: i64, key_len: i64, val: i64) void {
+pub fn json_build_add_bool(builder_ptr: i64, key: []const u8, val: i64) void {
     if (builder_ptr == 0) return;
     const b = @as(*JsonBuilder, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(builder_ptr))))));
     if (b.len > 1) b.appendByte(',');
-    b.appendQuotedString(sliceFromPtr(key_ptr, key_len));
+    b.appendQuotedString(key);
     b.appendByte(':');
     b.append(if (val != 0) "true" else "false");
 }
 
 /// Add a null field to a JSON builder.
-pub fn json_build_add_null(builder_ptr: i64, key_ptr: i64, key_len: i64) void {
+pub fn json_build_add_null(builder_ptr: i64, key: []const u8) void {
     if (builder_ptr == 0) return;
     const b = @as(*JsonBuilder, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(builder_ptr))))));
     if (b.len > 1) b.appendByte(',');
-    b.appendQuotedString(sliceFromPtr(key_ptr, key_len));
+    b.appendQuotedString(key);
     b.appendByte(':');
     b.append("null");
 }
 
 /// Add a raw JSON value (sub-object, sub-array) to a JSON builder.
-pub fn json_build_add_raw(builder_ptr: i64, key_ptr: i64, key_len: i64, val_ptr: i64, val_len: i64) void {
+pub fn json_build_add_raw(builder_ptr: i64, key: []const u8, val: []const u8) void {
     if (builder_ptr == 0) return;
     const b = @as(*JsonBuilder, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(builder_ptr))))));
     if (b.len > 1) b.appendByte(',');
-    b.appendQuotedString(sliceFromPtr(key_ptr, key_len));
+    b.appendQuotedString(key);
     b.appendByte(':');
-    b.append(sliceFromPtr(val_ptr, val_len));
+    b.append(val);
 }
 
-/// Finish building a JSON object. Returns the JSON string pointer.
-pub fn json_build_end(builder_ptr: i64) i64 {
-    if (builder_ptr == 0) return 0;
+/// Finish building a JSON object. Returns the JSON string as []const u8.
+pub fn json_build_end(builder_ptr: i64) []const u8 {
+    if (builder_ptr == 0) return "";
     const b = @as(*JsonBuilder, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(builder_ptr))))));
     b.appendByte('}');
-    return b.result().ptr;
+    const res = b.result();
+    return sliceFromPair(res.ptr, res.len);
 }
 
-/// Get the length of a finished JSON builder result.
-pub fn json_build_end_len(builder_ptr: i64) i64 {
-    if (builder_ptr == 0) return 0;
-    const b = @as(*JsonBuilder, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(builder_ptr))))));
-    return b.result().len;
-}
-
-/// Read up to `max_bytes` from a stream. Returns (ptr, len) stored in a 2-slot arena array.
-/// The returned pointer points to the data, and the companion _len function returns the length.
-var last_read_bytes_len: i64 = 0;
-
-pub fn stream_read_bytes(stream_ptr: i64, max: i64) i64 {
-    const s = toStream(stream_ptr) orelse {
-        last_read_bytes_len = 0;
-        return 0;
-    };
-    if (s.closed) {
-        last_read_bytes_len = 0;
-        return 0;
-    }
+/// Read up to `max_bytes` from a stream. Returns []const u8.
+pub fn stream_read_bytes(stream_ptr: i64, max: i64) []const u8 {
+    const s = toStream(stream_ptr) orelse return "";
+    if (s.closed) return "";
     const max_usize: usize = @intCast(@as(u64, @bitCast(max)));
-    const buf = arena_alloc(max_usize + 1) orelse {
-        last_read_bytes_len = 0;
-        return 0;
-    };
+    const buf = arena_alloc(max_usize) orelse return "";
     var total: usize = 0;
     switch (s.kind) {
         .tcp_client => {
-            // Drain read buffer first
             while (s.read_pos < s.read_len and total < max_usize) {
                 buf[total] = s.read_buf[s.read_pos];
                 s.read_pos += 1;
                 total += 1;
             }
-            // Read from socket
             if (total < max_usize) {
                 const n = std.posix.read(s.fd, buf[total..max_usize]) catch 0;
                 total += n;
@@ -1341,13 +1181,7 @@ pub fn stream_read_bytes(stream_ptr: i64, max: i64) i64 {
         },
         else => {},
     }
-    buf[total] = 0; // null terminate
-    last_read_bytes_len = @intCast(total);
-    return @intCast(@intFromPtr(buf));
-}
-
-pub fn stream_read_bytes_len() i64 {
-    return last_read_bytes_len;
+    return buf[0..total];
 }
 
 // ── HTTP/1.1 ───────────────────────────────────────
@@ -1402,8 +1236,8 @@ pub const HttpRequest = struct {
     }
 };
 
-pub fn http_parse_request(data_ptr: i64, data_len: i64) i64 {
-    const src = sliceFromPtr(data_ptr, data_len);
+pub fn http_parse_request(data: []const u8) i64 {
+    const src = data;
     if (src.len < 10) return 0;
 
     // Parse request line only (lazy: headers + body parsed on access)
@@ -1444,88 +1278,27 @@ fn toHttpReq(ptr: i64) ?*HttpRequest {
     return @as(*HttpRequest, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(ptr))))));
 }
 
-pub fn http_req_method(req_ptr: i64) i64 {
-    const req = toHttpReq(req_ptr) orelse return 0;
-    return @intCast(@intFromPtr(req.src[req.method_start .. req.method_start + req.method_len].ptr));
+pub fn http_req_method(req_ptr: i64) []const u8 {
+    const req = toHttpReq(req_ptr) orelse return "";
+    return req.src[req.method_start .. req.method_start + req.method_len];
 }
 
-pub fn http_req_method_len(req_ptr: i64) i64 {
-    const req = toHttpReq(req_ptr) orelse return 0;
-    return @intCast(req.method_len);
+pub fn http_req_path(req_ptr: i64) []const u8 {
+    const req = toHttpReq(req_ptr) orelse return "";
+    return req.src[req.path_start .. req.path_start + req.path_len];
 }
 
-pub fn http_req_path(req_ptr: i64) i64 {
-    const req = toHttpReq(req_ptr) orelse return 0;
-    return @intCast(@intFromPtr(req.src[req.path_start .. req.path_start + req.path_len].ptr));
-}
-
-pub fn http_req_path_len(req_ptr: i64) i64 {
-    const req = toHttpReq(req_ptr) orelse return 0;
-    return @intCast(req.path_len);
-}
-
-pub fn http_req_body(req_ptr: i64) i64 {
-    const req = toHttpReq(req_ptr) orelse return 0;
+pub fn http_req_body(req_ptr: i64) []const u8 {
+    const req = toHttpReq(req_ptr) orelse return "";
     req.ensureHeadersParsed();
-    if (req.body_len == 0) return 0;
-    return @intCast(@intFromPtr(req.src[req.body_start .. req.body_start + req.body_len].ptr));
+    if (req.body_len == 0) return "";
+    return req.src[req.body_start .. req.body_start + req.body_len];
 }
 
-pub fn http_req_body_len(req_ptr: i64) i64 {
-    const req = toHttpReq(req_ptr) orelse return 0;
+/// Find a header value by name (case-insensitive). Returns []const u8.
+pub fn http_req_header(req_ptr: i64, name: []const u8) []const u8 {
+    const req = toHttpReq(req_ptr) orelse return "";
     req.ensureHeadersParsed();
-    return @intCast(req.body_len);
-}
-
-/// Find a header value by name (case-insensitive). Returns pointer to value string.
-pub fn http_req_header(req_ptr: i64, name_ptr: i64, name_len: i64) i64 {
-    const req = toHttpReq(req_ptr) orelse return 0;
-    req.ensureHeadersParsed();
-    const name = sliceFromPtr(name_ptr, name_len);
-    const headers = req.src[req.headers_start..req.headers_end];
-
-    var pos: usize = 0;
-    while (pos < headers.len) {
-        // Find colon
-        const line_start = pos;
-        var colon: usize = pos;
-        while (colon < headers.len and headers[colon] != ':') colon += 1;
-        if (colon >= headers.len) break;
-
-        const header_name = headers[line_start..colon];
-        // Case-insensitive compare
-        if (header_name.len == name.len) {
-            var match = true;
-            for (header_name, 0..) |c, i| {
-                const a = if (c >= 'A' and c <= 'Z') c + 32 else c;
-                const b = if (name[i] >= 'A' and name[i] <= 'Z') name[i] + 32 else name[i];
-                if (a != b) {
-                    match = false;
-                    break;
-                }
-            }
-            if (match) {
-                // Skip colon and optional space
-                var val_start = colon + 1;
-                while (val_start < headers.len and headers[val_start] == ' ') val_start += 1;
-                // Find end of line
-                var val_end = val_start;
-                while (val_end < headers.len and headers[val_end] != '\r' and headers[val_end] != '\n') val_end += 1;
-                return @intCast(@intFromPtr(headers[val_start..val_end].ptr));
-            }
-        }
-
-        // Skip to next line
-        while (pos < headers.len and headers[pos] != '\n') pos += 1;
-        if (pos < headers.len) pos += 1;
-    }
-    return 0;
-}
-
-pub fn http_req_header_len(req_ptr: i64, name_ptr: i64, name_len: i64) i64 {
-    const req = toHttpReq(req_ptr) orelse return 0;
-    req.ensureHeadersParsed();
-    const name = sliceFromPtr(name_ptr, name_len);
     const headers = req.src[req.headers_start..req.headers_end];
 
     var pos: usize = 0;
@@ -1551,22 +1324,18 @@ pub fn http_req_header_len(req_ptr: i64, name_ptr: i64, name_len: i64) i64 {
                 while (val_start < headers.len and headers[val_start] == ' ') val_start += 1;
                 var val_end = val_start;
                 while (val_end < headers.len and headers[val_end] != '\r' and headers[val_end] != '\n') val_end += 1;
-                return @intCast(val_end - val_start);
+                return headers[val_start..val_end];
             }
         }
         while (pos < headers.len and headers[pos] != '\n') pos += 1;
         if (pos < headers.len) pos += 1;
     }
-    return 0;
+    return "";
 }
 
-/// Build an HTTP response. Returns the full response as a string.
-pub fn http_build_response(status: i64, content_type_ptr: i64, content_type_len: i64, body_ptr: i64, body_len: i64) i64 {
-    const ct = sliceFromPtr(content_type_ptr, content_type_len);
-    const body = sliceFromPtr(body_ptr, body_len);
-
-    var b = JsonBuilder.init(); // reuse the builder for any string building
-    // Status line
+/// Build an HTTP response. Returns the full response as []const u8.
+pub fn http_build_response(status: i64, ct: []const u8, body: []const u8) []const u8 {
+    var b = JsonBuilder.init();
     b.append("HTTP/1.1 ");
     var status_buf: [4]u8 = undefined;
     const status_str = std.fmt.bufPrint(&status_buf, "{d}", .{status}) catch "500";
@@ -1584,12 +1353,9 @@ pub fn http_build_response(status: i64, content_type_ptr: i64, content_type_len:
     };
     b.append(reason);
     b.append("\r\n");
-
-    // Headers
     b.append("Content-Type: ");
     b.append(ct);
     b.append("\r\n");
-
     b.append("Content-Length: ");
     var len_buf: [20]u8 = undefined;
     const len_str = std.fmt.bufPrint(&len_buf, "{d}", .{body.len}) catch "0";
@@ -1609,17 +1375,7 @@ pub fn http_build_response(status: i64, content_type_ptr: i64, content_type_len:
     b.append(body);
 
     const res = b.result();
-    last_response_len = res.len;
-    return res.ptr;
-}
-
-/// Last response length — set by http_build_response.
-var last_response_len: i64 = 0;
-
-pub fn http_build_response_len(status: i64, content_type_ptr: i64, content_type_len: i64, body_ptr: i64, body_len: i64) i64 {
-    // Build the response to get the exact length
-    _ = http_build_response(status, content_type_ptr, content_type_len, body_ptr, body_len);
-    return last_response_len;
+    return sliceFromPair(res.ptr, res.len);
 }
 
 // ── Testing ────────────────────────────────────────
