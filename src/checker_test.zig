@@ -711,7 +711,7 @@ test "error: while true with no return" {
         \\module Main {
         \\    fn main() -> int {
         \\        while true {
-        \\            println("forever");
+        \\            Stdio.println("forever");
         \\        }
         \\    }
         \\}
@@ -1045,22 +1045,22 @@ test "valid: correct tell" {
 
 // ── Built-in function return types ────────────────────────
 
-test "error: println assigned to int" {
+test "error: Stdio.println assigned to int" {
     try expectError(
         \\module Main {
         \\    fn main() -> int {
-        \\        x: int = println("hello");
+        \\        x: int = Stdio.println("hello");
         \\        return x;
         \\    }
         \\}
     , "cannot assign void to int");
 }
 
-test "error: return println from int function" {
+test "error: return Stdio.println from int function" {
     try expectError(
         \\module Main {
         \\    fn main() -> int {
-        \\        return println("hi");
+        \\        return Stdio.println("hi");
         \\    }
         \\}
     , "Main.main: return type mismatch");
@@ -1336,7 +1336,7 @@ test "error: print assigned to string" {
     try expectError(
         \\module Main {
         \\    fn main() -> int {
-        \\        x: string = print("hi");
+        \\        x: string = Stdio.print("hi");
         \\        return 0;
         \\    }
         \\}

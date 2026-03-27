@@ -584,9 +584,7 @@ pub const Checker = struct {
             .tag, .none_literal, .void_literal => {},
             .identifier => |name| {
                 // Check built-in functions
-                if (std.mem.eql(u8, name, "print") or
-                    std.mem.eql(u8, name, "println") or
-                    std.mem.eql(u8, name, "list") or
+                if (std.mem.eql(u8, name, "list") or
                     std.mem.eql(u8, name, "map") or
                     std.mem.eql(u8, name, "set") or
                     std.mem.eql(u8, name, "stack") or
@@ -960,9 +958,6 @@ pub const Checker = struct {
                 // Built-in function calls
                 if (c.target.* == .identifier) {
                     const name = c.target.identifier;
-                    if (std.mem.eql(u8, name, "println") or std.mem.eql(u8, name, "print")) {
-                        return .{ .simple = "void" };
-                    }
                     if (std.mem.eql(u8, name, "spawn")) {
                         return .{ .simple = "int" };
                     }
@@ -1035,7 +1030,10 @@ pub const Checker = struct {
         if (std.mem.eql(u8, mod, "Map")) return inferMapFn(func);
         if (std.mem.eql(u8, mod, "Set")) return inferSetFn(func);
         if (std.mem.eql(u8, mod, "Stack") or std.mem.eql(u8, mod, "Queue")) return inferStackQueueFn(func);
-        if (std.mem.eql(u8, mod, "Stdio")) return .{ .simple = "stream" };
+        if (std.mem.eql(u8, mod, "Stdio")) {
+            if (std.mem.eql(u8, func, "println") or std.mem.eql(u8, func, "print")) return .{ .simple = "void" };
+            return .{ .simple = "stream" };
+        }
         if (std.mem.eql(u8, mod, "Stream")) return inferStreamFn(func);
         return null;
     }
@@ -1368,9 +1366,7 @@ pub const Checker = struct {
                 if (c.target.* == .identifier) {
                     const name = c.target.identifier;
                     // Skip builtins
-                    if (!std.mem.eql(u8, name, "print") and
-                        !std.mem.eql(u8, name, "println") and
-                        !std.mem.eql(u8, name, "list") and
+                    if (!std.mem.eql(u8, name, "list") and
                         !std.mem.eql(u8, name, "map") and
                         !std.mem.eql(u8, name, "set") and
                         !std.mem.eql(u8, name, "stack") and

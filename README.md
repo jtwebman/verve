@@ -75,7 +75,7 @@ module Main {
                     i = i + 1;
                 }
             }
-            :error{e} => println("Listen failed");
+            :error{e} => Stdio.println("Listen failed");
         }
         return 0;
     }

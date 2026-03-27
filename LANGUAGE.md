@@ -66,20 +66,20 @@ while condition {
 ### Match
 ```
 match value {
-    :ok{result} => println(result);
-    :error{reason} => println("failed: ", reason);
-    _ => println("unknown");
+    :ok{result} => Stdio.println(result);
+    :error{reason} => Stdio.println("failed: ", reason);
+    _ => Stdio.println("unknown");
 }
 ```
 
 ### If/else
 ```
 if x > 0 {
-    println("positive");
+    Stdio.println("positive");
 } else if x == 0 {
-    println("zero");
+    Stdio.println("zero");
 } else {
-    println("negative");
+    Stdio.println("negative");
 }
 ```
 
@@ -99,7 +99,7 @@ struct Point {
     y: int = 0;
 }
 p: Point = Point { x: 10, y: 20 };
-println(p.x);
+Stdio.println(p.x);
 
 // Omitted fields use defaults
 origin: Point = Point{};  // x=0, y=0
@@ -138,8 +138,8 @@ export process Counter<CounterState> {
 ```
 counter: int = spawn Counter();
 match counter.Increment(5) {
-    :ok{val} => println("Count: ", val);
-    :error{reason} => println("Error: ", reason);
+    :ok{val} => Stdio.println("Count: ", val);
+    :error{reason} => Stdio.println("Error: ", reason);
 }
 tell counter.Increment(1);   // fire-and-forget
 watch counter;               // get ProcessDied notification
