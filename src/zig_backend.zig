@@ -620,8 +620,10 @@ pub const ZigBackend = struct {
                 self.lineFmt("{s} = @intCast(@intFromPtr(@as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s})))))) + @as(usize, @intCast(@as(u64, @bitCast({s}))))));", .{ self.regName(si.dest), self.regName(si.str), self.regName(si.index) });
             },
             .string_len => |sl| {
-                // Compute string length using strlen (null-safe)
-                self.lineFmt("if ({s} == 0) {{ {s} = 0; }} else {{ const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s})))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; {s} = @intCast(sl); }}", .{ self.regName(sl.str), self.regName(sl.dest), self.regName(sl.str), self.regName(sl.dest) });
+                // Strlen fallback — these should be eliminated over time.
+                // Every string should carry its length via string_lens tracking.
+                // When all paths are fixed, this can become @trap().
+                self.lineFmt("if ({s} == 0) {{ {s} = 0; }} else {{ const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s})))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; {s} = @intCast(sl); _ = std.posix.write(std.posix.STDERR_FILENO, \"WARN: strlen fallback used\\n\") catch 0; }}", .{ self.regName(sl.str), self.regName(sl.dest), self.regName(sl.str), self.regName(sl.dest) });
             },
             .string_eq => |se| {
                 self.lineFmt("{s} = if (rt.strEql(@ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s}))))), {s}, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s}))))), {s})) @as(i64, 1) else @as(i64, 0);", .{
@@ -906,8 +908,9 @@ pub const ZigBackend = struct {
                 self.lineFmt("{s} = rt.verve_string_concat({s}, {s}, {s}, {s});", .{ self.regName(dest), self.regName(args[0]), self.regName(args[1]), self.regName(args[2]), self.regName(args[3]) });
             }
         } else if (std.mem.eql(u8, name, "string_len")) {
+            // Strlen fallback for String.len builtin — should use tracked length
             if (args.len >= 1) {
-                self.lineFmt("if ({s} == 0) {{ {s} = 0; }} else {{ const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s})))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; {s} = @intCast(sl); }}", .{ self.regName(args[0]), self.regName(dest), self.regName(args[0]), self.regName(dest) });
+                self.lineFmt("if ({s} == 0) {{ {s} = 0; }} else {{ const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s})))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; {s} = @intCast(sl); _ = std.posix.write(std.posix.STDERR_FILENO, \"WARN: String.len strlen fallback\\n\") catch 0; }}", .{ self.regName(args[0]), self.regName(dest), self.regName(args[0]), self.regName(dest) });
             }
         } else if (std.mem.eql(u8, name, "string_contains") or std.mem.eql(u8, name, "string_starts_with") or std.mem.eql(u8, name, "string_ends_with")) {
             // (str_ptr, str_len, pattern_ptr, pattern_len) -> bool
