@@ -764,6 +764,22 @@ pub const Lower = struct {
                                 }
                             }
                             // String functions that take (str, pattern) — both need ptr+len
+                            if (std.mem.eql(u8, fn_name, "len")) {
+                                // String.len — use tracked length if available, avoid strlen
+                                if (c.args.len >= 1) {
+                                    const str_reg = self.lowerExpr(c.args[0]);
+                                    if (self.string_lens.get(str_reg)) |lr| {
+                                        // Length already tracked — no strlen needed
+                                        return lr;
+                                    }
+                                    // Fallback to strlen for untracked strings
+                                    var str_args = std.ArrayListUnmanaged(ir.Reg){};
+                                    str_args.append(self.alloc, str_reg) catch {};
+                                    str_args.append(self.alloc, self.getStringLen(func, str_reg)) catch {};
+                                    self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = "string_len", .args = str_args.toOwnedSlice(self.alloc) catch &.{} } });
+                                    return dest;
+                                }
+                            }
                             if (std.mem.eql(u8, fn_name, "chars")) {
                                 var str_args = std.ArrayListUnmanaged(ir.Reg){};
                                 if (c.args.len >= 1) {
@@ -962,11 +978,12 @@ pub const Lower = struct {
                                 return dest;
                             }
                             if (std.mem.eql(u8, fn_name, "read_line")) {
-                                // Stream.read_line returns a string — track its length
+                                // Stream.read_line returns a string + companion length
                                 self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = "stream_read_line", .args = args } });
-                                // Compute string length of the result
                                 const len_reg = func.newReg();
-                                self.appendInst(.{ .string_len = .{ .dest = len_reg, .str = dest } });
+                                const len_args = self.alloc.alloc(ir.Reg, 1) catch return dest;
+                                len_args[0] = dest;
+                                self.appendInst(.{ .call_builtin = .{ .dest = len_reg, .name = "stream_read_line_len", .args = len_args } });
                                 self.string_lens.put(self.alloc, dest, len_reg) catch {};
                                 return dest;
                             }
@@ -997,9 +1014,15 @@ pub const Lower = struct {
                                     }
                                 }
                                 self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = "env_get", .args = env_args.toOwnedSlice(self.alloc) catch &.{} } });
-                                // Track result as string
                                 const len_reg = func.newReg();
-                                self.appendInst(.{ .string_len = .{ .dest = len_reg, .str = dest } });
+                                // Re-emit args for len call
+                                var env_args2 = std.ArrayListUnmanaged(ir.Reg){};
+                                if (c.args.len >= 1) {
+                                    const n2 = self.lowerExpr(c.args[0]);
+                                    env_args2.append(self.alloc, n2) catch {};
+                                    env_args2.append(self.alloc, self.getStringLen(func, n2)) catch {};
+                                }
+                                self.appendInst(.{ .call_builtin = .{ .dest = len_reg, .name = "env_get_len", .args = env_args2.toOwnedSlice(self.alloc) catch &.{} } });
                                 self.string_lens.put(self.alloc, dest, len_reg) catch {};
                                 return dest;
                             }
@@ -1016,7 +1039,7 @@ pub const Lower = struct {
                             if (std.mem.eql(u8, fn_name, "to_string")) {
                                 self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = "int_to_string", .args = args } });
                                 const len_reg = func.newReg();
-                                self.appendInst(.{ .string_len = .{ .dest = len_reg, .str = dest } });
+                                self.appendInst(.{ .call_builtin = .{ .dest = len_reg, .name = "int_to_string_len", .args = args } });
                                 self.string_lens.put(self.alloc, dest, len_reg) catch {};
                                 return dest;
                             }
@@ -1043,7 +1066,7 @@ pub const Lower = struct {
                             if (std.mem.eql(u8, fn_name, "float_to_string")) {
                                 self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = "float_to_string", .args = args } });
                                 const len_reg = func.newReg();
-                                self.appendInst(.{ .string_len = .{ .dest = len_reg, .str = dest } });
+                                self.appendInst(.{ .call_builtin = .{ .dest = len_reg, .name = "float_to_string_len", .args = args } });
                                 self.string_lens.put(self.alloc, dest, len_reg) catch {};
                                 return dest;
                             }
@@ -1397,7 +1420,8 @@ pub const Lower = struct {
                                     self.appendInst(.{ .struct_load = .{ .dest = dest, .base = base_reg, .field_index = @intCast(fi) } });
                                     // If this field is a string type, track it
                                     if (f.type_expr == .simple and std.mem.eql(u8, f.type_expr.simple, "string")) {
-                                        // Use strlen at runtime since struct doesn't store length
+                                        // Structs store strings as bare pointers — strlen required.
+                                        // Fix: store strings as (ptr, len) pairs in struct slots.
                                         const len_reg = func.newReg();
                                         self.appendInst(.{ .string_len = .{ .dest = len_reg, .str = dest } });
                                         self.string_lens.put(self.alloc, dest, len_reg) catch {};

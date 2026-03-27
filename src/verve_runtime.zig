@@ -493,6 +493,13 @@ pub fn float_to_string(val: i64) i64 {
     return @intCast(@intFromPtr(result));
 }
 
+pub fn float_to_string_len(val: i64) i64 {
+    const f = f64_from_i64(val);
+    var buf: [64]u8 = undefined;
+    const s = std.fmt.bufPrint(&buf, "{d}", .{f}) catch return 0;
+    return @intCast(s.len);
+}
+
 pub fn string_to_float(ptr: i64, len: i64) i64 {
     const s = sliceFromPtr(ptr, len);
     const f = std.fmt.parseFloat(f64, s) catch return i64_from_f64(0.0);
