@@ -96,11 +96,17 @@ pub const ZigBackend = struct {
                     .const_bool => |c| types[c.dest] = .boolean,
                     .add_f64, .sub_f64, .mul_f64, .div_f64, .mod_f64 => |op| types[op.dest] = .float,
                     .neg_f64 => |op| types[op.dest] = .float,
+                    .eq_i64, .neq_i64, .lt_i64, .gt_i64, .lte_i64, .gte_i64 => |op| types[op.dest] = .boolean,
+                    .eq_f64, .neq_f64, .lt_f64, .gt_f64, .lte_f64, .gte_f64 => |op| types[op.dest] = .boolean,
+                    .and_bool, .or_bool => |op| types[op.dest] = .boolean,
+                    .not_bool => |op| types[op.dest] = .boolean,
+                    .string_eq => |se| types[se.dest] = .boolean,
                     .string_slice => |ss| types[ss.dest] = .string,
                     .string_index => |si| types[si.dest] = .string,
                     .call_builtin => |c| {
                         if (builtinReturnsString(c.name)) types[c.dest] = .string;
                         if (builtinReturnsFloat(c.name)) types[c.dest] = .float;
+                        if (builtinReturnsBool(c.name)) types[c.dest] = .boolean;
                     },
                     .call => |c| {
                         for (self.program.functions.items) |f| {
@@ -143,6 +149,17 @@ pub const ZigBackend = struct {
         }
 
         return types;
+    }
+
+    fn builtinReturnsBool(name: []const u8) bool {
+        const bool_builtins = [_][]const u8{
+            "string_is_digit", "string_is_alpha",    "string_is_whitespace", "string_is_alnum",
+            "string_contains", "string_starts_with", "string_ends_with",
+        };
+        for (bool_builtins) |b| {
+            if (std.mem.eql(u8, name, b)) return true;
+        }
+        return false;
     }
 
     fn builtinReturnsFloat(name: []const u8) bool {
@@ -281,6 +298,9 @@ pub const ZigBackend = struct {
                             } else if (param.type_ == .f64) {
                                 self.writeFmt("@as(f64, @bitCast(args[{d}]))", .{arg_idx});
                                 arg_idx += 1;
+                            } else if (param.type_ == .bool) {
+                                self.writeFmt("(args[{d}] != 0)", .{arg_idx});
+                                arg_idx += 1;
                             } else {
                                 self.writeFmt("args[{d}]", .{arg_idx});
                                 arg_idx += 1;
@@ -390,6 +410,9 @@ pub const ZigBackend = struct {
                             } else if (param.type_ == .f64) {
                                 self.writeFmt("@as(f64, @bitCast(args_ptr[{d}]))", .{arg_idx});
                                 arg_idx += 1;
+                            } else if (param.type_ == .bool) {
+                                self.writeFmt("(args_ptr[{d}] != 0)", .{arg_idx});
+                                arg_idx += 1;
                             } else {
                                 self.writeFmt("args_ptr[{d}]", .{arg_idx});
                                 arg_idx += 1;
@@ -491,6 +514,8 @@ pub const ZigBackend = struct {
                     self.writeFmt("param_{s}: []const u8", .{param.name});
                 } else if (param.type_ == .f64) {
                     self.writeFmt("param_{s}: f64", .{param.name});
+                } else if (param.type_ == .bool) {
+                    self.writeFmt("param_{s}: bool", .{param.name});
                 } else {
                     self.writeFmt("param_{s}: i64", .{param.name});
                 }
@@ -498,6 +523,8 @@ pub const ZigBackend = struct {
             // Return type
             if (func.return_type == .f64) {
                 self.write(") f64 {\n");
+            } else if (func.return_type == .bool) {
+                self.write(") bool {\n");
             } else {
                 self.write(") i64 {\n");
             }
@@ -520,6 +547,8 @@ pub const ZigBackend = struct {
                     self.lineFmt("var {s}: []const u8 = \"\";", .{self.regName(r)});
                 } else if (r < reg_types.len and reg_types[r] == .float) {
                     self.lineFmt("var {s}: f64 = 0.0;", .{self.regName(r)});
+                } else if (r < reg_types.len and reg_types[r] == .boolean) {
+                    self.lineFmt("var {s}: bool = false;", .{self.regName(r)});
                 } else {
                     self.lineFmt("var {s}: i64 = 0;", .{self.regName(r)});
                 }
@@ -534,6 +563,8 @@ pub const ZigBackend = struct {
         self.line("_ = &locals_str;");
         self.line("var locals_float: [256]f64 = .{0.0} ** 256;");
         self.line("_ = &locals_float;");
+        self.line("var locals_bool: [256]bool = .{false} ** 256;");
+        self.line("_ = &locals_bool;");
 
         // Track local name → index mapping and types
         var local_count: usize = 0;
@@ -553,17 +584,18 @@ pub const ZigBackend = struct {
             }
         } else {
             for (func.params) |param| {
-                if (param.type_ == .string) {
+                const pt = regTypeFromIr(param.type_);
+                if (pt == .string) {
                     self.lineFmt("locals_str[{d}] = param_{s};", .{ local_count, param.name });
-                    local_types[local_count] = .string;
-                } else if (param.type_ == .f64) {
+                } else if (pt == .float) {
                     self.lineFmt("locals_float[{d}] = param_{s};", .{ local_count, param.name });
-                    local_types[local_count] = .float;
+                } else if (pt == .boolean) {
+                    self.lineFmt("locals_bool[{d}] = param_{s};", .{ local_count, param.name });
                 } else {
                     self.lineFmt("locals_int[{d}] = param_{s};", .{ local_count, param.name });
-                    local_types[local_count] = .int;
                 }
                 local_names[local_count] = param.name;
+                local_types[local_count] = pt;
                 local_count += 1;
             }
         }
@@ -604,6 +636,8 @@ pub const ZigBackend = struct {
         if (!is_entry) {
             if (func.return_type == .f64) {
                 self.line("return 0.0;");
+            } else if (func.return_type == .bool) {
+                self.line("return false;");
             } else {
                 self.line("return 0;");
             }
@@ -648,7 +682,7 @@ pub const ZigBackend = struct {
     fn emitInst(self: *ZigBackend, inst: ir.Inst, local_names: *[128][]const u8, local_count: *usize, local_types: *[128]RegType, reg_types: []const RegType, is_entry: bool) void {
         switch (inst) {
             .const_int => |c| self.lineFmt("{s} = {d};", .{ self.regName(c.dest), c.value }),
-            .const_bool => |c| self.lineFmt("{s} = {d};", .{ self.regName(c.dest), @as(i64, if (c.value) 1 else 0) }),
+            .const_bool => |c| self.lineFmt("{s} = {s};", .{ self.regName(c.dest), if (c.value) "true" else "false" }),
             .const_string => |c| {
                 // String register — assign directly as []const u8
                 self.writeIndent();
@@ -689,23 +723,23 @@ pub const ZigBackend = struct {
             .mod_f64 => |op| self.lineFmt("{s} = @mod({s}, {s});", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
             .neg_f64 => |op| self.lineFmt("{s} = -{s};", .{ self.regName(op.dest), self.regName(op.operand) }),
 
-            .eq_f64 => |op| self.lineFmt("{s} = if ({s} == {s}) @as(i64, 1) else @as(i64, 0);", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
-            .neq_f64 => |op| self.lineFmt("{s} = if ({s} != {s}) @as(i64, 1) else @as(i64, 0);", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
-            .lt_f64 => |op| self.lineFmt("{s} = if ({s} < {s}) @as(i64, 1) else @as(i64, 0);", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
-            .gt_f64 => |op| self.lineFmt("{s} = if ({s} > {s}) @as(i64, 1) else @as(i64, 0);", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
-            .lte_f64 => |op| self.lineFmt("{s} = if ({s} <= {s}) @as(i64, 1) else @as(i64, 0);", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
-            .gte_f64 => |op| self.lineFmt("{s} = if ({s} >= {s}) @as(i64, 1) else @as(i64, 0);", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
+            .eq_f64 => |op| self.lineFmt("{s} = ({s} == {s});", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
+            .neq_f64 => |op| self.lineFmt("{s} = ({s} != {s});", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
+            .lt_f64 => |op| self.lineFmt("{s} = ({s} < {s});", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
+            .gt_f64 => |op| self.lineFmt("{s} = ({s} > {s});", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
+            .lte_f64 => |op| self.lineFmt("{s} = ({s} <= {s});", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
+            .gte_f64 => |op| self.lineFmt("{s} = ({s} >= {s});", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
 
-            .eq_i64 => |op| self.lineFmt("{s} = rt.verve_eq({s}, {s});", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
-            .neq_i64 => |op| self.lineFmt("{s} = rt.verve_neq({s}, {s});", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
-            .lt_i64 => |op| self.lineFmt("{s} = rt.verve_lt({s}, {s});", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
-            .gt_i64 => |op| self.lineFmt("{s} = rt.verve_gt({s}, {s});", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
-            .lte_i64 => |op| self.lineFmt("{s} = rt.verve_lte({s}, {s});", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
-            .gte_i64 => |op| self.lineFmt("{s} = rt.verve_gte({s}, {s});", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
+            .eq_i64 => |op| self.lineFmt("{s} = (rt.verve_eq({s}, {s}) != 0);", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
+            .neq_i64 => |op| self.lineFmt("{s} = (rt.verve_neq({s}, {s}) != 0);", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
+            .lt_i64 => |op| self.lineFmt("{s} = (rt.verve_lt({s}, {s}) != 0);", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
+            .gt_i64 => |op| self.lineFmt("{s} = (rt.verve_gt({s}, {s}) != 0);", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
+            .lte_i64 => |op| self.lineFmt("{s} = (rt.verve_lte({s}, {s}) != 0);", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
+            .gte_i64 => |op| self.lineFmt("{s} = (rt.verve_gte({s}, {s}) != 0);", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
 
-            .and_bool => |op| self.lineFmt("{s} = if ({s} != 0 and {s} != 0) @as(i64, 1) else @as(i64, 0);", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
-            .or_bool => |op| self.lineFmt("{s} = if ({s} != 0 or {s} != 0) @as(i64, 1) else @as(i64, 0);", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
-            .not_bool => |op| self.lineFmt("{s} = if ({s} == 0) @as(i64, 1) else @as(i64, 0);", .{ self.regName(op.dest), self.regName(op.operand) }),
+            .and_bool => |op| self.lineFmt("{s} = {s} and {s};", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
+            .or_bool => |op| self.lineFmt("{s} = {s} or {s};", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
+            .not_bool => |op| self.lineFmt("{s} = !{s};", .{ self.regName(op.dest), self.regName(op.operand) }),
 
             .store_local => |s| {
                 const idx = self.findOrAddLocal(s.name, local_names, local_count);
@@ -714,6 +748,8 @@ pub const ZigBackend = struct {
                     self.lineFmt("locals_str[{d}] = {s};", .{ idx, self.regName(s.src) });
                 } else if (src_type == .float) {
                     self.lineFmt("locals_float[{d}] = {s};", .{ idx, self.regName(s.src) });
+                } else if (src_type == .boolean) {
+                    self.lineFmt("locals_bool[{d}] = {s};", .{ idx, self.regName(s.src) });
                 } else {
                     self.lineFmt("locals_int[{d}] = {s};", .{ idx, self.regName(s.src) });
                 }
@@ -725,13 +761,21 @@ pub const ZigBackend = struct {
                     self.lineFmt("{s} = locals_str[{d}];", .{ self.regName(l.dest), idx });
                 } else if (local_types[idx] == .float) {
                     self.lineFmt("{s} = locals_float[{d}];", .{ self.regName(l.dest), idx });
+                } else if (local_types[idx] == .boolean) {
+                    self.lineFmt("{s} = locals_bool[{d}];", .{ self.regName(l.dest), idx });
                 } else {
                     self.lineFmt("{s} = locals_int[{d}];", .{ self.regName(l.dest), idx });
                 }
             },
 
             .jump => |j| self.lineFmt("block = {d}; continue;", .{j.target}),
-            .branch => |b| self.lineFmt("block = if ({s} != 0) {d} else {d}; continue;", .{ self.regName(b.cond), b.then_block, b.else_block }),
+            .branch => |b| {
+                if (getRegType(reg_types, b.cond) == .boolean) {
+                    self.lineFmt("block = if ({s}) {d} else {d}; continue;", .{ self.regName(b.cond), b.then_block, b.else_block });
+                } else {
+                    self.lineFmt("block = if ({s} != 0) {d} else {d}; continue;", .{ self.regName(b.cond), b.then_block, b.else_block });
+                }
+            },
             .ret => |r| {
                 if (is_entry) {
                     if (r.value) |reg| {
@@ -767,6 +811,8 @@ pub const ZigBackend = struct {
                     self.lineFmt("{{ const _ss = {s}; const _base = @as([*]i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s})))))); _base[{d}] = @intCast(@intFromPtr(_ss.ptr)); _base[{d}] = @intCast(_ss.len); }}", .{ self.regName(ss.src), self.regName(ss.base), ss.field_index, ss.field_index + 1 });
                 } else if (ss.field_type == .f64) {
                     self.lineFmt("@as([*]i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s}))))))[{d}] = @bitCast({s});", .{ self.regName(ss.base), ss.field_index, self.regName(ss.src) });
+                } else if (ss.field_type == .bool) {
+                    self.lineFmt("@as([*]i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s}))))))[{d}] = if ({s}) @as(i64, 1) else @as(i64, 0);", .{ self.regName(ss.base), ss.field_index, self.regName(ss.src) });
                 } else {
                     self.lineFmt("@as([*]i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s}))))))[{d}] = {s};", .{ self.regName(ss.base), ss.field_index, self.regName(ss.src) });
                 }
@@ -776,6 +822,8 @@ pub const ZigBackend = struct {
                     self.lineFmt("{{ const _base = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s})))))); {s} = rt.sliceFromPair(_base[{d}], _base[{d}]); }}", .{ self.regName(sl.base), self.regName(sl.dest), sl.field_index, sl.field_index + 1 });
                 } else if (sl.field_type == .f64) {
                     self.lineFmt("{s} = @as(f64, @bitCast(@as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s}))))))[{d}]));", .{ self.regName(sl.dest), self.regName(sl.base), sl.field_index });
+                } else if (sl.field_type == .bool) {
+                    self.lineFmt("{s} = (@as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s}))))))[{d}] != 0);", .{ self.regName(sl.dest), self.regName(sl.base), sl.field_index });
                 } else {
                     self.lineFmt("{s} = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s}))))))[{d}];", .{ self.regName(sl.dest), self.regName(sl.base), sl.field_index });
                 }
@@ -817,8 +865,7 @@ pub const ZigBackend = struct {
                 self.lineFmt("{s} = @intCast({s}.len);", .{ self.regName(sl.dest), self.regName(sl.str) });
             },
             .string_eq => |se| {
-                // Both are []const u8, use std.mem.eql
-                self.lineFmt("{s} = if (std.mem.eql(u8, {s}, {s})) @as(i64, 1) else @as(i64, 0);", .{
+                self.lineFmt("{s} = std.mem.eql(u8, {s}, {s});", .{
                     self.regName(se.dest),
                     self.regName(se.lhs),
                     self.regName(se.rhs),
@@ -846,6 +893,8 @@ pub const ZigBackend = struct {
                     self.lineFmt("{s} = rt.sliceFromPair(rt.verve_state_get({d}), rt.verve_state_get({d}));", .{ self.regName(sg.dest), sg.field_index, sg.field_index + 1 });
                 } else if (sg.field_type == .f64) {
                     self.lineFmt("{s} = @as(f64, @bitCast(rt.verve_state_get({d})));", .{ self.regName(sg.dest), sg.field_index });
+                } else if (sg.field_type == .bool) {
+                    self.lineFmt("{s} = (rt.verve_state_get({d}) != 0);", .{ self.regName(sg.dest), sg.field_index });
                 } else {
                     self.lineFmt("{s} = rt.verve_state_get({d});", .{ self.regName(sg.dest), sg.field_index });
                 }
@@ -855,6 +904,8 @@ pub const ZigBackend = struct {
                     self.lineFmt("{{ const _sv = {s}; rt.verve_state_set({d}, @intCast(@intFromPtr(_sv.ptr))); rt.verve_state_set({d}, @intCast(_sv.len)); }}", .{ self.regName(ss.src), ss.field_index, ss.field_index + 1 });
                 } else if (ss.field_type == .f64) {
                     self.lineFmt("rt.verve_state_set({d}, @bitCast({s}));", .{ ss.field_index, self.regName(ss.src) });
+                } else if (ss.field_type == .bool) {
+                    self.lineFmt("rt.verve_state_set({d}, if ({s}) @as(i64, 1) else @as(i64, 0));", .{ ss.field_index, self.regName(ss.src) });
                 } else {
                     self.lineFmt("rt.verve_state_set({d}, {s});", .{ ss.field_index, self.regName(ss.src) });
                 }
@@ -883,6 +934,8 @@ pub const ZigBackend = struct {
                     self.lineFmt("rt.verve_write(1, {s});", .{self.regName(arg)});
                 } else if (t == .float) {
                     self.lineFmt("{{ var _buf: [64]u8 = undefined; const _s = std.fmt.bufPrint(&_buf, \"{{d}}\", .{{{s}}}) catch \"?\"; rt.verve_write(1, _s); }}", .{self.regName(arg)});
+                } else if (t == .boolean) {
+                    self.lineFmt("rt.verve_write(1, if ({s}) \"true\" else \"false\");", .{self.regName(arg)});
                 } else {
                     self.lineFmt("{{ var _buf: [32]u8 = undefined; const _s = std.fmt.bufPrint(&_buf, \"{{d}}\", .{{{s}}}) catch \"?\"; rt.verve_write(1, _s); }}", .{self.regName(arg)});
                 }
@@ -904,19 +957,19 @@ pub const ZigBackend = struct {
             self.lineFmt("{s} = 0;", .{self.regName(dest)});
         } else if (std.mem.eql(u8, name, "string_is_digit")) {
             if (args.len >= 1) {
-                self.lineFmt("{{ const _b = {s}[0]; {s} = if (_b >= '0' and _b <= '9') @as(i64, 1) else @as(i64, 0); }}", .{ self.regName(args[0]), self.regName(dest) });
+                self.lineFmt("{{ const _b = {s}[0]; {s} = (_b >= '0' and _b <= '9'); }}", .{ self.regName(args[0]), self.regName(dest) });
             }
         } else if (std.mem.eql(u8, name, "string_is_alpha")) {
             if (args.len >= 1) {
-                self.lineFmt("{{ const _b = {s}[0]; {s} = if ((_b >= 'A' and _b <= 'Z') or (_b >= 'a' and _b <= 'z')) @as(i64, 1) else @as(i64, 0); }}", .{ self.regName(args[0]), self.regName(dest) });
+                self.lineFmt("{{ const _b = {s}[0]; {s} = ((_b >= 'A' and _b <= 'Z') or (_b >= 'a' and _b <= 'z')); }}", .{ self.regName(args[0]), self.regName(dest) });
             }
         } else if (std.mem.eql(u8, name, "string_is_whitespace")) {
             if (args.len >= 1) {
-                self.lineFmt("{{ const _b = {s}[0]; {s} = if (_b == ' ' or _b == '\\t' or _b == '\\n' or _b == '\\r') @as(i64, 1) else @as(i64, 0); }}", .{ self.regName(args[0]), self.regName(dest) });
+                self.lineFmt("{{ const _b = {s}[0]; {s} = (_b == ' ' or _b == '\\t' or _b == '\\n' or _b == '\\r'); }}", .{ self.regName(args[0]), self.regName(dest) });
             }
         } else if (std.mem.eql(u8, name, "string_is_alnum")) {
             if (args.len >= 1) {
-                self.lineFmt("{{ const _b = {s}[0]; {s} = if ((_b >= '0' and _b <= '9') or (_b >= 'A' and _b <= 'Z') or (_b >= 'a' and _b <= 'z')) @as(i64, 1) else @as(i64, 0); }}", .{ self.regName(args[0]), self.regName(dest) });
+                self.lineFmt("{{ const _b = {s}[0]; {s} = ((_b >= '0' and _b <= '9') or (_b >= 'A' and _b <= 'Z') or (_b >= 'a' and _b <= 'z')); }}", .{ self.regName(args[0]), self.regName(dest) });
             }
         } else if (std.mem.eql(u8, name, "set_has") or std.mem.eql(u8, name, "set_has_str")) {
             if (std.mem.eql(u8, name, "set_has_str") and args.len >= 2) {
@@ -1026,7 +1079,7 @@ pub const ZigBackend = struct {
                 self.lineFmt("{s} = @intCast({s}.len);", .{ self.regName(dest), self.regName(args[0]) });
             }
         } else if (std.mem.eql(u8, name, "string_contains") or std.mem.eql(u8, name, "string_starts_with") or std.mem.eql(u8, name, "string_ends_with")) {
-            if (args.len >= 2) self.lineFmt("{s} = rt.{s}({s}, {s});", .{ self.regName(dest), name, self.regName(args[0]), self.regName(args[1]) });
+            if (args.len >= 2) self.lineFmt("{s} = (rt.{s}({s}, {s}) != 0);", .{ self.regName(dest), name, self.regName(args[0]), self.regName(args[1]) });
         } else if (std.mem.eql(u8, name, "string_trim")) {
             if (args.len >= 1) {
                 self.lineFmt("{s} = rt.string_trim({s});", .{ self.regName(dest), self.regName(args[0]) });
@@ -1061,7 +1114,13 @@ pub const ZigBackend = struct {
                 self.lineFmt("{s} = rt.{s}({s});", .{ self.regName(dest), name, self.regName(args[0]) });
             }
         } else if (std.mem.eql(u8, name, "assert_check")) {
-            if (args.len >= 1) self.lineFmt("rt.assert_check({s});", .{self.regName(args[0])});
+            if (args.len >= 1) {
+                if (getRegType(reg_types, args[0]) == .boolean) {
+                    self.lineFmt("rt.assert_check(if ({s}) @as(i64, 1) else @as(i64, 0));", .{self.regName(args[0])});
+                } else {
+                    self.lineFmt("rt.assert_check({s});", .{self.regName(args[0])});
+                }
+            }
             self.lineFmt("{s} = 0;", .{self.regName(dest)});
         } else if (std.mem.eql(u8, name, "process_exit")) {
             self.line("rt.verve_exit_self();");
@@ -1085,7 +1144,13 @@ pub const ZigBackend = struct {
             if (args.len >= 3) self.lineFmt("rt.json_build_add_float({s}, {s}, {s});", .{ self.regName(args[0]), self.regName(args[1]), self.regName(args[2]) });
             self.lineFmt("{s} = 0;", .{self.regName(dest)});
         } else if (std.mem.eql(u8, name, "json_build_add_bool")) {
-            if (args.len >= 3) self.lineFmt("rt.json_build_add_bool({s}, {s}, {s});", .{ self.regName(args[0]), self.regName(args[1]), self.regName(args[2]) });
+            if (args.len >= 3) {
+                if (getRegType(reg_types, args[2]) == .boolean) {
+                    self.lineFmt("rt.json_build_add_bool({s}, {s}, if ({s}) @as(i64, 1) else @as(i64, 0));", .{ self.regName(args[0]), self.regName(args[1]), self.regName(args[2]) });
+                } else {
+                    self.lineFmt("rt.json_build_add_bool({s}, {s}, {s});", .{ self.regName(args[0]), self.regName(args[1]), self.regName(args[2]) });
+                }
+            }
             self.lineFmt("{s} = 0;", .{self.regName(dest)});
         } else if (std.mem.eql(u8, name, "http_parse_request")) {
             if (args.len >= 1) self.lineFmt("{s} = rt.http_parse_request({s});", .{ self.regName(dest), self.regName(args[0]) });
@@ -1138,6 +1203,9 @@ pub const ZigBackend = struct {
                 slot += 2;
             } else if (getRegType(reg_types, arg) == .float) {
                 self.writeFmt("_proc_args[{d}] = @bitCast({s}); ", .{ slot, self.regName(arg) });
+                slot += 1;
+            } else if (getRegType(reg_types, arg) == .boolean) {
+                self.writeFmt("_proc_args[{d}] = if ({s}) @as(i64, 1) else @as(i64, 0); ", .{ slot, self.regName(arg) });
                 slot += 1;
             } else {
                 self.writeFmt("_proc_args[{d}] = {s}; ", .{ slot, self.regName(arg) });
