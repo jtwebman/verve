@@ -93,23 +93,37 @@ pub const ZigBackend = struct {
             self.writeFmt("const parsed = std.json.parseFromSlice(VerveStruct_{s}, std.heap.page_allocator, slice, .{{ .ignore_unknown_fields = true }}) catch return rt.makeTagged(1, 0);\n", .{sd.name});
             self.line("const val = parsed.value;");
 
-            // Allocate Verve struct (array of i64)
-            self.lineFmt("const struct_mem = rt.arena_alloc({d} * @sizeOf(i64)) orelse return rt.makeTagged(1, 0);", .{sd.fields.len});
+            // Allocate Verve struct (string fields take 2 slots: ptr + len)
+            var total_slots: u32 = 0;
+            for (sd.fields) |f| {
+                if (std.mem.eql(u8, f.type_name, "string")) {
+                    total_slots += 2;
+                } else {
+                    total_slots += 1;
+                }
+            }
+            self.lineFmt("const struct_mem = rt.arena_alloc({d} * @sizeOf(i64)) orelse return rt.makeTagged(1, 0);", .{total_slots});
             self.line("const fields = @as([*]i64, @ptrCast(@alignCast(struct_mem)));");
 
-            // Copy each field
-            for (sd.fields, 0..) |f, fi| {
+            // Copy each field (compute slot index accounting for string pairs)
+            var slot: u32 = 0;
+            for (sd.fields) |f| {
                 if (std.mem.eql(u8, f.type_name, "int")) {
-                    self.lineFmt("fields[{d}] = val.{s};", .{ fi, f.name });
+                    self.lineFmt("fields[{d}] = val.{s};", .{ slot, f.name });
+                    slot += 1;
                 } else if (std.mem.eql(u8, f.type_name, "float")) {
-                    self.lineFmt("fields[{d}] = @bitCast(val.{s});", .{ fi, f.name });
+                    self.lineFmt("fields[{d}] = @bitCast(val.{s});", .{ slot, f.name });
+                    slot += 1;
                 } else if (std.mem.eql(u8, f.type_name, "bool")) {
-                    self.lineFmt("fields[{d}] = if (val.{s}) @as(i64, 1) else @as(i64, 0);", .{ fi, f.name });
+                    self.lineFmt("fields[{d}] = if (val.{s}) @as(i64, 1) else @as(i64, 0);", .{ slot, f.name });
+                    slot += 1;
                 } else if (std.mem.eql(u8, f.type_name, "string")) {
-                    // Copy to null-terminated buffer (std.json slices aren't null-terminated)
-                    self.writeFmt("    {{ const sv = val.{s}; if (sv.len == 0) {{ fields[{d}] = @intCast(@intFromPtr(@as([*]const u8, \"\"))); }} else if (rt.arena_alloc(sv.len + 1)) |sb| {{ @memcpy(sb[0..sv.len], sv); sb[sv.len] = 0; fields[{d}] = @intCast(@intFromPtr(sb)); }} else {{ fields[{d}] = 0; }} }}\n", .{ f.name, fi, fi, fi });
+                    // Store ptr in slot, len in slot+1
+                    self.writeFmt("    {{ const sv = val.{s}; if (sv.len == 0) {{ fields[{d}] = @intCast(@intFromPtr(@as([*]const u8, \"\"))); fields[{d}] = 0; }} else if (rt.arena_alloc(sv.len + 1)) |sb| {{ @memcpy(sb[0..sv.len], sv); sb[sv.len] = 0; fields[{d}] = @intCast(@intFromPtr(sb)); fields[{d}] = @intCast(sv.len); }} else {{ fields[{d}] = 0; fields[{d}] = 0; }} }}\n", .{ f.name, slot, slot + 1, slot, slot + 1, slot, slot + 1 });
+                    slot += 2;
                 } else {
-                    self.lineFmt("fields[{d}] = 0;", .{fi});
+                    self.lineFmt("fields[{d}] = 0;", .{slot});
+                    slot += 1;
                 }
             }
 
@@ -620,11 +634,9 @@ pub const ZigBackend = struct {
                 self.lineFmt("{s} = @intCast(@intFromPtr(@as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s})))))) + @as(usize, @intCast(@as(u64, @bitCast({s}))))));", .{ self.regName(si.dest), self.regName(si.str), self.regName(si.index) });
             },
             .string_len => |sl| {
-                // Strlen fallback — these should be eliminated over time.
-                // Every string should carry its length via string_lens tracking.
-                // When all paths are fixed, this can become @trap().
-                // strlen fallback — will be eliminated when structs store (ptr, len) pairs
-                self.lineFmt("if ({s} == 0) {{ {s} = 0; }} else {{ const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s})))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; {s} = @intCast(sl); }}", .{ self.regName(sl.str), self.regName(sl.dest), self.regName(sl.str), self.regName(sl.dest) });
+                // CRASH: all string lengths must be tracked. If this fires, fix the lowerer.
+                _ = sl;
+                self.line("@panic(\"BUG: string_len IR emitted — string lost its length tracking\");");
             },
             .string_eq => |se| {
                 self.lineFmt("{s} = if (rt.strEql(@ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s}))))), {s}, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s}))))), {s})) @as(i64, 1) else @as(i64, 0);", .{
@@ -917,10 +929,9 @@ pub const ZigBackend = struct {
                 self.lineFmt("{s} = rt.verve_string_concat({s}, {s}, {s}, {s});", .{ self.regName(dest), self.regName(args[0]), self.regName(args[1]), self.regName(args[2]), self.regName(args[3]) });
             }
         } else if (std.mem.eql(u8, name, "string_len")) {
-            // strlen fallback for String.len — will be eliminated when all strings track length
-            if (args.len >= 1) {
-                self.lineFmt("if ({s} == 0) {{ {s} = 0; }} else {{ const sp = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s})))))); var sl: usize = 0; while (sp[sl] != 0) sl += 1; {s} = @intCast(sl); }}", .{ self.regName(args[0]), self.regName(dest), self.regName(args[0]), self.regName(dest) });
-            }
+            // CRASH: String.len must use tracked length, not strlen
+            self.line("@panic(\"BUG: String.len builtin used strlen — string length must be tracked\");");
+            self.lineFmt("{s} = 0;", .{self.regName(dest)});
         } else if (std.mem.eql(u8, name, "string_contains") or std.mem.eql(u8, name, "string_starts_with") or std.mem.eql(u8, name, "string_ends_with")) {
             // (str_ptr, str_len, pattern_ptr, pattern_len) -> bool
             if (args.len >= 4) self.lineFmt("{s} = rt.{s}({s}, {s}, {s}, {s});", .{ self.regName(dest), name, self.regName(args[0]), self.regName(args[1]), self.regName(args[2]), self.regName(args[3]) });

@@ -505,7 +505,13 @@ pub const Lower = struct {
                                     for (sd.fields, 0..) |f, fi| {
                                         if (std.mem.eql(u8, f.name, field_name)) {
                                             const val_reg = self.lowerExpr(fa.value);
-                                            self.appendInst(.{ .process_state_set = .{ .field_index = @intCast(fi), .src = val_reg } });
+                                            const slot = structSlotIndex(sd.fields, fi);
+                                            self.appendInst(.{ .process_state_set = .{ .field_index = slot, .src = val_reg } });
+                                            // For string fields, also store length
+                                            if (f.type_expr == .simple and std.mem.eql(u8, f.type_expr.simple, "string")) {
+                                                const len_reg = self.getStringLen(func, val_reg);
+                                                self.appendInst(.{ .process_state_set = .{ .field_index = slot + 1, .src = len_reg } });
+                                            }
                                             return;
                                         }
                                     }
@@ -1370,7 +1376,7 @@ pub const Lower = struct {
             },
             .struct_literal => |sl| {
                 const decl = self.struct_decls.get(sl.name);
-                const num_fields: u32 = if (decl) |d| @intCast(d.fields.len) else @intCast(sl.fields.len);
+                const num_fields: u32 = if (decl) |d| structTotalSlots(d.fields) else @intCast(sl.fields.len);
                 const base = func.newReg();
                 self.appendInst(.{ .struct_alloc = .{ .dest = base, .num_fields = num_fields } });
 
@@ -1379,7 +1385,13 @@ pub const Lower = struct {
                         for (sl.fields) |lf| {
                             if (std.mem.eql(u8, lf.name, df.name)) {
                                 const val_reg = self.lowerExpr(lf.value);
-                                self.appendInst(.{ .struct_store = .{ .base = base, .field_index = @intCast(fi), .src = val_reg } });
+                                const slot = structSlotIndex(d.fields, fi);
+                                self.appendInst(.{ .struct_store = .{ .base = base, .field_index = slot, .src = val_reg } });
+                                // For string fields, also store the length in the next slot
+                                if (df.type_expr == .simple and std.mem.eql(u8, df.type_expr.simple, "string")) {
+                                    const len_reg = self.getStringLen(func, val_reg);
+                                    self.appendInst(.{ .struct_store = .{ .base = base, .field_index = slot + 1, .src = len_reg } });
+                                }
                                 break;
                             }
                         }
@@ -1402,8 +1414,14 @@ pub const Lower = struct {
                                 if (self.struct_decls.get(st)) |sd| {
                                     for (sd.fields, 0..) |f, fi| {
                                         if (std.mem.eql(u8, f.name, fa.field)) {
+                                            const slot = structSlotIndex(sd.fields, fi);
                                             const dest = func.newReg();
-                                            self.appendInst(.{ .process_state_get = .{ .dest = dest, .field_index = @intCast(fi) } });
+                                            self.appendInst(.{ .process_state_get = .{ .dest = dest, .field_index = slot } });
+                                            if (f.type_expr == .simple and std.mem.eql(u8, f.type_expr.simple, "string")) {
+                                                const len_reg = func.newReg();
+                                                self.appendInst(.{ .process_state_get = .{ .dest = len_reg, .field_index = slot + 1 } });
+                                                self.string_lens.put(self.alloc, dest, len_reg) catch {};
+                                            }
                                             return dest;
                                         }
                                     }
@@ -1417,13 +1435,12 @@ pub const Lower = struct {
                                 if (std.mem.eql(u8, f.name, fa.field)) {
                                     const base_reg = self.lowerExpr(fa.target.*);
                                     const dest = func.newReg();
-                                    self.appendInst(.{ .struct_load = .{ .dest = dest, .base = base_reg, .field_index = @intCast(fi) } });
-                                    // If this field is a string type, track it
+                                    const slot = structSlotIndex(sd.fields, fi);
+                                    self.appendInst(.{ .struct_load = .{ .dest = dest, .base = base_reg, .field_index = slot } });
+                                    // String fields: length is in the next slot
                                     if (f.type_expr == .simple and std.mem.eql(u8, f.type_expr.simple, "string")) {
-                                        // Structs store strings as bare pointers — strlen required.
-                                        // Fix: store strings as (ptr, len) pairs in struct slots.
                                         const len_reg = func.newReg();
-                                        self.appendInst(.{ .string_len = .{ .dest = len_reg, .str = dest } });
+                                        self.appendInst(.{ .struct_load = .{ .dest = len_reg, .base = base_reg, .field_index = slot + 1 } });
                                         self.string_lens.put(self.alloc, dest, len_reg) catch {};
                                     }
                                     return dest;
@@ -1478,6 +1495,32 @@ pub const Lower = struct {
 
     /// Get the string length register for a value. Uses tracked length if available,
     /// otherwise emits a string_len instruction (strlen at runtime).
+    /// Compute the slot index for a struct field, accounting for string fields taking 2 slots.
+    fn structSlotIndex(fields: []const ast.Field, field_idx: usize) u32 {
+        var slot: u32 = 0;
+        for (fields[0..field_idx]) |f| {
+            if (f.type_expr == .simple and std.mem.eql(u8, f.type_expr.simple, "string")) {
+                slot += 2; // string = ptr + len
+            } else {
+                slot += 1;
+            }
+        }
+        return slot;
+    }
+
+    /// Compute total slot count for a struct (string fields take 2 slots).
+    fn structTotalSlots(fields: []const ast.Field) u32 {
+        var slot: u32 = 0;
+        for (fields) |f| {
+            if (f.type_expr == .simple and std.mem.eql(u8, f.type_expr.simple, "string")) {
+                slot += 2;
+            } else {
+                slot += 1;
+            }
+        }
+        return slot;
+    }
+
     fn isStringFieldAccess(self: *Lower, fa: ast.FieldAccess) bool {
         if (fa.target.* == .identifier) {
             if (self.var_types.get(fa.target.identifier)) |type_name| {
