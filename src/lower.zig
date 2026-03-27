@@ -486,8 +486,7 @@ pub const Lower = struct {
                                         if (std.mem.eql(u8, f.name, field_name)) {
                                             const val_reg = self.lowerExpr(fa.value);
                                             const slot = structSlotIndex(sd.fields, fi);
-                                            const is_str = f.type_expr == .simple and std.mem.eql(u8, f.type_expr.simple, "string");
-                                            self.appendInst(.{ .process_state_set = .{ .field_index = slot, .src = val_reg, .is_string = is_str } });
+                                            self.appendInst(.{ .process_state_set = .{ .field_index = slot, .src = val_reg, .field_type = resolveType(f.type_expr) } });
                                             return;
                                         }
                                     }
@@ -936,8 +935,7 @@ pub const Lower = struct {
                             if (std.mem.eql(u8, lf.name, df.name)) {
                                 const val_reg = self.lowerExpr(lf.value);
                                 const slot = structSlotIndex(d.fields, fi);
-                                const is_str = df.type_expr == .simple and std.mem.eql(u8, df.type_expr.simple, "string");
-                                self.appendInst(.{ .struct_store = .{ .base = base, .field_index = slot, .src = val_reg, .is_string = is_str } });
+                                self.appendInst(.{ .struct_store = .{ .base = base, .field_index = slot, .src = val_reg, .field_type = resolveType(df.type_expr) } });
                                 break;
                             }
                         }
@@ -962,8 +960,7 @@ pub const Lower = struct {
                                         if (std.mem.eql(u8, f.name, fa.field)) {
                                             const slot = structSlotIndex(sd.fields, fi);
                                             const dest = func.newReg();
-                                            const is_str = f.type_expr == .simple and std.mem.eql(u8, f.type_expr.simple, "string");
-                                            self.appendInst(.{ .process_state_get = .{ .dest = dest, .field_index = slot, .is_string = is_str } });
+                                            self.appendInst(.{ .process_state_get = .{ .dest = dest, .field_index = slot, .field_type = resolveType(f.type_expr) } });
                                             return dest;
                                         }
                                     }
@@ -978,8 +975,7 @@ pub const Lower = struct {
                                     const base_reg = self.lowerExpr(fa.target.*);
                                     const dest = func.newReg();
                                     const slot = structSlotIndex(sd.fields, fi);
-                                    const is_str = f.type_expr == .simple and std.mem.eql(u8, f.type_expr.simple, "string");
-                                    self.appendInst(.{ .struct_load = .{ .dest = dest, .base = base_reg, .field_index = slot, .is_string = is_str } });
+                                    self.appendInst(.{ .struct_load = .{ .dest = dest, .base = base_reg, .field_index = slot, .field_type = resolveType(f.type_expr) } });
                                     return dest;
                                 }
                             }

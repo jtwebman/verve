@@ -52,7 +52,17 @@ pub const ZigBackend = struct {
 
     // ── Register type tracking ───────────────────────────────
 
-    const RegType = enum { int, string };
+    const RegType = enum { int, float, boolean, string };
+
+    fn regTypeFromIr(t: ir.Type) RegType {
+        return switch (t) {
+            .i64 => .int,
+            .f64 => .float,
+            .bool => .boolean,
+            .string => .string,
+            .void => .int,
+        };
+    }
 
     /// Determine the type of each register in a function by scanning all instructions.
     /// Also tracks local variable types for load_local propagation.
@@ -74,9 +84,7 @@ pub const ZigBackend = struct {
 
         // Params set initial local types
         for (func.params) |param| {
-            if (param.type_ == .string) {
-                local_type_map.put(self.alloc, param.name, .string) catch {};
-            }
+            local_type_map.put(self.alloc, param.name, regTypeFromIr(param.type_)) catch {};
         }
 
         // First pass: determine types from direct sources
@@ -84,6 +92,8 @@ pub const ZigBackend = struct {
             for (block.insts.items) |inst| {
                 switch (inst) {
                     .const_string => |c| types[c.dest] = .string,
+                    .const_float => |c| types[c.dest] = .float,
+                    .const_bool => |c| types[c.dest] = .boolean,
                     .string_slice => |ss| types[ss.dest] = .string,
                     .string_index => |si| types[si.dest] = .string,
                     .call_builtin => |c| {
@@ -92,16 +102,16 @@ pub const ZigBackend = struct {
                     .call => |c| {
                         for (self.program.functions.items) |f| {
                             if (std.mem.eql(u8, f.module, c.module) and std.mem.eql(u8, f.name, c.function)) {
-                                if (f.return_type == .string) types[c.dest] = .string;
+                                types[c.dest] = regTypeFromIr(f.return_type);
                                 break;
                             }
                         }
                     },
                     .struct_load => |sl| {
-                        if (sl.is_string) types[sl.dest] = .string;
+                        types[sl.dest] = regTypeFromIr(sl.field_type);
                     },
                     .process_state_get => |sg| {
-                        if (sg.is_string) types[sg.dest] = .string;
+                        types[sg.dest] = regTypeFromIr(sg.field_type);
                     },
                     else => {},
                 }
@@ -113,14 +123,14 @@ pub const ZigBackend = struct {
             for (block.insts.items) |inst| {
                 switch (inst) {
                     .store_local => |s| {
-                        if (s.src < types.len and types[s.src] == .string) {
-                            local_type_map.put(self.alloc, s.name, .string) catch {};
+                        if (s.src < types.len) {
+                            local_type_map.put(self.alloc, s.name, types[s.src]) catch {};
                         }
                     },
                     .load_local => |l| {
                         if (local_type_map.get(l.name)) |lt| {
-                            if (lt == .string and l.dest < types.len) {
-                                types[l.dest] = .string;
+                            if (l.dest < types.len) {
+                                types[l.dest] = lt;
                             }
                         }
                     },
@@ -660,11 +670,10 @@ pub const ZigBackend = struct {
                 const src_type = getRegType(reg_types, s.src);
                 if (src_type == .string) {
                     self.lineFmt("locals_str[{d}] = {s};", .{ idx, self.regName(s.src) });
-                    local_types[idx] = .string;
                 } else {
                     self.lineFmt("locals_int[{d}] = {s};", .{ idx, self.regName(s.src) });
-                    local_types[idx] = .int;
                 }
+                local_types[idx] = src_type;
             },
             .load_local => |l| {
                 const idx = self.findOrAddLocal(l.name, local_names, local_count);
@@ -708,7 +717,7 @@ pub const ZigBackend = struct {
                 self.lineFmt("{s} = @intCast(@intFromPtr((std.heap.page_allocator.alloc(i64, {d}) catch &.{{}}).ptr));", .{ self.regName(sa.dest), sa.num_fields });
             },
             .struct_store => |ss| {
-                if (ss.is_string) {
+                if (ss.field_type == .string) {
                     // Convert []const u8 to (ptr, len) pair in adjacent slots
                     self.lineFmt("{{ const _ss = {s}; const _base = @as([*]i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s})))))); _base[{d}] = @intCast(@intFromPtr(_ss.ptr)); _base[{d}] = @intCast(_ss.len); }}", .{ self.regName(ss.src), self.regName(ss.base), ss.field_index, ss.field_index + 1 });
                 } else {
@@ -716,7 +725,7 @@ pub const ZigBackend = struct {
                 }
             },
             .struct_load => |sl| {
-                if (sl.is_string) {
+                if (sl.field_type == .string) {
                     // Load (ptr, len) pair from adjacent slots, convert to []const u8
                     self.lineFmt("{{ const _base = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s})))))); {s} = rt.sliceFromPair(_base[{d}], _base[{d}]); }}", .{ self.regName(sl.base), self.regName(sl.dest), sl.field_index, sl.field_index + 1 });
                 } else {
@@ -785,16 +794,14 @@ pub const ZigBackend = struct {
                 self.line("}");
             },
             .process_state_get => |sg| {
-                if (sg.is_string) {
-                    // Load ptr+len from adjacent state slots, convert to []const u8
+                if (sg.field_type == .string) {
                     self.lineFmt("{s} = rt.sliceFromPair(rt.verve_state_get({d}), rt.verve_state_get({d}));", .{ self.regName(sg.dest), sg.field_index, sg.field_index + 1 });
                 } else {
                     self.lineFmt("{s} = rt.verve_state_get({d});", .{ self.regName(sg.dest), sg.field_index });
                 }
             },
             .process_state_set => |ss| {
-                if (ss.is_string) {
-                    // Convert []const u8 to ptr+len, store in adjacent state slots
+                if (ss.field_type == .string) {
                     self.lineFmt("{{ const _sv = {s}; rt.verve_state_set({d}, @intCast(@intFromPtr(_sv.ptr))); rt.verve_state_set({d}, @intCast(_sv.len)); }}", .{ self.regName(ss.src), ss.field_index, ss.field_index + 1 });
                 } else {
                     self.lineFmt("rt.verve_state_set({d}, {s});", .{ ss.field_index, self.regName(ss.src) });
