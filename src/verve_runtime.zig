@@ -736,6 +736,13 @@ pub fn float_check(val: i64) i64 {
     return val;
 }
 
+/// Check a native f64 for infinity/NaN — returns poison sentinel as f64.
+pub fn float_check_f64(val: f64) f64 {
+    if (std.math.isNan(val)) return @bitCast(POISON_NAN);
+    if (std.math.isInf(val)) return @bitCast(POISON_INFINITY);
+    return val;
+}
+
 pub fn verve_eq(a: i64, b: i64) i64 {
     if (isPoison(a) or isPoison(b)) return 0;
     return if (a == b) @as(i64, 1) else @as(i64, 0);
