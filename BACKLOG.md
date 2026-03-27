@@ -36,7 +36,7 @@
 
 ### Remaining
 - [ ] Invariant checking after receive handlers
-- [ ] Cross-module calls in test blocks
+- [x] Cross-module calls in test blocks (user modules take priority over built-ins)
 - [ ] Property-based testing as a language feature (not doc comments)
 
 ## Phase 4 — Native Compilation (Zig backend)
@@ -70,11 +70,16 @@
 - [x] Checked arithmetic: overflow → `:overflow`, div-zero → `:div_zero`, poison propagation
 
 ### Remaining
-- [ ] Fully eliminate strlen — some paths still fall back to null-terminated scanning
-- [ ] Remove `-1 marker` pattern in println — track types properly
-- [ ] Fix List stack-escape bug (list_new stores pointer to stack local)
-- [ ] Poison in comparisons: poison not equal to anything
-- [ ] Float infinity/NaN → poison
+- [ ] Fully eliminate strlen — 2 fallback sites remain for unknown-source strings
+
+### Done (this session)
+- [x] Poison-safe comparisons: all int comparisons return false if either operand is poison
+- [x] Float infinity/NaN → poison (float_check after division)
+- [x] Fix List stack-escape bug (list_new allocates in arena, not stack)
+- [x] String builtins: contains, starts_with, ends_with, trim, replace, split, char_at, char_len, chars
+- [x] Cross-module calls in test blocks
+- [x] println/print → Stdio.println/Stdio.print (module function, not magic global)
+- [x] @example doc comment tests compile to native
 
 ## Phase 5 — Standard Library & IO
 
