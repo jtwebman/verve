@@ -727,7 +727,21 @@ pub const Lower = struct {
                             }
                         }
 
-                        // String builtins
+                        // Check if this is a user-defined module (not a built-in)
+                        // User modules take priority over built-in modules
+                        var is_user_module = false;
+                        for (self.program.functions.items) |f| {
+                            if (std.mem.eql(u8, f.module, mod_name)) {
+                                is_user_module = true;
+                                break;
+                            }
+                        }
+                        if (is_user_module) {
+                            self.appendInst(.{ .call = .{ .dest = dest, .module = mod_name, .function = fn_name, .args = args } });
+                            return dest;
+                        }
+
+                        // Built-in modules (only if no user module with that name)
                         if (std.mem.eql(u8, mod_name, "String")) {
                             if (std.mem.eql(u8, fn_name, "byte_at")) {
                                 if (args.len >= 2) {
