@@ -420,6 +420,10 @@ pub const Checker = struct {
                                             if (std.mem.eql(u8, t.tag, "error")) break :blk .{ .simple = "string" };
                                         }
                                     }
+                                    // Optional type: :some{val} extracts inner T
+                                    if (st == .optional) {
+                                        if (std.mem.eql(u8, t.tag, "some")) break :blk st.optional.*;
+                                    }
                                     // Union type: look up variant field type
                                     if (st == .simple) {
                                         if (self.type_decls.get(st.simple)) |td| {

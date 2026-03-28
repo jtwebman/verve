@@ -673,3 +673,73 @@ test "compile: different generic instantiations in same program" {
     try testing.expectEqual(@as(u8, 0), r.exit);
     try testing.expectEqualStrings("42\nhello\n", r.stdout);
 }
+
+// ════════════════════════════════════════════════════════════
+// Optional Types (T?)
+// ════════════════════════════════════════════════════════════
+
+test "compile: optional int with value" {
+    try testing.expectEqual(@as(u8, 42), try compileAndRun(
+        \\module App { fn main(args: list<string>) -> int {
+        \\    x: int? = 42;
+        \\    match x { :some{val} => return val; none => return 0; }
+        \\} }
+    ));
+}
+
+test "compile: optional int none" {
+    try testing.expectEqual(@as(u8, 0), try compileAndRun(
+        \\module App { fn main(args: list<string>) -> int {
+        \\    x: int? = none;
+        \\    match x { :some{val} => return val; none => return 0; }
+        \\} }
+    ));
+}
+
+test "compile: optional string with value" {
+    const r = try compileAndCapture(
+        \\module App { fn main(args: list<string>) -> int {
+        \\    x: string? = "hello";
+        \\    match x { :some{val} => { Stdio.println(val); return 0; } none => return 1; }
+        \\} }
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("hello\n", r.stdout);
+}
+
+test "compile: optional string none" {
+    try testing.expectEqual(@as(u8, 1), try compileAndRun(
+        \\module App { fn main(args: list<string>) -> int {
+        \\    x: string? = none;
+        \\    match x { :some{val} => return 0; none => return 1; }
+        \\} }
+    ));
+}
+
+test "compile: optional with wildcard" {
+    try testing.expectEqual(@as(u8, 99), try compileAndRun(
+        \\module App { fn main(args: list<string>) -> int {
+        \\    x: int? = 5;
+        \\    match x { none => return 0; _ => return 99; }
+        \\} }
+    ));
+}
+
+test "compile: optional reassign to none" {
+    try testing.expectEqual(@as(u8, 0), try compileAndRun(
+        \\module App { fn main(args: list<string>) -> int {
+        \\    x: int? = 42;
+        \\    x = none;
+        \\    match x { :some{val} => return val; none => return 0; }
+        \\} }
+    ));
+}
+
+test "compile: optional bool" {
+    try testing.expectEqual(@as(u8, 1), try compileAndRun(
+        \\module App { fn main(args: list<string>) -> int {
+        \\    x: bool? = true;
+        \\    match x { :some{val} => { if val { return 1; } return 0; } none => return 2; }
+        \\} }
+    ));
+}

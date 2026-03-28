@@ -364,8 +364,18 @@ pub const Lower = struct {
                         }
                     }
                 }
-                const reg = self.lowerExpr(a.value);
+                var reg = self.lowerExpr(a.value);
                 self.pending_generic_name = null;
+                // Optional type: wrap non-none values in :some{value}
+                if (a.type_expr) |te| {
+                    if (te == .optional and a.value != .none_literal) {
+                        const wrapped = func.newReg();
+                        const tag_reg = func.newReg();
+                        self.appendInst(.{ .const_int = .{ .dest = tag_reg, .value = 0 } }); // some=0
+                        self.appendInst(.{ .call_builtin = .{ .dest = wrapped, .name = "make_tagged", .args = self.allocRegs(&.{ tag_reg, reg }) } });
+                        reg = wrapped;
+                    }
+                }
                 self.appendInst(.{ .store_local = .{ .name = a.name, .src = reg } });
                 if (self.float_regs.get(reg) != null) {
                     self.var_types.put(self.alloc, a.name, "float") catch {};
@@ -382,6 +392,11 @@ pub const Lower = struct {
                                 const full_name = self.formatGenericTypeName(g.name, g.args);
                                 self.var_types.put(self.alloc, a.name, full_name) catch {};
                             }
+                        },
+                        .optional => |inner| {
+                            const inner_name = self.typeExprName(inner.*);
+                            const opt_name = std.fmt.allocPrint(self.alloc, "optional_{s}", .{inner_name}) catch "__optional";
+                            self.var_types.put(self.alloc, a.name, opt_name) catch {};
                         },
                         else => {},
                     }
@@ -522,6 +537,23 @@ pub const Lower = struct {
                             self.appendInst(.{ .jump = .{ .target = merge_id } });
                         },
                         .literal => |lit| {
+                            if (lit == .none_literal) {
+                                // none pattern: check tag == 1 (none tag)
+                                const tag_reg = func.newReg();
+                                self.appendInst(.{ .tag_get = .{ .dest = tag_reg, .tagged = subject_reg } });
+                                const one_reg = func.newReg();
+                                self.appendInst(.{ .const_int = .{ .dest = one_reg, .value = 1 } });
+                                const cmp_reg = func.newReg();
+                                self.appendInst(.{ .eq_i64 = .{ .dest = cmp_reg, .lhs = tag_reg, .rhs = one_reg } });
+                                const arm_id = func.newBlock().id;
+                                const next_id = func.newBlock().id;
+                                self.appendInst(.{ .branch = .{ .cond = cmp_reg, .then_block = arm_id, .else_block = next_id } });
+                                self.current_block_id = arm_id;
+                                for (arm.body) |s| self.lowerStmt(s);
+                                self.appendInst(.{ .jump = .{ .target = merge_id } });
+                                self.current_block_id = next_id;
+                                continue;
+                            }
                             const pat_reg = self.lowerExpr(lit);
                             const cmp_reg = func.newReg();
                             self.appendInst(.{ .eq_i64 = .{ .dest = cmp_reg, .lhs = subject_reg, .rhs = pat_reg } });
@@ -570,6 +602,7 @@ pub const Lower = struct {
                                 if (t.bindings.len > 0) {
                                     // Determine if this variant carries a string value
                                     const is_string_variant = blk: {
+                                        // Check union declarations
                                         var uiter = self.union_decls.iterator();
                                         while (uiter.next()) |entry| {
                                             for (entry.value_ptr.*) |variant| {
@@ -582,6 +615,14 @@ pub const Lower = struct {
                                                         }
                                                     }
                                                     break :blk false;
+                                                }
+                                            }
+                                        }
+                                        // Check optional types: :some on optional_string
+                                        if (std.mem.eql(u8, t.tag, "some")) {
+                                            if (m.subject == .identifier) {
+                                                if (self.var_types.get(m.subject.identifier)) |vt| {
+                                                    if (std.mem.eql(u8, vt, "optional_string")) break :blk true;
                                                 }
                                             }
                                         }
@@ -1355,6 +1396,19 @@ pub const Lower = struct {
                     }
                 }
                 self.appendInst(.{ .list_get = .{ .dest = dest, .list = target_reg, .index = index_reg } });
+                return dest;
+            },
+            .none_literal => {
+                // none → makeTagged(1, 0)
+                const dest = func.newReg();
+                const tag_reg = func.newReg();
+                self.appendInst(.{ .const_int = .{ .dest = tag_reg, .value = 1 } });
+                const zero_reg = func.newReg();
+                self.appendInst(.{ .const_int = .{ .dest = zero_reg, .value = 0 } });
+                var args = self.alloc.alloc(ir.Reg, 2) catch return dest;
+                args[0] = tag_reg;
+                args[1] = zero_reg;
+                self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = "make_tagged", .args = args } });
                 return dest;
             },
             else => {
