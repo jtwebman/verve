@@ -511,3 +511,113 @@ test "compile: string interpolation with bool" {
     try testing.expectEqual(@as(u8, 0), r.exit);
     try testing.expectEqualStrings("flag: true\n", r.stdout);
 }
+
+// ════════════════════════════════════════════════════════════
+// Unified to_string
+// ════════════════════════════════════════════════════════════
+
+test "compile: enum to_string via interpolation" {
+    const r = try compileAndCapture(
+        \\type Color = enum { Red, Green, Blue };
+        \\module App { fn main(args: list<string>) -> int {
+        \\    c: Color = :Green;
+        \\    Stdio.println("color: ${c}");
+        \\    return 0;
+        \\} }
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("color: Green\n", r.stdout);
+}
+
+test "compile: enum to_string via println" {
+    const r = try compileAndCapture(
+        \\type Color = enum { Red, Green, Blue };
+        \\module App { fn main(args: list<string>) -> int {
+        \\    c: Color = :Blue;
+        \\    Stdio.println(c);
+        \\    return 0;
+        \\} }
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    // println without type hint falls back to int — prints the variant index
+    try testing.expectEqualStrings("2\n", r.stdout);
+}
+
+test "compile: struct to_string via interpolation" {
+    const r = try compileAndCapture(
+        \\struct Point { x: int = 0; y: int = 0; }
+        \\module App { fn main(args: list<string>) -> int {
+        \\    p: Point = Point { x: 3, y: 7 };
+        \\    Stdio.println("point: ${p}");
+        \\    return 0;
+        \\} }
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("point: Point { x: 3, y: 7 }\n", r.stdout);
+}
+
+test "compile: struct to_string with string field" {
+    const r = try compileAndCapture(
+        \\struct User { name: string = ""; age: int = 0; }
+        \\module App { fn main(args: list<string>) -> int {
+        \\    u: User = User { name: "alice", age: 30 };
+        \\    Stdio.println("user: ${u}");
+        \\    return 0;
+        \\} }
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("user: User { name: alice, age: 30 }\n", r.stdout);
+}
+
+test "compile: bool to_string via println" {
+    const r = try compileAndCapture(
+        \\module App { fn main(args: list<string>) -> int {
+        \\    x: bool = false;
+        \\    Stdio.println(x);
+        \\    return 0;
+        \\} }
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("false\n", r.stdout);
+}
+
+test "compile: int and float to_string via println" {
+    const r = try compileAndCapture(
+        \\module App { fn main(args: list<string>) -> int {
+        \\    Stdio.println(42);
+        \\    Stdio.println(3.14);
+        \\    return 0;
+        \\} }
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("42\n3.14\n", r.stdout);
+}
+
+test "compile: list to_string via interpolation" {
+    const r = try compileAndCapture(
+        \\module App { fn main(args: list<string>) -> int {
+        \\    items: list<int> = list();
+        \\    append items { 1; }
+        \\    append items { 2; }
+        \\    append items { 3; }
+        \\    Stdio.println("items: ${items}");
+        \\    return 0;
+        \\} }
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("items: list<int>(3)\n", r.stdout);
+}
+
+test "compile: enum field in struct to_string" {
+    const r = try compileAndCapture(
+        \\type Color = enum { Red, Green, Blue };
+        \\struct Pixel { color: Color = :Red; x: int = 0; }
+        \\module App { fn main(args: list<string>) -> int {
+        \\    p: Pixel = Pixel { color: :Green, x: 5 };
+        \\    Stdio.println("pixel: ${p}");
+        \\    return 0;
+        \\} }
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("pixel: Pixel { color: Green, x: 5 }\n", r.stdout);
+}

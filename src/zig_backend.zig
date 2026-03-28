@@ -395,7 +395,9 @@ pub const ZigBackend = struct {
         .{ "set_has", S{ .rt_name = "!" } },
         .{ "set_has_str", S{ .rt_name = "!" } },
         .{ "string_len", S{ .module = "string", .rt_name = "!" } },
-        .{ "bool_to_string", S{ .rt_name = "!", .min_args = 1, .returns = .string } },
+        .{ "bool_to_string", S{ .module = "convert", .min_args = 1, .returns = .string } },
+        .{ "collection_to_string", S{ .module = "convert", .min_args = 2, .returns = .string } },
+        .{ "to_string", S{ .rt_name = "!", .min_args = 1, .returns = .string } },
         .{ "assert_check", S{ .rt_name = "!", .void_result = true } },
         .{ "json_build_add_bool", S{ .module = "json", .rt_name = "!", .void_result = true } },
     });
@@ -403,6 +405,7 @@ pub const ZigBackend = struct {
     fn builtinReturnType(name: []const u8) RegType {
         if (builtin_specs.get(name)) |spec| return spec.returns;
         if (std.mem.startsWith(u8, name, "json_parse_struct:")) return .pointer;
+        if (std.mem.startsWith(u8, name, "to_string:")) return .string;
         return .int;
     }
 
@@ -436,6 +439,9 @@ pub const ZigBackend = struct {
             }
             self.write(" };\n\n");
         }
+
+        // Emit enum_to_string functions
+        self.emitEnumToStringFunctions(program);
 
         // Emit Zig struct definitions for Json.parse typed parsing
         for (program.struct_decls.items) |sd| {
@@ -483,6 +489,9 @@ pub const ZigBackend = struct {
             self.line("}");
             self.line("");
         }
+
+        // Emit struct_to_string functions
+        self.emitStructToStringFunctions(program);
 
         // Emit per-process dispatch functions (binary message protocol)
         if (program.process_decls.items.len > 0) {
@@ -597,6 +606,9 @@ pub const ZigBackend = struct {
             self.write(" };\n\n");
         }
 
+        // Emit enum_to_string functions
+        self.emitEnumToStringFunctions(program);
+
         // Emit struct definitions
         for (program.struct_decls.items) |sd| {
             self.writeFmt("const VerveStruct_{s} = struct {{\n", .{sd.name});
@@ -609,6 +621,9 @@ pub const ZigBackend = struct {
             self.line("};");
             self.line("");
         }
+
+        // Emit struct_to_string functions
+        self.emitStructToStringFunctions(program);
 
         // Emit dispatch init if processes exist (same binary protocol as emit())
         if (program.process_decls.items.len > 0) {
@@ -1221,6 +1236,15 @@ pub const ZigBackend = struct {
             return;
         }
 
+        // Special prefix: to_string:TypeHint
+        if (std.mem.startsWith(u8, name, "to_string:")) {
+            const hint = name["to_string:".len..];
+            if (args.len >= 1) {
+                self.emitToString(self.regName(dest), self.regName(args[0]), getRegType(reg_types, args[0]), hint);
+            }
+            return;
+        }
+
         const spec = builtin_specs.get(name) orelse {
             self.lineFmt("{s} = 0; // unknown builtin: {s}", .{ self.regName(dest), name });
             return;
@@ -1263,11 +1287,13 @@ pub const ZigBackend = struct {
         if (std.mem.eql(u8, name, "println") or std.mem.eql(u8, name, "print")) {
             const newline = std.mem.eql(u8, name, "println");
             for (args) |arg| {
-                switch (getRegType(reg_types, arg)) {
-                    .string => self.lineFmt("rt.io.verve_write(1, {s});", .{self.regName(arg)}),
-                    .float => self.lineFmt("{{ var _buf: [64]u8 = undefined; const _s = std.fmt.bufPrint(&_buf, \"{{d}}\", .{{{s}}}) catch \"?\"; rt.io.verve_write(1, _s); }}", .{self.regName(arg)}),
-                    .boolean => self.lineFmt("rt.io.verve_write(1, if ({s}) \"true\" else \"false\");", .{self.regName(arg)}),
-                    .int, .pointer => self.lineFmt("{{ var _buf: [32]u8 = undefined; const _s = std.fmt.bufPrint(&_buf, \"{{d}}\", .{{{s}}}) catch \"?\"; rt.io.verve_write(1, _s); }}", .{self.regName(arg)}),
+                const arg_type = getRegType(reg_types, arg);
+                if (arg_type == .string) {
+                    self.lineFmt("rt.io.verve_write(1, {s});", .{self.regName(arg)});
+                } else {
+                    self.write("{ var _ts: []const u8 = \"\";\n");
+                    self.emitToString("_ts", self.regName(arg), arg_type, null);
+                    self.lineFmt("rt.io.verve_write(1, _ts); }}", .{});
                 }
             }
             if (newline) self.line("rt.io.verve_write(1, \"\\n\");");
@@ -1292,8 +1318,11 @@ pub const ZigBackend = struct {
             if (args.len >= 2) self.lineFmt("{{ const list = @as(*const rt.List, @ptrFromInt({s})); var found: i64 = 0; var si: i64 = 0; while (si < list.len) : (si += 1) {{ if (list.get(si) == {s}) {{ found = 1; break; }} }} {s} = found; }}", .{ self.regName(args[0]), self.regName(args[1]), self.regName(dest) });
         } else if (std.mem.eql(u8, name, "string_len")) {
             if (args.len >= 1) self.lineFmt("{s} = @intCast({s}.len);", .{ self.regName(dest), self.regName(args[0]) });
-        } else if (std.mem.eql(u8, name, "bool_to_string")) {
-            if (args.len >= 1) self.lineFmt("{s} = if ({s}) \"true\" else \"false\";", .{ self.regName(dest), self.regName(args[0]) });
+        } else if (std.mem.eql(u8, name, "to_string")) {
+            // to_string without type hint — dispatch on RegType only
+            if (args.len >= 1) {
+                self.emitToString(self.regName(dest), self.regName(args[0]), getRegType(reg_types, args[0]), null);
+            }
         } else if (std.mem.eql(u8, name, "assert_check")) {
             if (args.len >= 1) {
                 if (getRegType(reg_types, args[0]) == .boolean) {
@@ -1332,6 +1361,107 @@ pub const ZigBackend = struct {
             self.lineFmt("{s} = rt.process.verve_self();", .{self.regName(dest)});
         } else if (std.mem.eql(u8, name, "process_run")) {
             self.lineFmt("{s} = rt.process.verve_scheduler_run();", .{self.regName(dest)});
+        }
+    }
+
+    // ── to_string infrastructure ──────────────────────────────
+
+    /// Emit verve_enum_to_string_X functions for all enums.
+    fn emitEnumToStringFunctions(self: *ZigBackend, program: ir.Program) void {
+        for (program.enum_decls.items) |ed| {
+            self.writeFmt("fn verve_enum_to_string_{s}(val: i64) []const u8 {{\n", .{ed.name});
+            self.indent += 1;
+            self.writeFmt("return switch (@as(VerveEnum_{s}, @enumFromInt(val))) {{\n", .{ed.name});
+            self.indent += 1;
+            for (ed.variants) |v| {
+                self.writeFmt(".{s} => \"{s}\",\n", .{ v, v });
+            }
+            self.indent -= 1;
+            self.line("};");
+            self.indent -= 1;
+            self.line("}");
+            self.line("");
+        }
+    }
+
+    /// Emit verve_struct_to_string_X functions for all structs.
+    fn emitStructToStringFunctions(self: *ZigBackend, program: ir.Program) void {
+        for (program.struct_decls.items) |sd| {
+            self.writeFmt("fn verve_struct_to_string_{s}(ptr: usize) []const u8 {{\n", .{sd.name});
+            self.indent += 1;
+            self.writeFmt("const s = @as(*const VerveStruct_{s}, @ptrFromInt(ptr));\n", .{sd.name});
+            // Start building with struct name
+            self.writeFmt("var _result: []const u8 = \"{s} {{ \";\n", .{sd.name});
+            for (sd.fields, 0..) |f, fi| {
+                // Append "fieldname: "
+                if (fi > 0) {
+                    self.line("_result = rt.string.verve_string_concat(_result, \", \");");
+                }
+                self.lineFmt("_result = rt.string.verve_string_concat(_result, \"{s}: \");", .{f.name});
+                // Convert field value to string and append
+                if (std.mem.eql(u8, f.type_name, "string")) {
+                    self.lineFmt("_result = rt.string.verve_string_concat(_result, s.{s});", .{f.name});
+                } else if (std.mem.eql(u8, f.type_name, "int")) {
+                    self.lineFmt("_result = rt.string.verve_string_concat(_result, rt.convert.int_to_string(s.{s}));", .{f.name});
+                } else if (std.mem.eql(u8, f.type_name, "float")) {
+                    self.lineFmt("_result = rt.string.verve_string_concat(_result, rt.convert.float_to_string(s.{s}));", .{f.name});
+                } else if (std.mem.eql(u8, f.type_name, "bool")) {
+                    self.lineFmt("_result = rt.string.verve_string_concat(_result, rt.convert.bool_to_string(s.{s}));", .{f.name});
+                } else if (self.isEnumType(f.type_name)) {
+                    self.lineFmt("_result = rt.string.verve_string_concat(_result, verve_enum_to_string_{s}(@intFromEnum(s.{s})));", .{ f.type_name, f.name });
+                } else {
+                    // Fallback: treat as int
+                    self.lineFmt("_result = rt.string.verve_string_concat(_result, rt.convert.int_to_string(s.{s}));", .{f.name});
+                }
+            }
+            self.line("_result = rt.string.verve_string_concat(_result, \" }\");");
+            self.line("return _result;");
+            self.indent -= 1;
+            self.line("}");
+            self.line("");
+        }
+    }
+
+    /// Emit a to_string conversion statement: `dest = <conversion>(src);`
+    /// Dispatches based on src_type and optional type_hint.
+    fn emitToString(self: *ZigBackend, dest: []const u8, src: []const u8, src_type: RegType, type_hint: ?[]const u8) void {
+        switch (src_type) {
+            .string => self.lineFmt("{s} = {s};", .{ dest, src }),
+            .boolean => self.lineFmt("{s} = rt.convert.bool_to_string({s});", .{ dest, src }),
+            .float => self.lineFmt("{s} = rt.convert.float_to_string({s});", .{ dest, src }),
+            .int => {
+                if (type_hint) |hint| {
+                    // Check if hint matches an enum name
+                    for (self.program.enum_decls.items) |ed| {
+                        if (std.mem.eql(u8, ed.name, hint)) {
+                            self.lineFmt("{s} = verve_enum_to_string_{s}({s});", .{ dest, hint, src });
+                            return;
+                        }
+                    }
+                }
+                self.lineFmt("{s} = rt.convert.int_to_string({s});", .{ dest, src });
+            },
+            .pointer => {
+                if (type_hint) |hint| {
+                    // Check if hint matches a struct name
+                    for (self.program.struct_decls.items) |sd| {
+                        if (std.mem.eql(u8, sd.name, hint)) {
+                            self.lineFmt("{s} = verve_struct_to_string_{s}({s});", .{ dest, hint, src });
+                            return;
+                        }
+                    }
+                    // Check if hint is a collection type
+                    const collection_prefixes = [_][]const u8{ "list<", "map<", "set<", "stack<", "queue<" };
+                    for (collection_prefixes) |prefix| {
+                        if (std.mem.startsWith(u8, hint, prefix)) {
+                            self.lineFmt("{s} = rt.convert.collection_to_string(\"{s}\", @as(*const rt.List, @ptrFromInt({s})).len);", .{ dest, hint, src });
+                            return;
+                        }
+                    }
+                }
+                // No type hint or unknown type — print as integer (common for tagged values, process results)
+                self.lineFmt("{s} = rt.convert.int_to_string(@intCast({s}));", .{ dest, src });
+            },
         }
     }
 

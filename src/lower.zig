@@ -376,7 +376,13 @@ pub const Lower = struct {
                 if (a.type_expr) |te| {
                     switch (te) {
                         .simple => |tn| self.var_types.put(self.alloc, a.name, tn) catch {},
-                        .generic => {}, // already handled above
+                        .generic => |g| {
+                            // User-defined generics handled above; track collection types
+                            if (self.generic_struct_decls.get(g.name) == null) {
+                                const full_name = self.formatGenericTypeName(g.name, g.args);
+                                self.var_types.put(self.alloc, a.name, full_name) catch {};
+                            }
+                        },
                         else => {},
                     }
                 }
@@ -752,6 +758,48 @@ pub const Lower = struct {
         return key;
     }
 
+    /// Format a generic type name with angle brackets: "list<int>", "map<string, int>"
+    fn formatGenericTypeName(self: *Lower, base: []const u8, args: []const ast.TypeExpr) []const u8 {
+        var buf = std.ArrayListUnmanaged(u8){};
+        buf.appendSlice(self.alloc, base) catch return base;
+        buf.appendSlice(self.alloc, "<") catch return base;
+        for (args, 0..) |arg, i| {
+            if (i > 0) buf.appendSlice(self.alloc, ", ") catch {};
+            buf.appendSlice(self.alloc, self.typeExprName(arg)) catch {};
+        }
+        buf.appendSlice(self.alloc, ">") catch return base;
+        return buf.toOwnedSlice(self.alloc) catch base;
+    }
+
+    /// Get the to_string builtin name for an expression, with type hint if available.
+    /// Returns "to_string:Currency" for enum vars, "to_string:Account" for struct vars, etc.
+    fn toStringBuiltinName(self: *Lower, expr: ast.Expr) []const u8 {
+        if (expr == .identifier) {
+            if (self.var_types.get(expr.identifier)) |type_name| {
+                return std.fmt.allocPrint(self.alloc, "to_string:{s}", .{type_name}) catch "to_string";
+            }
+        }
+        if (expr == .field_access) {
+            const fa = expr.field_access;
+            if (fa.target.* == .identifier) {
+                if (self.var_types.get(fa.target.identifier)) |struct_type| {
+                    if (self.struct_decls.get(struct_type)) |sd| {
+                        for (sd.fields) |f| {
+                            if (std.mem.eql(u8, f.name, fa.field)) {
+                                const field_type = switch (f.type_expr) {
+                                    .simple => |tn| tn,
+                                    else => break,
+                                };
+                                return std.fmt.allocPrint(self.alloc, "to_string:{s}", .{field_type}) catch "to_string";
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return "to_string";
+    }
+
     fn isStringExpr(self: *Lower, expr: ast.Expr) bool {
         return switch (expr) {
             .string_literal, .string_interp => true,
@@ -834,20 +882,10 @@ pub const Lower = struct {
                         },
                         .expr => |e| blk: {
                             const r = self.lowerExpr(e);
-                            // Convert non-string values to string
                             if (!self.isStringExpr(e)) {
                                 const conv = func.newReg();
-                                if (self.float_regs.get(r) != null or e == .float_literal or
-                                    (e == .identifier and self.isVarFloat(e.identifier)))
-                                {
-                                    self.appendInst(.{ .call_builtin = .{ .dest = conv, .name = "float_to_string", .args = self.allocRegs(&.{r}) } });
-                                } else if (e == .bool_literal or
-                                    (e == .identifier and self.isVarBool(e.identifier)))
-                                {
-                                    self.appendInst(.{ .call_builtin = .{ .dest = conv, .name = "bool_to_string", .args = self.allocRegs(&.{r}) } });
-                                } else {
-                                    self.appendInst(.{ .call_builtin = .{ .dest = conv, .name = "int_to_string", .args = self.allocRegs(&.{r}) } });
-                                }
+                                const builtin_name = self.toStringBuiltinName(e);
+                                self.appendInst(.{ .call_builtin = .{ .dest = conv, .name = builtin_name, .args = self.allocRegs(&.{r}) } });
                                 break :blk conv;
                             }
                             break :blk r;
