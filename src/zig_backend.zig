@@ -224,7 +224,7 @@ pub const ZigBackend = struct {
                 if (pd.state_type) |st| {
                     // Allocate typed state struct, set pointer on the process
                     self.writeIndent();
-                    self.writeFmt("{{ const _st = std.heap.page_allocator.create(VerveStruct_{s}) catch unreachable; _st.* = .{{}}; ", .{st});
+                    self.writeFmt("{{ const _sm = rt.arena_alloc(@sizeOf(VerveStruct_{s})) orelse unreachable; const _st = @as(*VerveStruct_{s}, @ptrCast(@alignCast(_sm))); _st.* = .{{}}; ", .{ st, st });
                     self.writeFmt("rt.process.process_table[{s} - 1].state_ptr = @intFromPtr(_st); }}\n", .{pid_reg});
                 }
                 break;
@@ -474,7 +474,7 @@ pub const ZigBackend = struct {
             self.line("const val = parsed.value;");
 
             // Allocate typed struct and copy parsed values
-            self.writeFmt("const _sp = std.heap.page_allocator.create(VerveStruct_{s}) catch return rt.makeTagged(1, 0);\n", .{sd.name});
+            self.writeFmt("const _sm = rt.arena_alloc(@sizeOf(VerveStruct_{s})) orelse return rt.makeTagged(1, 0); const _sp = @as(*VerveStruct_{s}, @ptrCast(@alignCast(_sm)));\n", .{ sd.name, sd.name });
             for (sd.fields) |f| {
                 if (std.mem.eql(u8, f.type_name, "string")) {
                     // Copy string data into arena so it survives json parser cleanup
@@ -914,7 +914,7 @@ pub const ZigBackend = struct {
                 self.lineFmt("const pid = rt.process.verve_spawn({d});", .{pdi});
                 self.line("rt.process.current_process_id = pid;");
                 if (pd.state_type) |st| {
-                    self.lineFmt("{{ const _st = std.heap.page_allocator.create(VerveStruct_{s}) catch unreachable; _st.* = .{{}}; rt.process.process_table[pid - 1].state_ptr = @intFromPtr(_st); }}", .{st});
+                    self.lineFmt("{{ const _sm = rt.arena_alloc(@sizeOf(VerveStruct_{s})) orelse unreachable; const _st = @as(*VerveStruct_{s}, @ptrCast(@alignCast(_sm))); _st.* = .{{}}; rt.process.process_table[pid - 1].state_ptr = @intFromPtr(_st); }}", .{ st, st });
                 }
                 break;
             }
@@ -1073,7 +1073,7 @@ pub const ZigBackend = struct {
             .call_builtin => |c| self.emitBuiltin(c.dest, c.name, c.args, reg_types),
 
             .struct_alloc => |sa| {
-                self.lineFmt("{{ const _sp = std.heap.page_allocator.create(VerveStruct_{s}) catch unreachable; _sp.* = .{{}}; {s} = @intFromPtr(_sp); }}", .{ sa.struct_name, self.regName(sa.dest) });
+                self.lineFmt("{{ const _sm = rt.arena_alloc(@sizeOf(VerveStruct_{s})) orelse unreachable; const _sp = @as(*VerveStruct_{s}, @ptrCast(@alignCast(_sm))); _sp.* = .{{}}; {s} = @intFromPtr(_sp); }}", .{ sa.struct_name, sa.struct_name, self.regName(sa.dest) });
             },
             .struct_store => |ss| {
                 if (self.fieldIsEnum(ss.struct_name, ss.field_name)) |_| {

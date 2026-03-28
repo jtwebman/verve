@@ -100,6 +100,16 @@ pub fn main() !void {
             return;
         };
 
+        // Type check
+        const Chk = @import("checker.zig").Checker;
+        var checker = Chk.init(alloc);
+        checker.check(file) catch {};
+        if (checker.hasErrors()) {
+            std.debug.print("Type errors in {s}:\n", .{file_path});
+            checker.printErrors();
+            return;
+        }
+
         var lower = Lower.init(alloc);
         const program = lower.lowerFile(file) catch |err| {
             std.debug.print("Lowering error: {}\n", .{err});
@@ -267,6 +277,16 @@ pub fn main() !void {
             }
             return;
         };
+
+        // Type check
+        const Chk2 = @import("checker.zig").Checker;
+        var checker2 = Chk2.init(alloc);
+        checker2.check(merged) catch {};
+        if (checker2.hasErrors()) {
+            std.debug.print("Type errors in {s}:\n", .{file_path});
+            checker2.printErrors();
+            return;
+        }
 
         // Lower AST to IR
         const Lwr = @import("lower.zig").Lower;

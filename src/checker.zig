@@ -529,7 +529,7 @@ pub const Checker = struct {
 
                     if (!proven_exhaustive) {
                         try self.addError(
-                            try std.fmt.allocPrint(self.alloc, "{s}: match is not exhaustive — add a wildcard '_' arm", .{self.locationPrefix()}),
+                            try std.fmt.allocPrint(self.alloc, "{s}: match is not exhaustive — add missing cases or a wildcard '_' arm", .{self.locationPrefix()}),
                             0,
                             0,
                         );
