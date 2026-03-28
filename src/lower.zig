@@ -10,10 +10,8 @@ pub const Lower = struct {
     current_block_id: ?ir.BlockId,
     current_module: []const u8,
     struct_decls: std.StringHashMapUnmanaged(ast.StructDecl),
-    var_types: std.StringHashMapUnmanaged([]const u8),
-    string_vars: std.StringHashMapUnmanaged(void), // variables known to be strings
+    var_types: std.StringHashMapUnmanaged([]const u8), // variable name → type name ("int", "float", "string", "bool", or struct name)
     float_regs: std.AutoHashMapUnmanaged(ir.Reg, void), // registers holding float values
-    float_vars: std.StringHashMapUnmanaged(void), // variables known to be floats
     loop_cond_block: ?ir.BlockId,
     loop_exit_block: ?ir.BlockId,
     // Process support
@@ -30,9 +28,7 @@ pub const Lower = struct {
             .current_module = "",
             .struct_decls = .{},
             .var_types = .{},
-            .string_vars = .{},
             .float_regs = .{},
-            .float_vars = .{},
             .loop_cond_block = null,
             .loop_exit_block = null,
             .process_decls = .{},
@@ -192,17 +188,13 @@ pub const Lower = struct {
         var f = ir.Function.init(module, func.name, self.alloc);
 
         self.float_regs = .{};
-        self.float_vars = .{};
-        self.string_vars = .{};
 
         var params = std.ArrayListUnmanaged(ir.Function.Param){};
         for (func.params) |p| {
             try params.append(self.alloc, .{ .name = p.name, .type_ = resolveType(p.type_expr) });
             switch (p.type_expr) {
                 .simple => |tn| {
-                    if (self.struct_decls.get(tn) != null) self.var_types.put(self.alloc, p.name, tn) catch {};
-                    if (std.mem.eql(u8, tn, "string")) self.string_vars.put(self.alloc, p.name, {}) catch {};
-                    if (std.mem.eql(u8, tn, "float")) self.float_vars.put(self.alloc, p.name, {}) catch {};
+                    self.var_types.put(self.alloc, p.name, tn) catch {};
                 },
                 else => {},
             }
@@ -225,8 +217,6 @@ pub const Lower = struct {
         var f = ir.Function.init(module, handler.name, self.alloc);
 
         self.float_regs = .{};
-        self.float_vars = .{};
-        self.string_vars = .{};
 
         var params = std.ArrayListUnmanaged(ir.Function.Param){};
         const skip_state = proc_decl.state_type != null and handler.params.len > 0 and
@@ -236,9 +226,7 @@ pub const Lower = struct {
             try params.append(self.alloc, .{ .name = p.name, .type_ = resolveType(p.type_expr) });
             switch (p.type_expr) {
                 .simple => |tn| {
-                    if (self.struct_decls.get(tn) != null) self.var_types.put(self.alloc, p.name, tn) catch {};
-                    if (std.mem.eql(u8, tn, "string")) self.string_vars.put(self.alloc, p.name, {}) catch {};
-                    if (std.mem.eql(u8, tn, "float")) self.float_vars.put(self.alloc, p.name, {}) catch {};
+                    self.var_types.put(self.alloc, p.name, tn) catch {};
                 },
                 else => {},
             }
@@ -315,19 +303,14 @@ pub const Lower = struct {
                 const reg = self.lowerExpr(a.value);
                 self.appendInst(.{ .store_local = .{ .name = a.name, .src = reg } });
                 if (self.float_regs.get(reg) != null) {
-                    self.float_vars.put(self.alloc, a.name, {}) catch {};
+                    self.var_types.put(self.alloc, a.name, "float") catch {};
                 }
-                // Track string variables from expression type
                 if (self.isStringExpr(a.value)) {
-                    self.string_vars.put(self.alloc, a.name, {}) catch {};
+                    self.var_types.put(self.alloc, a.name, "string") catch {};
                 }
                 if (a.type_expr) |te| {
                     switch (te) {
-                        .simple => |tn| {
-                            if (self.struct_decls.get(tn) != null) self.var_types.put(self.alloc, a.name, tn) catch {};
-                            if (std.mem.eql(u8, tn, "string")) self.string_vars.put(self.alloc, a.name, {}) catch {};
-                            if (std.mem.eql(u8, tn, "float")) self.float_vars.put(self.alloc, a.name, {}) catch {};
-                        },
+                        .simple => |tn| self.var_types.put(self.alloc, a.name, tn) catch {},
                         else => {},
                     }
                 }
@@ -517,7 +500,7 @@ pub const Lower = struct {
     fn isStringExpr(self: *Lower, expr: ast.Expr) bool {
         return switch (expr) {
             .string_literal => true,
-            .identifier => |name| self.string_vars.get(name) != null,
+            .identifier => |name| self.isVarString(name),
             .field_access => |fa| self.isStringFieldAccess(fa),
             .call => |c| {
                 if (c.target.* == .field_access) {
@@ -587,7 +570,7 @@ pub const Lower = struct {
             .identifier => |name| {
                 const dest = func.newReg();
                 self.appendInst(.{ .load_local = .{ .dest = dest, .name = name } });
-                if (self.float_vars.get(name) != null) {
+                if (self.isVarFloat(name)) {
                     self.float_regs.put(self.alloc, dest, {}) catch {};
                 }
                 return dest;
@@ -626,8 +609,8 @@ pub const Lower = struct {
                 const dest = func.newReg();
                 const is_float = self.float_regs.get(lhs) != null or self.float_regs.get(rhs) != null or
                     (op.left.* == .float_literal) or (op.right.* == .float_literal) or
-                    (op.left.* == .identifier and self.float_vars.get(op.left.identifier) != null) or
-                    (op.right.* == .identifier and self.float_vars.get(op.right.identifier) != null);
+                    (op.left.* == .identifier and self.isVarFloat(op.left.identifier)) or
+                    (op.right.* == .identifier and self.isVarFloat(op.right.identifier));
                 const inst_val: ir.Inst = if (is_float) switch (op.op) {
                     .add => .{ .add_f64 = .{ .dest = dest, .lhs = lhs, .rhs = rhs } },
                     .sub => .{ .sub_f64 = .{ .dest = dest, .lhs = lhs, .rhs = rhs } },
@@ -672,7 +655,7 @@ pub const Lower = struct {
                 const dest = func.newReg();
                 const is_float_op = self.float_regs.get(operand) != null or
                     (op.operand.* == .float_literal) or
-                    (op.operand.* == .identifier and self.float_vars.get(op.operand.identifier) != null);
+                    (op.operand.* == .identifier and self.isVarFloat(op.operand.identifier));
                 switch (op.op) {
                     .not => self.appendInst(.{ .not_bool = .{ .dest = dest, .operand = operand } }),
                     .sub => {
@@ -977,7 +960,7 @@ pub const Lower = struct {
                         }
                     }
                     if (std.mem.eql(u8, fa.field, "len")) {
-                        if (self.string_vars.get(target_name) != null) {
+                        if (self.isVarString(target_name)) {
                             const str_reg = self.lowerExpr(fa.target.*);
                             const dest = func.newReg();
                             self.appendInst(.{ .string_len = .{ .dest = dest, .str = str_reg } });
@@ -998,7 +981,7 @@ pub const Lower = struct {
                 const index_reg = self.lowerExpr(ia.index.*);
                 const dest = func.newReg();
                 if (ia.target.* == .identifier) {
-                    if (self.string_vars.get(ia.target.identifier) != null) {
+                    if (self.isVarString(ia.target.identifier)) {
                         self.appendInst(.{ .string_index = .{ .dest = dest, .str = target_reg, .index = index_reg } });
                         return dest;
                     }
@@ -1012,6 +995,16 @@ pub const Lower = struct {
                 return dest;
             },
         }
+    }
+
+    fn isVarString(self: *Lower, name: []const u8) bool {
+        const t = self.var_types.get(name) orelse return false;
+        return std.mem.eql(u8, t, "string");
+    }
+
+    fn isVarFloat(self: *Lower, name: []const u8) bool {
+        const t = self.var_types.get(name) orelse return false;
+        return std.mem.eql(u8, t, "float");
     }
 
     fn isStringFieldAccess(self: *Lower, fa: ast.FieldAccess) bool {
