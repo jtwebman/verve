@@ -43,7 +43,8 @@ See `LANGUAGE.md` for complete syntax, built-in modules, and API reference.
 
 ```
 /home/jt/.local/zig/zig build              # build
-/home/jt/.local/zig/zig build test         # run all tests
+/home/jt/.local/zig/zig build test         # run fast tests (~14s)
+/home/jt/.local/zig/zig build test-slow    # run slow tests (TCP/HTTP, ~2 min)
 ./zig-out/bin/verve run file.vv            # compile and run
 ./zig-out/bin/verve build file.vv          # compile to native binary
 ./zig-out/bin/verve check file.vv          # type check

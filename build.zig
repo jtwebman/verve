@@ -76,7 +76,7 @@ pub fn build(b: *std.Build) void {
 
     // Network tests — slow (~2 min, TCP/HTTP with socket ops)
     // Run with: zig build test-net
-    const net_test_step = b.step("test-net", "Run slow network tests (TCP/HTTP)");
+    const net_test_step = b.step("test-slow", "Run slow tests (TCP/HTTP, socket ops)");
     const net_tests = b.addTest(.{
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/compile_test_net.zig"),
