@@ -140,7 +140,10 @@ pub fn stream_close(stream_ptr: i64) void {
     if (s.closed) return;
     s.closed = true;
     switch (s.kind) {
-        .tcp_client, .tcp_listener => std.posix.close(s.fd),
+        .tcp_client, .tcp_listener => {
+            std.posix.close(s.fd);
+            std.heap.page_allocator.destroy(s);
+        },
         .file_write => std.posix.close(s.fd),
         .file_read => {},
     }

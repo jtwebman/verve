@@ -1187,20 +1187,21 @@ pub const ZigBackend = struct {
     /// Emit binary message encode for a single parameter. Writes to _msg_buf at _mpos.
     fn emitMsgEncode(self: *ZigBackend, reg: ir.Reg, reg_types: []const RegType) void {
         const t = getRegType(reg_types, reg);
+        const rn = self.regName(reg);
         if (t == .string) {
             self.lineFmt("_msg_buf[_mpos] = 3; _mpos += 1;", .{}); // ArgType.string
-            self.lineFmt("const _slen: u32 = @intCast({s}.len);", .{self.regName(reg)});
-            self.line("_msg_buf[_mpos] = @truncate(_slen); _msg_buf[_mpos+1] = @truncate(_slen >> 8); _msg_buf[_mpos+2] = @truncate(_slen >> 16); _msg_buf[_mpos+3] = @truncate(_slen >> 24); _mpos += 4;");
-            self.lineFmt("@memcpy(_msg_buf[_mpos.._mpos + {s}.len], {s}); _mpos += {s}.len;", .{ self.regName(reg), self.regName(reg), self.regName(reg) });
+            self.lineFmt("const _slen_{d}: u32 = @intCast({s}.len);", .{ reg, rn });
+            self.lineFmt("_msg_buf[_mpos] = @truncate(_slen_{d}); _msg_buf[_mpos+1] = @truncate(_slen_{d} >> 8); _msg_buf[_mpos+2] = @truncate(_slen_{d} >> 16); _msg_buf[_mpos+3] = @truncate(_slen_{d} >> 24); _mpos += 4;", .{ reg, reg, reg, reg });
+            self.lineFmt("@memcpy(_msg_buf[_mpos.._mpos + {s}.len], {s}); _mpos += {s}.len;", .{ rn, rn, rn });
         } else if (t == .float) {
             self.lineFmt("_msg_buf[_mpos] = 1; _mpos += 1;", .{}); // ArgType.float
-            self.lineFmt("const _fb: [8]u8 = @bitCast({s}); @memcpy(_msg_buf[_mpos.._mpos+8], &_fb); _mpos += 8;", .{self.regName(reg)});
+            self.lineFmt("const _fb_{d}: [8]u8 = @bitCast({s}); @memcpy(_msg_buf[_mpos.._mpos+8], &_fb_{d}); _mpos += 8;", .{ reg, rn, reg });
         } else if (t == .boolean) {
             self.lineFmt("_msg_buf[_mpos] = 2; _mpos += 1;", .{}); // ArgType.boolean
-            self.lineFmt("_msg_buf[_mpos] = if ({s}) 1 else 0; _mpos += 1;", .{self.regName(reg)});
+            self.lineFmt("_msg_buf[_mpos] = if ({s}) 1 else 0; _mpos += 1;", .{rn});
         } else {
             self.lineFmt("_msg_buf[_mpos] = 0; _mpos += 1;", .{}); // ArgType.int
-            self.lineFmt("const _ib: [8]u8 = @bitCast({s}); @memcpy(_msg_buf[_mpos.._mpos+8], &_ib); _mpos += 8;", .{self.regName(reg)});
+            self.lineFmt("const _ib_{d}: [8]u8 = @bitCast({s}); @memcpy(_msg_buf[_mpos.._mpos+8], &_ib_{d}); _mpos += 8;", .{ reg, rn, reg });
         }
     }
 

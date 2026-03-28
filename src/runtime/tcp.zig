@@ -14,8 +14,7 @@ pub fn tcp_open(host: []const u8, port: i64) i64 {
         return rt.makeTagged(1, 0);
     };
 
-    const s_mem = rt.arena_alloc(@sizeOf(io.VerveStream)) orelse return rt.makeTagged(1, 0);
-    const s = @as(*io.VerveStream, @ptrCast(@alignCast(s_mem)));
+    const s = std.heap.page_allocator.create(io.VerveStream) catch return rt.makeTagged(1, 0);
     s.* = .{
         .kind = .tcp_client,
         .fd = fd,
@@ -48,8 +47,7 @@ pub fn tcp_listen(host: []const u8, port: i64) i64 {
         return rt.makeTagged(1, 0);
     };
 
-    const s_mem = rt.arena_alloc(@sizeOf(io.VerveStream)) orelse return rt.makeTagged(1, 0);
-    const s = @as(*io.VerveStream, @ptrCast(@alignCast(s_mem)));
+    const s = std.heap.page_allocator.create(io.VerveStream) catch return rt.makeTagged(1, 0);
     s.* = .{
         .kind = .tcp_listener,
         .fd = fd,
@@ -70,11 +68,10 @@ pub fn tcp_accept(listener_ptr: i64) i64 {
 
     const client_fd = std.posix.accept(listener.fd, null, null, 0) catch return rt.makeTagged(1, 0);
 
-    const s_mem = rt.arena_alloc(@sizeOf(io.VerveStream)) orelse {
+    const s = std.heap.page_allocator.create(io.VerveStream) catch {
         std.posix.close(client_fd);
         return rt.makeTagged(1, 0);
     };
-    const s = @as(*io.VerveStream, @ptrCast(@alignCast(s_mem)));
     s.* = .{
         .kind = .tcp_client,
         .fd = client_fd,

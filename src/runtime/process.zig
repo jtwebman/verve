@@ -127,8 +127,9 @@ pub fn verve_spawn(process_type: i64) i64 {
         idx = next;
         process_count += 1;
     }
+    const pid: i64 = @intCast(idx + 1);
     process_table[idx] = .{
-        .id = @intCast(idx + 1),
+        .id = pid,
         .alive = true,
         .process_type = process_type,
         .state_ptr = 0,
@@ -137,7 +138,7 @@ pub fn verve_spawn(process_type: i64) i64 {
         .watcher_count = 0,
         .arena = .{},
     };
-    return process_count;
+    return pid;
 }
 
 /// Get pointer to the current process's typed state struct.
