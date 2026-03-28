@@ -21,7 +21,7 @@ These are things LANGUAGE-DESIGN.md and LANGUAGE.md claim that don't fully work 
 - [x] Compile-time generics (monomorphization) — struct Pair<T> monomorphized to Pair_int, Pair_string etc.
 - [x] Enum types in compiler — real Zig enums, struct field boundaries, match support
 - [x] Tagged union types in compiler — :tag{expr} construction, makeTagged runtime, string-aware extraction
-- [ ] Optional types (T?) in compiler — parser supports, no runtime representation
+- [x] Optional types (T?) in compiler — tagged values (some=0, none=1), match with :some{val}/none
 
 ### Checker Gaps
 - [ ] Doc comment enforcement in compiler (checker validates, but compiled code doesn't require them)
