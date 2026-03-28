@@ -59,7 +59,7 @@ The benchmark apps need real concurrency to show Verve's advantage.
 What's needed to build the 20 benchmark apps.
 
 ### Needed
-- [ ] Http — keep-alive connections (reuse TCP, skip handshake per request)
+- [x] Http — keep-alive connections (reuse TCP, skip handshake per request)
 - [ ] Http — chunked transfer encoding
 - [ ] Http client (for API-to-API calls, webhook sending)
 - [ ] Json — typed struct stringify (`Json.stringify(my_struct)`)
@@ -89,8 +89,9 @@ What's needed to build the 20 benchmark apps.
 - [ ] `verve doc` — generate reference docs from doc comments
 - [ ] vervelang.org website
 
-## Priority 5 — Future
+## Priority 5 — Future / Optimization
 
+- [ ] Json — high-performance parser (SIMD/vectorized scanning, replace arena string-concat builder)
 - [ ] C FFI with process isolation
 - [ ] arm64 / macOS / cross-compilation
 - [ ] Clustering (distributed processes, network message passing)
