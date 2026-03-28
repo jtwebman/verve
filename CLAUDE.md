@@ -28,7 +28,18 @@ See `LANGUAGE.md` for complete syntax, built-in modules, and API reference.
 - `src/ir.zig` — target-independent SSA intermediate representation
 - `src/lower.zig` — lowers AST to IR
 - `src/zig_backend.zig` — emits Zig source from IR, compiles via zig build-exe
-- `src/verve_runtime.zig` — compiled runtime (processes, TCP, HTTP, JSON, arena allocator)
+
+### Runtime (`src/runtime/`) — compiled into every Verve binary
+- `runtime.zig` — core: Arena allocator, List, Tagged values, init, env, system
+- `math.zig` — pure math: abs, sin, pow, floor, sqrt, etc.
+- `checked.zig` — compiler internals: poison values, checked arithmetic, comparisons
+- `convert.zig` — type conversions: int↔string, float↔string, int↔float
+- `string.zig` — string ops: trim, replace, split, contains, concat
+- `json.zig` — JSON scanning + builder
+- `io.zig` — streams, files, stdio output
+- `tcp.zig` — TCP: open, listen, accept
+- `http.zig` — HTTP: parse requests, build responses
+- `process.zig` — process table, mailbox, send/tell/drain
 
 ### CLI
 - `src/main.zig` — CLI entry point (build, check, test, fmt, run)
