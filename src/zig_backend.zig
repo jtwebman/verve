@@ -1059,41 +1059,41 @@ pub const ZigBackend = struct {
         } else if (std.mem.eql(u8, name, "math_log2")) {
             if (args.len >= 1) self.lineFmt("{s} = rt.math_log2({s});", .{ self.regName(dest), self.regName(args[0]) });
         } else if (std.mem.eql(u8, name, "math_abs_f")) {
-            if (args.len >= 1) self.lineFmt("{s} = @as(f64, @bitCast(rt.math_abs_f(@bitCast({s}))));", .{ self.regName(dest), self.regName(args[0]) });
+            if (args.len >= 1) self.lineFmt("{s} = rt.math_abs_f({s});", .{ self.regName(dest), self.regName(args[0]) });
         } else if (std.mem.eql(u8, name, "math_floor")) {
-            if (args.len >= 1) self.lineFmt("{s} = rt.math_floor(@bitCast({s}));", .{ self.regName(dest), self.regName(args[0]) });
+            if (args.len >= 1) self.lineFmt("{s} = rt.math_floor({s});", .{ self.regName(dest), self.regName(args[0]) });
         } else if (std.mem.eql(u8, name, "math_ceil")) {
-            if (args.len >= 1) self.lineFmt("{s} = rt.math_ceil(@bitCast({s}));", .{ self.regName(dest), self.regName(args[0]) });
+            if (args.len >= 1) self.lineFmt("{s} = rt.math_ceil({s});", .{ self.regName(dest), self.regName(args[0]) });
         } else if (std.mem.eql(u8, name, "math_round")) {
-            if (args.len >= 1) self.lineFmt("{s} = rt.math_round(@bitCast({s}));", .{ self.regName(dest), self.regName(args[0]) });
+            if (args.len >= 1) self.lineFmt("{s} = rt.math_round({s});", .{ self.regName(dest), self.regName(args[0]) });
         } else if (std.mem.eql(u8, name, "math_sin")) {
-            if (args.len >= 1) self.lineFmt("{s} = @as(f64, @bitCast(rt.math_sin(@bitCast({s}))));", .{ self.regName(dest), self.regName(args[0]) });
+            if (args.len >= 1) self.lineFmt("{s} = rt.math_sin({s});", .{ self.regName(dest), self.regName(args[0]) });
         } else if (std.mem.eql(u8, name, "math_cos")) {
-            if (args.len >= 1) self.lineFmt("{s} = @as(f64, @bitCast(rt.math_cos(@bitCast({s}))));", .{ self.regName(dest), self.regName(args[0]) });
+            if (args.len >= 1) self.lineFmt("{s} = rt.math_cos({s});", .{ self.regName(dest), self.regName(args[0]) });
         } else if (std.mem.eql(u8, name, "math_tan")) {
-            if (args.len >= 1) self.lineFmt("{s} = @as(f64, @bitCast(rt.math_tan(@bitCast({s}))));", .{ self.regName(dest), self.regName(args[0]) });
+            if (args.len >= 1) self.lineFmt("{s} = rt.math_tan({s});", .{ self.regName(dest), self.regName(args[0]) });
         } else if (std.mem.eql(u8, name, "math_sqrt_f")) {
-            if (args.len >= 1) self.lineFmt("{s} = @as(f64, @bitCast(rt.math_sqrt_f(@bitCast({s}))));", .{ self.regName(dest), self.regName(args[0]) });
+            if (args.len >= 1) self.lineFmt("{s} = rt.math_sqrt_f({s});", .{ self.regName(dest), self.regName(args[0]) });
         } else if (std.mem.eql(u8, name, "math_pow_f")) {
-            if (args.len >= 2) self.lineFmt("{s} = @as(f64, @bitCast(rt.math_pow_f(@bitCast({s}), @bitCast({s}))));", .{ self.regName(dest), self.regName(args[0]), self.regName(args[1]) });
+            if (args.len >= 2) self.lineFmt("{s} = rt.math_pow_f({s}, {s});", .{ self.regName(dest), self.regName(args[0]), self.regName(args[1]) });
         } else if (std.mem.eql(u8, name, "math_log")) {
-            if (args.len >= 1) self.lineFmt("{s} = @as(f64, @bitCast(rt.math_log(@bitCast({s}))));", .{ self.regName(dest), self.regName(args[0]) });
+            if (args.len >= 1) self.lineFmt("{s} = rt.math_log({s});", .{ self.regName(dest), self.regName(args[0]) });
         } else if (std.mem.eql(u8, name, "math_log10")) {
-            if (args.len >= 1) self.lineFmt("{s} = @as(f64, @bitCast(rt.math_log10(@bitCast({s}))));", .{ self.regName(dest), self.regName(args[0]) });
+            if (args.len >= 1) self.lineFmt("{s} = rt.math_log10({s});", .{ self.regName(dest), self.regName(args[0]) });
         } else if (std.mem.eql(u8, name, "math_exp")) {
-            if (args.len >= 1) self.lineFmt("{s} = @as(f64, @bitCast(rt.math_exp(@bitCast({s}))));", .{ self.regName(dest), self.regName(args[0]) });
+            if (args.len >= 1) self.lineFmt("{s} = rt.math_exp({s});", .{ self.regName(dest), self.regName(args[0]) });
         } else if (std.mem.eql(u8, name, "math_min_f")) {
-            if (args.len >= 2) self.lineFmt("{s} = @as(f64, @bitCast(rt.math_min_f(@bitCast({s}), @bitCast({s}))));", .{ self.regName(dest), self.regName(args[0]), self.regName(args[1]) });
+            if (args.len >= 2) self.lineFmt("{s} = rt.math_min_f({s}, {s});", .{ self.regName(dest), self.regName(args[0]), self.regName(args[1]) });
         } else if (std.mem.eql(u8, name, "math_max_f")) {
-            if (args.len >= 2) self.lineFmt("{s} = @as(f64, @bitCast(rt.math_max_f(@bitCast({s}), @bitCast({s}))));", .{ self.regName(dest), self.regName(args[0]), self.regName(args[1]) });
+            if (args.len >= 2) self.lineFmt("{s} = rt.math_max_f({s}, {s});", .{ self.regName(dest), self.regName(args[0]), self.regName(args[1]) });
         } else if (std.mem.eql(u8, name, "convert_to_float")) {
-            if (args.len >= 1) self.lineFmt("{s} = @as(f64, @bitCast(rt.convert_to_float({s})));", .{ self.regName(dest), self.regName(args[0]) });
+            if (args.len >= 1) self.lineFmt("{s} = rt.convert_to_float({s});", .{ self.regName(dest), self.regName(args[0]) });
         } else if (std.mem.eql(u8, name, "convert_to_int_f")) {
-            if (args.len >= 1) self.lineFmt("{s} = rt.convert_to_int_f(@bitCast({s}));", .{ self.regName(dest), self.regName(args[0]) });
+            if (args.len >= 1) self.lineFmt("{s} = rt.convert_to_int_f({s});", .{ self.regName(dest), self.regName(args[0]) });
         } else if (std.mem.eql(u8, name, "float_to_string")) {
-            if (args.len >= 1) self.lineFmt("{s} = rt.float_to_string(@bitCast({s}));", .{ self.regName(dest), self.regName(args[0]) });
+            if (args.len >= 1) self.lineFmt("{s} = rt.float_to_string({s});", .{ self.regName(dest), self.regName(args[0]) });
         } else if (std.mem.eql(u8, name, "string_to_float")) {
-            if (args.len >= 1) self.lineFmt("{s} = @as(f64, @bitCast(rt.string_to_float({s})));", .{ self.regName(dest), self.regName(args[0]) });
+            if (args.len >= 1) self.lineFmt("{s} = rt.string_to_float({s});", .{ self.regName(dest), self.regName(args[0]) });
         } else if (std.mem.eql(u8, name, "env_get")) {
             if (args.len >= 1) {
                 self.lineFmt("{s} = rt.env_get({s});", .{ self.regName(dest), self.regName(args[0]) });

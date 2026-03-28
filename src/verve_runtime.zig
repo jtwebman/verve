@@ -379,102 +379,94 @@ fn i64_from_f64(v: f64) i64 {
     return @bitCast(v);
 }
 
-pub fn math_abs_f(x: i64) i64 {
-    return i64_from_f64(@abs(f64_from_i64(x)));
+pub fn math_abs_f(x: f64) f64 {
+    return @abs(x);
 }
 
-pub fn math_floor(x: i64) i64 {
-    if (isPoison(x)) return x;
-    return @intFromFloat(@floor(f64_from_i64(x)));
+fn isPoison_f64(x: f64) bool {
+    const bits: i64 = @bitCast(x);
+    return isPoison(bits);
 }
 
-pub fn math_ceil(x: i64) i64 {
-    if (isPoison(x)) return x;
-    return @intFromFloat(@ceil(f64_from_i64(x)));
+pub fn math_floor(x: f64) i64 {
+    if (isPoison_f64(x) or std.math.isNan(x)) return POISON_NAN;
+    return @intFromFloat(@floor(x));
 }
 
-pub fn math_round(x: i64) i64 {
-    if (isPoison(x)) return x;
-    return @intFromFloat(@round(f64_from_i64(x)));
+pub fn math_ceil(x: f64) i64 {
+    if (isPoison_f64(x) or std.math.isNan(x)) return POISON_NAN;
+    return @intFromFloat(@ceil(x));
 }
 
-pub fn math_sin(x: i64) i64 {
-    return i64_from_f64(@sin(f64_from_i64(x)));
+pub fn math_round(x: f64) i64 {
+    if (isPoison_f64(x) or std.math.isNan(x)) return POISON_NAN;
+    return @intFromFloat(@round(x));
 }
 
-pub fn math_cos(x: i64) i64 {
-    return i64_from_f64(@cos(f64_from_i64(x)));
+pub fn math_sin(x: f64) f64 {
+    return @sin(x);
 }
 
-pub fn math_tan(x: i64) i64 {
-    return i64_from_f64(@tan(f64_from_i64(x)));
+pub fn math_cos(x: f64) f64 {
+    return @cos(x);
 }
 
-pub fn math_sqrt_f(x: i64) i64 {
-    const v = f64_from_i64(x);
-    if (v < 0) return i64_from_f64(0.0);
-    return i64_from_f64(@sqrt(v));
+pub fn math_tan(x: f64) f64 {
+    return @tan(x);
 }
 
-pub fn math_pow_f(base: i64, exp: i64) i64 {
-    const b = f64_from_i64(base);
-    const e = f64_from_i64(exp);
-    return i64_from_f64(std.math.pow(f64, b, e));
+pub fn math_sqrt_f(x: f64) f64 {
+    if (x < 0) return 0.0;
+    return @sqrt(x);
 }
 
-pub fn math_log(x: i64) i64 {
-    const v = f64_from_i64(x);
-    if (v <= 0) return i64_from_f64(0.0);
-    return i64_from_f64(@log(v));
+pub fn math_pow_f(base: f64, exp: f64) f64 {
+    return std.math.pow(f64, base, exp);
 }
 
-pub fn math_log10(x: i64) i64 {
-    const v = f64_from_i64(x);
-    if (v <= 0) return i64_from_f64(0.0);
-    return i64_from_f64(@log10(v));
+pub fn math_log(x: f64) f64 {
+    if (x <= 0) return 0.0;
+    return @log(x);
 }
 
-pub fn math_exp(x: i64) i64 {
-    return i64_from_f64(@exp(f64_from_i64(x)));
+pub fn math_log10(x: f64) f64 {
+    if (x <= 0) return 0.0;
+    return @log10(x);
 }
 
-pub fn math_min_f(a: i64, b: i64) i64 {
-    const fa = f64_from_i64(a);
-    const fb = f64_from_i64(b);
-    return i64_from_f64(if (fa < fb) fa else fb);
+pub fn math_exp(x: f64) f64 {
+    return @exp(x);
 }
 
-pub fn math_max_f(a: i64, b: i64) i64 {
-    const fa = f64_from_i64(a);
-    const fb = f64_from_i64(b);
-    return i64_from_f64(if (fa > fb) fa else fb);
+pub fn math_min_f(a: f64, b: f64) f64 {
+    return if (a < b) a else b;
+}
+
+pub fn math_max_f(a: f64, b: f64) f64 {
+    return if (a > b) a else b;
 }
 
 // ── Convert (float) ───────────────────────────────
 
-pub fn convert_to_float(x: i64) i64 {
-    const f: f64 = @floatFromInt(x);
-    return i64_from_f64(f);
+pub fn convert_to_float(x: i64) f64 {
+    return @floatFromInt(x);
 }
 
-pub fn convert_to_int_f(x: i64) i64 {
-    const f = f64_from_i64(x);
-    return @intFromFloat(f);
+pub fn convert_to_int_f(x: f64) i64 {
+    return @intFromFloat(x);
 }
 
-pub fn float_to_string(val: i64) []const u8 {
-    const f = f64_from_i64(val);
+pub fn float_to_string(val: f64) []const u8 {
     var buf: [64]u8 = undefined;
-    const s = std.fmt.bufPrint(&buf, "{d}", .{f}) catch return "";
+    const s = std.fmt.bufPrint(&buf, "{d}", .{val}) catch return "";
     const result_mem = arena_alloc(s.len) orelse return "";
     const result = @as([*]u8, result_mem);
     @memcpy(result[0..s.len], s);
     return result[0..s.len];
 }
 
-pub fn string_to_float(s: []const u8) i64 {
-    const f = std.fmt.parseFloat(f64, s) catch return i64_from_f64(0.0);
-    return i64_from_f64(f);
+pub fn string_to_float(s: []const u8) f64 {
+    return std.fmt.parseFloat(f64, s) catch 0.0;
 }
 
 // ── Env ────────────────────────────────────────────
