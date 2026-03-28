@@ -55,17 +55,15 @@ pub fn build(b: *std.Build) void {
     });
     test_step.dependOn(&b.addRunArtifact(checker_tests).step);
 
-    // Compile pipeline tests (AST → IR → Zig → binary → run → verify)
-    // Split into 6 files with unique temp paths so they can run in parallel.
-    const compile_test_files = [_][]const u8{
+    // Compile pipeline tests — fast (parallel, ~15s)
+    const fast_compile_tests = [_][]const u8{
         "src/compile_test_basic.zig",
         "src/compile_test_string.zig",
         "src/compile_test_process.zig",
         "src/compile_test_math.zig",
         "src/compile_test_json.zig",
-        "src/compile_test_net.zig",
     };
-    for (compile_test_files) |file| {
+    for (fast_compile_tests) |file| {
         const ct = b.addTest(.{
             .root_module = b.createModule(.{
                 .root_source_file = b.path(file),
@@ -75,4 +73,16 @@ pub fn build(b: *std.Build) void {
         });
         test_step.dependOn(&b.addRunArtifact(ct).step);
     }
+
+    // Network tests — slow (~2 min, TCP/HTTP with socket ops)
+    // Run with: zig build test-net
+    const net_test_step = b.step("test-net", "Run slow network tests (TCP/HTTP)");
+    const net_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/compile_test_net.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    net_test_step.dependOn(&b.addRunArtifact(net_tests).step);
 }
