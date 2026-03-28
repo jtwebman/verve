@@ -12,6 +12,9 @@ pub const Lower = struct {
     struct_decls: std.StringHashMapUnmanaged(ast.StructDecl),
     enum_decls: std.StringHashMapUnmanaged([]const []const u8), // enum name → variant list
     union_decls: std.StringHashMapUnmanaged([]const ast.UnionVariant), // union name → variant list
+    generic_struct_decls: std.StringHashMapUnmanaged(ast.StructDecl), // base name → generic struct def
+    monomorphized: std.StringHashMapUnmanaged(void), // "Pair_int" → () — tracks emitted specializations
+    pending_generic_name: ?[]const u8, // set during assignment to pass monomorphized name to struct literal
     var_types: std.StringHashMapUnmanaged([]const u8), // variable name → type name ("int", "float", "string", "bool", or struct name)
     float_regs: std.AutoHashMapUnmanaged(ir.Reg, void), // registers holding float values
     loop_cond_block: ?ir.BlockId,
@@ -31,6 +34,9 @@ pub const Lower = struct {
             .struct_decls = .{},
             .enum_decls = .{},
             .union_decls = .{},
+            .generic_struct_decls = .{},
+            .monomorphized = .{},
+            .pending_generic_name = null,
             .var_types = .{},
             .float_regs = .{},
             .loop_cond_block = null,
@@ -54,7 +60,14 @@ pub const Lower = struct {
     pub fn lowerFile(self: *Lower, file: ast.File) !ir.Program {
         for (file.decls) |decl| {
             switch (decl) {
-                .struct_decl => |s| try self.struct_decls.put(self.alloc, s.name, s),
+                .struct_decl => |s| {
+                    if (s.type_params.len > 0) {
+                        // Generic struct — store for on-demand instantiation
+                        try self.generic_struct_decls.put(self.alloc, s.name, s);
+                    } else {
+                        try self.struct_decls.put(self.alloc, s.name, s);
+                    }
+                },
                 .process_decl => |p| try self.process_decls.put(self.alloc, p.name, p),
                 .type_decl => |td| {
                     if (td.value == .enum_type) {
@@ -115,6 +128,8 @@ pub const Lower = struct {
         for (file.decls) |decl| {
             switch (decl) {
                 .struct_decl => |s| {
+                    // Skip generic structs — they're instantiated on demand
+                    if (s.type_params.len > 0) continue;
                     var fields = std.ArrayListUnmanaged(ir.StructFieldInfo){};
                     for (s.fields) |f| {
                         const type_name: []const u8 = switch (f.type_expr) {
@@ -228,6 +243,12 @@ pub const Lower = struct {
                 .simple => |tn| {
                     self.var_types.put(self.alloc, p.name, tn) catch {};
                 },
+                .generic => |g| {
+                    if (self.generic_struct_decls.get(g.name) != null) {
+                        const mono_name = self.instantiateGenericStruct(g.name, g.args) catch g.name;
+                        self.var_types.put(self.alloc, p.name, mono_name) catch {};
+                    }
+                },
                 else => {},
             }
         }
@@ -332,7 +353,19 @@ pub const Lower = struct {
                         }
                     }
                 }
+                // If type annotation is generic, instantiate and set context
+                if (a.type_expr) |te| {
+                    if (te == .generic) {
+                        const g = te.generic;
+                        if (self.generic_struct_decls.get(g.name) != null) {
+                            const mono_name = self.instantiateGenericStruct(g.name, g.args) catch g.name;
+                            self.pending_generic_name = mono_name;
+                            self.var_types.put(self.alloc, a.name, mono_name) catch {};
+                        }
+                    }
+                }
                 const reg = self.lowerExpr(a.value);
+                self.pending_generic_name = null;
                 self.appendInst(.{ .store_local = .{ .name = a.name, .src = reg } });
                 if (self.float_regs.get(reg) != null) {
                     self.var_types.put(self.alloc, a.name, "float") catch {};
@@ -343,6 +376,7 @@ pub const Lower = struct {
                 if (a.type_expr) |te| {
                     switch (te) {
                         .simple => |tn| self.var_types.put(self.alloc, a.name, tn) catch {},
+                        .generic => {}, // already handled above
                         else => {},
                     }
                 }
@@ -631,6 +665,91 @@ pub const Lower = struct {
         if (std.mem.eql(u8, tag_name, "error")) return 1;
         if (std.mem.eql(u8, tag_name, "eof")) return 2;
         return -1;
+    }
+
+    // ── Generic struct monomorphization ────────────────────
+
+    /// Generate a monomorphized name like "Pair_int" or "Entry_string_int"
+    fn monomorphKey(self: *Lower, base_name: []const u8, type_args: []const ast.TypeExpr) []const u8 {
+        var buf = std.ArrayListUnmanaged(u8){};
+        buf.appendSlice(self.alloc, base_name) catch return base_name;
+        for (type_args) |arg| {
+            buf.appendSlice(self.alloc, "_") catch {};
+            buf.appendSlice(self.alloc, self.typeExprName(arg)) catch {};
+        }
+        return buf.toOwnedSlice(self.alloc) catch base_name;
+    }
+
+    /// Get a simple string name for a type expression
+    fn typeExprName(self: *Lower, te: ast.TypeExpr) []const u8 {
+        return switch (te) {
+            .simple => |name| name,
+            .generic => |g| self.monomorphKey(g.name, g.args),
+            else => "unknown",
+        };
+    }
+
+    /// Resolve a field type expression by substituting type parameters.
+    /// If type_expr is `.simple` and matches a type param name, substitute with the arg.
+    fn resolveFieldTypeName(self: *Lower, type_expr: ast.TypeExpr, type_params: []const []const u8, type_args: []const ast.TypeExpr) []const u8 {
+        switch (type_expr) {
+            .simple => |name| {
+                for (type_params, 0..) |param, i| {
+                    if (std.mem.eql(u8, name, param) and i < type_args.len) {
+                        return self.typeExprName(type_args[i]);
+                    }
+                }
+                return name;
+            },
+            else => return "unknown",
+        }
+    }
+
+    /// Instantiate a generic struct with concrete type args. Returns the monomorphized name.
+    fn instantiateGenericStruct(self: *Lower, base_name: []const u8, type_args: []const ast.TypeExpr) ![]const u8 {
+        const key = self.monomorphKey(base_name, type_args);
+
+        // Already instantiated?
+        if (self.monomorphized.get(key) != null) return key;
+
+        const generic_def = self.generic_struct_decls.get(base_name) orelse return base_name;
+
+        // Build resolved fields
+        var fields = std.ArrayListUnmanaged(ir.StructFieldInfo){};
+        for (generic_def.fields) |f| {
+            const resolved_type = self.resolveFieldTypeName(f.type_expr, generic_def.type_params, type_args);
+            try fields.append(self.alloc, .{ .name = f.name, .type_name = resolved_type });
+        }
+
+        // Emit the specialized StructInfo to IR
+        try self.program.struct_decls.append(self.alloc, .{
+            .name = key,
+            .fields = try fields.toOwnedSlice(self.alloc),
+        });
+
+        // Create a synthetic AST StructDecl for the lowerer's struct_decls map
+        // (needed for field access resolution)
+        var ast_fields = std.ArrayListUnmanaged(ast.Field){};
+        for (generic_def.fields) |f| {
+            const resolved_type = self.resolveFieldTypeName(f.type_expr, generic_def.type_params, type_args);
+            try ast_fields.append(self.alloc, .{
+                .name = f.name,
+                .type_expr = .{ .simple = resolved_type },
+                .default_value = f.default_value,
+                .span = f.span,
+            });
+        }
+        const mono_decl = ast.StructDecl{
+            .name = key,
+            .fields = try ast_fields.toOwnedSlice(self.alloc),
+            .type_params = &.{},
+            .exported = generic_def.exported,
+            .span = generic_def.span,
+        };
+        try self.struct_decls.put(self.alloc, key, mono_decl);
+        try self.monomorphized.put(self.alloc, key, {});
+
+        return key;
     }
 
     fn isStringExpr(self: *Lower, expr: ast.Expr) bool {
@@ -1067,15 +1186,21 @@ pub const Lower = struct {
                 return dest;
             },
             .struct_literal => |sl| {
-                const base = func.newReg();
-                self.appendInst(.{ .struct_alloc = .{ .dest = base, .struct_name = sl.name } });
+                // Resolve name: use monomorphized name for generic structs
+                const struct_name = if (self.generic_struct_decls.get(sl.name) != null)
+                    (self.pending_generic_name orelse sl.name)
+                else
+                    sl.name;
 
-                if (self.struct_decls.get(sl.name)) |d| {
+                const base = func.newReg();
+                self.appendInst(.{ .struct_alloc = .{ .dest = base, .struct_name = struct_name } });
+
+                if (self.struct_decls.get(struct_name)) |d| {
                     for (d.fields) |df| {
                         for (sl.fields) |lf| {
                             if (std.mem.eql(u8, lf.name, df.name)) {
                                 const val_reg = self.lowerExpr(lf.value);
-                                self.appendInst(.{ .struct_store = .{ .base = base, .struct_name = sl.name, .field_name = df.name, .src = val_reg } });
+                                self.appendInst(.{ .struct_store = .{ .base = base, .struct_name = struct_name, .field_name = df.name, .src = val_reg } });
                                 break;
                             }
                         }
@@ -1083,7 +1208,7 @@ pub const Lower = struct {
                 } else {
                     for (sl.fields) |lf| {
                         const val_reg = self.lowerExpr(lf.value);
-                        self.appendInst(.{ .struct_store = .{ .base = base, .struct_name = sl.name, .field_name = lf.name, .src = val_reg } });
+                        self.appendInst(.{ .struct_store = .{ .base = base, .struct_name = struct_name, .field_name = lf.name, .src = val_reg } });
                     }
                 }
                 return base;

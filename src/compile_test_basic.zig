@@ -555,3 +555,121 @@ test "compile: existing Result match still works" {
     try testing.expectEqual(@as(u8, 0), r.exit);
     try testing.expectEqualStrings("ok\n", r.stdout);
 }
+
+// ════════════════════════════════════════════════════════════
+// Generic Structs (Monomorphization)
+// ════════════════════════════════════════════════════════════
+
+test "compile: generic struct int" {
+    try testing.expectEqual(@as(u8, 3), try compileAndRun(
+        \\struct Pair<T> { first: T = 0; second: T = 0; }
+        \\module App { fn main(args: list<string>) -> int {
+        \\    p: Pair<int> = Pair { first: 1, second: 2 };
+        \\    return p.first + p.second;
+        \\} }
+    ));
+}
+
+test "compile: generic struct string" {
+    const r = try compileAndCapture(
+        \\struct Wrapper<T> { value: T = ""; }
+        \\module App { fn main(args: list<string>) -> int {
+        \\    w: Wrapper<string> = Wrapper { value: "hello" };
+        \\    Stdio.println(w.value);
+        \\    return 0;
+        \\} }
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("hello\n", r.stdout);
+}
+
+test "compile: two instantiations of same generic" {
+    try testing.expectEqual(@as(u8, 7), try compileAndRun(
+        \\struct Box<T> { value: T = 0; }
+        \\module App { fn main(args: list<string>) -> int {
+        \\    a: Box<int> = Box { value: 3 };
+        \\    b: Box<int> = Box { value: 4 };
+        \\    return a.value + b.value;
+        \\} }
+    ));
+}
+
+test "compile: generic struct passed to function" {
+    try testing.expectEqual(@as(u8, 5), try compileAndRun(
+        \\struct Pair<T> { first: T = 0; second: T = 0; }
+        \\module App {
+        \\    fn sum(p: Pair<int>) -> int { return p.first + p.second; }
+        \\    fn main(args: list<string>) -> int {
+        \\        p: Pair<int> = Pair { first: 2, second: 3 };
+        \\        return sum(p);
+        \\    }
+        \\}
+    ));
+}
+
+test "compile: generic struct multiple type params" {
+    try testing.expectEqual(@as(u8, 42), try compileAndRun(
+        \\struct Entry<K, V> { key: K = 0; value: V = 0; }
+        \\module App { fn main(args: list<string>) -> int {
+        \\    e: Entry<int, int> = Entry { key: 10, value: 32 };
+        \\    return e.key + e.value;
+        \\} }
+    ));
+}
+
+test "compile: generic struct with float" {
+    try testing.expectEqual(@as(u8, 7), try compileAndRun(
+        \\struct Box<T> { value: T = 0.0; }
+        \\module App { fn main(args: list<string>) -> int {
+        \\    b: Box<float> = Box { value: 7.5 };
+        \\    x: int = Convert.to_int_f(b.value);
+        \\    return x;
+        \\} }
+    ));
+}
+
+test "compile: generic struct with bool" {
+    try testing.expectEqual(@as(u8, 1), try compileAndRun(
+        \\struct Flag<T> { value: T = false; }
+        \\module App { fn main(args: list<string>) -> int {
+        \\    f: Flag<bool> = Flag { value: true };
+        \\    if f.value { return 1; }
+        \\    return 0;
+        \\} }
+    ));
+}
+
+test "compile: generic struct default values" {
+    try testing.expectEqual(@as(u8, 0), try compileAndRun(
+        \\struct Pair<T> { first: T = 0; second: T = 0; }
+        \\module App { fn main(args: list<string>) -> int {
+        \\    p: Pair<int> = Pair {};
+        \\    return p.first + p.second;
+        \\} }
+    ));
+}
+
+test "compile: generic struct field reassignment" {
+    try testing.expectEqual(@as(u8, 10), try compileAndRun(
+        \\struct Box<T> { value: T = 0; }
+        \\module App { fn main(args: list<string>) -> int {
+        \\    b: Box<int> = Box { value: 5 };
+        \\    return b.value + b.value;
+        \\} }
+    ));
+}
+
+test "compile: different generic instantiations in same program" {
+    const r = try compileAndCapture(
+        \\struct Box<T> { value: T = 0; }
+        \\module App { fn main(args: list<string>) -> int {
+        \\    a: Box<int> = Box { value: 42 };
+        \\    b: Box<string> = Box { value: "hello" };
+        \\    Stdio.println(a.value);
+        \\    Stdio.println(b.value);
+        \\    return 0;
+        \\} }
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("42\nhello\n", r.stdout);
+}
