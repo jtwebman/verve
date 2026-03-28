@@ -754,7 +754,7 @@ pub const Lower = struct {
 
     fn isStringExpr(self: *Lower, expr: ast.Expr) bool {
         return switch (expr) {
-            .string_literal => true,
+            .string_literal, .string_interp => true,
             .identifier => |name| self.isVarString(name),
             .field_access => |fa| self.isStringFieldAccess(fa),
             .call => |c| {
@@ -821,6 +821,51 @@ pub const Lower = struct {
                 const dest = func.newReg();
                 self.appendInst(.{ .const_string = .{ .dest = dest, .value = v } });
                 return dest;
+            },
+            .string_interp => |si| {
+                // Lower each part to a string, then concat them all
+                var result: ?ir.Reg = null;
+                for (si.parts) |part| {
+                    const part_reg = switch (part) {
+                        .literal => |lit| blk: {
+                            const r = func.newReg();
+                            self.appendInst(.{ .const_string = .{ .dest = r, .value = lit } });
+                            break :blk r;
+                        },
+                        .expr => |e| blk: {
+                            const r = self.lowerExpr(e);
+                            // Convert non-string values to string
+                            if (!self.isStringExpr(e)) {
+                                const conv = func.newReg();
+                                if (self.float_regs.get(r) != null or e == .float_literal or
+                                    (e == .identifier and self.isVarFloat(e.identifier)))
+                                {
+                                    self.appendInst(.{ .call_builtin = .{ .dest = conv, .name = "float_to_string", .args = self.allocRegs(&.{r}) } });
+                                } else if (e == .bool_literal or
+                                    (e == .identifier and self.isVarBool(e.identifier)))
+                                {
+                                    self.appendInst(.{ .call_builtin = .{ .dest = conv, .name = "bool_to_string", .args = self.allocRegs(&.{r}) } });
+                                } else {
+                                    self.appendInst(.{ .call_builtin = .{ .dest = conv, .name = "int_to_string", .args = self.allocRegs(&.{r}) } });
+                                }
+                                break :blk conv;
+                            }
+                            break :blk r;
+                        },
+                    };
+                    if (result) |prev| {
+                        const concat = func.newReg();
+                        self.appendInst(.{ .call_builtin = .{ .dest = concat, .name = "string_concat", .args = self.allocRegs(&.{ prev, part_reg }) } });
+                        result = concat;
+                    } else {
+                        result = part_reg;
+                    }
+                }
+                return result orelse blk: {
+                    const empty = func.newReg();
+                    self.appendInst(.{ .const_string = .{ .dest = empty, .value = "" } });
+                    break :blk empty;
+                };
             },
             .tag => |tag_name| {
                 // Look up the variant index across all enum declarations
@@ -1290,6 +1335,17 @@ pub const Lower = struct {
     fn isVarFloat(self: *Lower, name: []const u8) bool {
         const t = self.var_types.get(name) orelse return false;
         return std.mem.eql(u8, t, "float");
+    }
+
+    fn isVarBool(self: *Lower, name: []const u8) bool {
+        const t = self.var_types.get(name) orelse return false;
+        return std.mem.eql(u8, t, "bool");
+    }
+
+    fn allocRegs(self: *Lower, regs: []const ir.Reg) []const ir.Reg {
+        const slice = self.alloc.alloc(ir.Reg, regs.len) catch return &.{};
+        @memcpy(slice, regs);
+        return slice;
     }
 
     fn isStringFieldAccess(self: *Lower, fa: ast.FieldAccess) bool {

@@ -395,6 +395,7 @@ pub const ZigBackend = struct {
         .{ "set_has", S{ .rt_name = "!" } },
         .{ "set_has_str", S{ .rt_name = "!" } },
         .{ "string_len", S{ .module = "string", .rt_name = "!" } },
+        .{ "bool_to_string", S{ .rt_name = "!", .min_args = 1, .returns = .string } },
         .{ "assert_check", S{ .rt_name = "!", .void_result = true } },
         .{ "json_build_add_bool", S{ .module = "json", .rt_name = "!", .void_result = true } },
     });
@@ -1291,6 +1292,8 @@ pub const ZigBackend = struct {
             if (args.len >= 2) self.lineFmt("{{ const list = @as(*const rt.List, @ptrFromInt({s})); var found: i64 = 0; var si: i64 = 0; while (si < list.len) : (si += 1) {{ if (list.get(si) == {s}) {{ found = 1; break; }} }} {s} = found; }}", .{ self.regName(args[0]), self.regName(args[1]), self.regName(dest) });
         } else if (std.mem.eql(u8, name, "string_len")) {
             if (args.len >= 1) self.lineFmt("{s} = @intCast({s}.len);", .{ self.regName(dest), self.regName(args[0]) });
+        } else if (std.mem.eql(u8, name, "bool_to_string")) {
+            if (args.len >= 1) self.lineFmt("{s} = if ({s}) \"true\" else \"false\";", .{ self.regName(dest), self.regName(args[0]) });
         } else if (std.mem.eql(u8, name, "assert_check")) {
             if (args.len >= 1) {
                 if (getRegType(reg_types, args[0]) == .boolean) {

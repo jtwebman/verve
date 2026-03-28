@@ -422,3 +422,92 @@ test "compile: struct string field length tracked (no strlen)" {
     try testing.expectEqual(@as(u8, 0), r.exit);
     try testing.expectEqualStrings("6\n5\n", r.stdout);
 }
+
+// ════════════════════════════════════════════════════════════
+// String Interpolation
+// ════════════════════════════════════════════════════════════
+
+test "compile: string interpolation with variable" {
+    const r = try compileAndCapture(
+        \\module App { fn main(args: list<string>) -> int {
+        \\    name: string = "world";
+        \\    Stdio.println("hello ${name}");
+        \\    return 0;
+        \\} }
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("hello world\n", r.stdout);
+}
+
+test "compile: string interpolation with int expression" {
+    const r = try compileAndCapture(
+        \\module App { fn main(args: list<string>) -> int {
+        \\    x: int = 42;
+        \\    Stdio.println("value is ${x}");
+        \\    return 0;
+        \\} }
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("value is 42\n", r.stdout);
+}
+
+test "compile: string interpolation with arithmetic" {
+    const r = try compileAndCapture(
+        \\module App { fn main(args: list<string>) -> int {
+        \\    Stdio.println("1 + 1 = ${1 + 1}");
+        \\    return 0;
+        \\} }
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("1 + 1 = 2\n", r.stdout);
+}
+
+test "compile: string interpolation multiple parts" {
+    const r = try compileAndCapture(
+        \\module App { fn main(args: list<string>) -> int {
+        \\    a: string = "hello";
+        \\    b: string = "world";
+        \\    Stdio.println("${a} ${b}!");
+        \\    return 0;
+        \\} }
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("hello world!\n", r.stdout);
+}
+
+test "compile: string interpolation assigned to variable" {
+    const r = try compileAndCapture(
+        \\module App { fn main(args: list<string>) -> int {
+        \\    name: string = "verve";
+        \\    msg: string = "lang: ${name}";
+        \\    Stdio.println(msg);
+        \\    return 0;
+        \\} }
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("lang: verve\n", r.stdout);
+}
+
+test "compile: string interpolation empty string parts" {
+    const r = try compileAndCapture(
+        \\module App { fn main(args: list<string>) -> int {
+        \\    x: int = 7;
+        \\    Stdio.println("${x}");
+        \\    return 0;
+        \\} }
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("7\n", r.stdout);
+}
+
+test "compile: string interpolation with bool" {
+    const r = try compileAndCapture(
+        \\module App { fn main(args: list<string>) -> int {
+        \\    x: bool = true;
+        \\    Stdio.println("flag: ${x}");
+        \\    return 0;
+        \\} }
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("flag: true\n", r.stdout);
+}
