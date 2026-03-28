@@ -320,6 +320,7 @@ pub const ZigBackend = struct {
     const rt_tcp_source = @embedFile("runtime/tcp.zig");
     const rt_http_source = @embedFile("runtime/http.zig");
     const rt_process_source = @embedFile("runtime/process.zig");
+    const rt_profile_source = @embedFile("runtime/profile.zig");
 
     pub fn emit(self: *ZigBackend, program: ir.Program) void {
         self.program = program;
@@ -1291,6 +1292,7 @@ pub const ZigBackend = struct {
             .{ "tcp.zig", rt_tcp_source },
             .{ "http.zig", rt_http_source },
             .{ "process.zig", rt_process_source },
+            .{ "profile.zig", rt_profile_source },
         };
         inline for (rt_files) |entry| {
             const rt_path = try std.fmt.allocPrint(self.alloc, "{s}/{s}", .{ rt_dir, entry[0] });
@@ -1302,7 +1304,7 @@ pub const ZigBackend = struct {
         const emit_flag = try std.fmt.allocPrint(self.alloc, "-femit-bin={s}", .{output_path});
         const cache_dir = try std.fmt.allocPrint(self.alloc, "{s}_cache", .{output_path});
         var child = std.process.Child.init(
-            &.{ zig_path, "build-exe", src_path, emit_flag, "--cache-dir", cache_dir },
+            &.{ zig_path, "build-exe", "-OReleaseFast", src_path, emit_flag, "--cache-dir", cache_dir },
             self.alloc,
         );
         child.stderr_behavior = .Pipe;

@@ -31,6 +31,9 @@ pub fn toStream(ptr: i64) ?*VerveStream {
 }
 
 pub fn stream_write(stream_ptr: i64, data: []const u8) void {
+    const t = rt.profile.begin();
+    defer rt.profile.end(.write, t);
+
     const s = toStream(stream_ptr) orelse return;
     if (s.closed) return;
     switch (s.kind) {
@@ -136,6 +139,9 @@ pub fn stream_read_all_new(stream_ptr: i64) []const u8 {
 }
 
 pub fn stream_close(stream_ptr: i64) void {
+    const t = rt.profile.begin();
+    defer rt.profile.end(.close, t);
+
     const s = toStream(stream_ptr) orelse return;
     if (s.closed) return;
     s.closed = true;
@@ -151,6 +157,9 @@ pub fn stream_close(stream_ptr: i64) void {
 
 /// Read up to `max_bytes` from a stream. Returns []const u8.
 pub fn stream_read_bytes(stream_ptr: i64, max: i64) []const u8 {
+    const t = rt.profile.begin();
+    defer rt.profile.end(.read, t);
+
     const s = toStream(stream_ptr) orelse return "";
     if (s.closed) return "";
     const max_usize: usize = @intCast(@as(u64, @bitCast(max)));

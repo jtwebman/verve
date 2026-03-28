@@ -63,6 +63,9 @@ pub fn tcp_listen(host: []const u8, port: i64) i64 {
 }
 
 pub fn tcp_accept(listener_ptr: i64) i64 {
+    const t = rt.profile.begin();
+    defer rt.profile.end(.accept, t);
+
     const listener = io.toStream(listener_ptr) orelse return rt.makeTagged(1, 0);
     if (listener.closed or listener.kind != .tcp_listener) return rt.makeTagged(1, 0);
 

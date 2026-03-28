@@ -10,6 +10,7 @@ pub const io = @import("io.zig");
 pub const tcp = @import("tcp.zig");
 pub const http = @import("http.zig");
 pub const process = @import("process.zig");
+pub const profile = @import("profile.zig");
 
 // ── Constants ──────────────────────────────────────
 pub const MAILBOX_BUF_SIZE = 64 * 1024; // 64KB byte ring buffer per process
@@ -25,6 +26,9 @@ pub const ArgType = enum(u8) { int = 0, float = 1, boolean = 2, string = 3, stri
 /// Must be called at program startup. Ignores SIGPIPE so writing to a closed
 /// socket returns an error instead of killing the process.
 pub fn verve_runtime_init() void {
+    // Initialize profiler (enabled via VERVE_PROFILE=1 env var)
+    profile.init();
+
     // Initialize dynamic process table
     process.ensureProcessCapacity(MAX_PROCESSES);
 
@@ -34,6 +38,15 @@ pub fn verve_runtime_init() void {
         .flags = 0,
     };
     std.posix.sigaction(std.posix.SIG.PIPE, &act, null);
+
+    // Dump profile on SIGTERM/SIGINT before exit
+    const term_act = std.posix.Sigaction{
+        .handler = .{ .handler = handleShutdown },
+        .mask = std.posix.sigemptyset(),
+        .flags = 0,
+    };
+    std.posix.sigaction(std.posix.SIG.TERM, &term_act, null);
+    std.posix.sigaction(std.posix.SIG.INT, &term_act, null);
 }
 
 /// Convert i64 pair (ptr, len) back to []const u8 — used at struct boundaries.
@@ -98,7 +111,13 @@ pub fn env_get(name: []const u8) []const u8 {
 
 // ── System ─────────────────────────────────────────
 
+fn handleShutdown(_: i32) callconv(.c) void {
+    profile.dump();
+    std.process.exit(0);
+}
+
 pub fn system_exit(code: i64) noreturn {
+    profile.dump();
     std.process.exit(@intCast(@as(u64, @bitCast(code))));
 }
 

@@ -61,6 +61,9 @@ pub const HttpRequest = struct {
 };
 
 pub fn http_parse_request(data: []const u8) i64 {
+    const t = rt.profile.begin();
+    defer rt.profile.end(.parse_http, t);
+
     const src = data;
     if (src.len < 10) return 0;
 
@@ -159,6 +162,9 @@ pub fn http_req_header(req_ptr: i64, name: []const u8) []const u8 {
 
 /// Build an HTTP response. Returns the full response as []const u8.
 pub fn http_build_response(status: i64, ct: []const u8, body: []const u8) []const u8 {
+    const t = rt.profile.begin();
+    defer rt.profile.end(.build_response, t);
+
     var b = json.JsonBuilder.init();
     b.append("HTTP/1.1 ");
     var status_buf: [4]u8 = undefined;

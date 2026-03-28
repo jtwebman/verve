@@ -110,6 +110,9 @@ pub fn pidx(pid: i64) usize {
 // ── Process operations ─────────────────────────────
 
 pub fn verve_spawn(process_type: i64) i64 {
+    const t = rt.profile.begin();
+    defer rt.profile.end(.spawn, t);
+
     ensureProcessCapacity(1); // ensure table exists
     // Find a slot: prefer recycling dead processes, then use new slot
     var idx: usize = process_table.len; // sentinel: not found
@@ -193,6 +196,9 @@ pub fn verve_exit_self() void {
 // ── Message passing ────────────────────────────────
 
 pub fn verve_drain(target_pid: i64) void {
+    const t = rt.profile.begin();
+    defer rt.profile.end(.drain, t);
+
     const idx = pidx(target_pid);
     const proc = &process_table[idx];
     var pop_buf: [8192]u8 = undefined;
