@@ -259,6 +259,7 @@ pub const Expr = union(enum) {
     bool_literal: bool,
     identifier: []const u8,
     tag: []const u8, // :ok, :error, :USD
+    tagged_value: TaggedValue, // :ok{42}, :circle{5.0}
     field_access: FieldAccess,
     index_access: IndexAccess,
     binary_op: BinaryOp,
@@ -269,6 +270,11 @@ pub const Expr = union(enum) {
     match_expr: *const MatchStmt,
     none_literal: void,
     void_literal: void,
+};
+
+pub const TaggedValue = struct {
+    tag: []const u8,
+    value: ?*const Expr, // null for bare tag variants like :red{}
 };
 
 pub const FieldAccess = struct {

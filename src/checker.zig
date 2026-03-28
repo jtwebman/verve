@@ -464,6 +464,19 @@ pub const Checker = struct {
                                             if (covered.get(variant) == null) all_covered = false;
                                         }
                                         if (all_covered) proven_exhaustive = true;
+                                    } else if (td.value == .union_type) {
+                                        var all_covered = true;
+                                        var covered: std.StringHashMapUnmanaged(void) = .{};
+                                        for (m.arms) |arm| {
+                                            switch (arm.pattern) {
+                                                .tag => |t| covered.put(self.alloc, t.tag, {}) catch {},
+                                                else => {},
+                                            }
+                                        }
+                                        for (td.value.union_type) |variant| {
+                                            if (covered.get(variant.tag) == null) all_covered = false;
+                                        }
+                                        if (all_covered) proven_exhaustive = true;
                                     }
                                 }
                             }
@@ -582,6 +595,9 @@ pub const Checker = struct {
                 }
             },
             .tag, .none_literal, .void_literal => {},
+            .tagged_value => |tv| {
+                if (tv.value) |v| try self.checkExpr(v.*);
+            },
             .identifier => |name| {
                 // Check built-in functions
                 if (std.mem.eql(u8, name, "list") or

@@ -637,7 +637,24 @@ pub const Parser = struct {
         const c = self.source[self.pos];
 
         if (c == '"') return try self.parseStringOrInterp();
-        if (c == ':') return .{ .tag = try self.parseTag() };
+        if (c == ':') {
+            const tag_name = try self.parseTag();
+            if (self.pos < self.source.len and self.source[self.pos] == '{') {
+                self.pos += 1;
+                self.skipWhitespaceAndComments();
+                if (self.pos < self.source.len and self.source[self.pos] == '}') {
+                    // Bare tag variant: :red{}
+                    self.pos += 1;
+                    return .{ .tagged_value = .{ .tag = tag_name, .value = null } };
+                }
+                const inner = try self.parseExpr();
+                const inner_ptr = try self.alloc.create(ast.Expr);
+                inner_ptr.* = inner;
+                try self.expectChar('}');
+                return .{ .tagged_value = .{ .tag = tag_name, .value = inner_ptr } };
+            }
+            return .{ .tag = tag_name };
+        }
 
         if (std.ascii.isDigit(c)) {
             const num_start = self.pos;

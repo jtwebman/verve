@@ -74,6 +74,7 @@ pub const Inst = union(enum) {
     // ── Tagged values ────────────────────────────────────
     tag_get: struct { dest: Reg, tagged: Reg },
     tag_value: struct { dest: Reg, tagged: Reg },
+    tag_value_str: struct { dest: Reg, tagged: Reg }, // extract string from tagged value
 
     // ── Calls ───────────────────────────────────────────
     /// Call a user-defined function.
@@ -216,10 +217,28 @@ pub const StructInfo = struct {
     fields: []const StructFieldInfo,
 };
 
+pub const EnumInfo = struct {
+    name: []const u8,
+    variants: []const []const u8,
+};
+
+pub const UnionVariantInfo = struct {
+    tag: []const u8,
+    has_value: bool,
+    value_type: []const u8, // "int", "float", "string", "bool", or struct name
+};
+
+pub const UnionInfo = struct {
+    name: []const u8,
+    variants: []const UnionVariantInfo,
+};
+
 pub const Program = struct {
     functions: std.ArrayListUnmanaged(Function),
     process_decls: std.ArrayListUnmanaged(ProcessInfo),
     struct_decls: std.ArrayListUnmanaged(StructInfo),
+    enum_decls: std.ArrayListUnmanaged(EnumInfo),
+    union_decls: std.ArrayListUnmanaged(UnionInfo),
     test_names: std.ArrayListUnmanaged([]const u8), // "addition works"
     test_modules: std.ArrayListUnmanaged([]const u8), // "Math"
     test_fn_names: std.ArrayListUnmanaged([]const u8), // "__test_0"
@@ -232,6 +251,8 @@ pub const Program = struct {
             .functions = .{},
             .process_decls = .{},
             .struct_decls = .{},
+            .enum_decls = .{},
+            .union_decls = .{},
             .test_names = .{},
             .test_modules = .{},
             .test_fn_names = .{},

@@ -282,3 +282,276 @@ test "compile: File.open success" {
     try testing.expectEqual(@as(u8, 0), r.exit);
     try testing.expectEqualStrings("ok\n", r.stdout);
 }
+
+// ════════════════════════════════════════════════════════════
+// Enums
+// ════════════════════════════════════════════════════════════
+
+test "compile: enum match" {
+    try testing.expectEqual(@as(u8, 20), try compileAndRun(
+        \\type Color = enum { Red, Green, Blue };
+        \\module App { fn main(args: list<string>) -> int {
+        \\    c: Color = :Green;
+        \\    match c { :Red => return 10; :Green => return 20; :Blue => return 30; }
+        \\} }
+    ));
+}
+
+test "compile: enum comparison" {
+    try testing.expectEqual(@as(u8, 1), try compileAndRun(
+        \\type Dir = enum { Up, Down };
+        \\module App { fn main(args: list<string>) -> int {
+        \\    a: Dir = :Up;
+        \\    b: Dir = :Up;
+        \\    if a == b { return 1; }
+        \\    return 0;
+        \\} }
+    ));
+}
+
+test "compile: enum in struct" {
+    try testing.expectEqual(@as(u8, 2), try compileAndRun(
+        \\type Currency = enum { USD, EUR, GBP };
+        \\struct Account { currency: Currency = :USD; }
+        \\module App { fn main(args: list<string>) -> int {
+        \\    a: Account = Account { currency: :GBP };
+        \\    match a.currency { :USD => return 0; :EUR => return 1; :GBP => return 2; }
+        \\} }
+    ));
+}
+
+test "compile: enum inequality" {
+    try testing.expectEqual(@as(u8, 1), try compileAndRun(
+        \\type Color = enum { Red, Green, Blue };
+        \\module App { fn main(args: list<string>) -> int {
+        \\    a: Color = :Red;
+        \\    b: Color = :Blue;
+        \\    if a != b { return 1; }
+        \\    return 0;
+        \\} }
+    ));
+}
+
+test "compile: enum match wildcard" {
+    try testing.expectEqual(@as(u8, 99), try compileAndRun(
+        \\type Suit = enum { Hearts, Diamonds, Clubs, Spades };
+        \\module App { fn main(args: list<string>) -> int {
+        \\    s: Suit = :Clubs;
+        \\    match s { :Hearts => return 1; _ => return 99; }
+        \\} }
+    ));
+}
+
+test "compile: enum first variant" {
+    try testing.expectEqual(@as(u8, 0), try compileAndRun(
+        \\type Color = enum { Red, Green, Blue };
+        \\module App { fn main(args: list<string>) -> int {
+        \\    c: Color = :Red;
+        \\    match c { :Red => return 0; :Green => return 1; :Blue => return 2; }
+        \\} }
+    ));
+}
+
+test "compile: enum last variant" {
+    try testing.expectEqual(@as(u8, 2), try compileAndRun(
+        \\type Color = enum { Red, Green, Blue };
+        \\module App { fn main(args: list<string>) -> int {
+        \\    c: Color = :Blue;
+        \\    match c { :Red => return 0; :Green => return 1; :Blue => return 2; }
+        \\} }
+    ));
+}
+
+test "compile: enum struct default field" {
+    try testing.expectEqual(@as(u8, 0), try compileAndRun(
+        \\type Currency = enum { USD, EUR, GBP };
+        \\struct Account { currency: Currency = :USD; balance: int = 0; }
+        \\module App { fn main(args: list<string>) -> int {
+        \\    a: Account = Account {};
+        \\    match a.currency { :USD => return 0; :EUR => return 1; :GBP => return 2; }
+        \\} }
+    ));
+}
+
+test "compile: enum passed to function" {
+    try testing.expectEqual(@as(u8, 10), try compileAndRun(
+        \\type Color = enum { Red, Green, Blue };
+        \\module App {
+        \\    fn color_value(c: Color) -> int { match c { :Red => return 10; :Green => return 20; :Blue => return 30; } }
+        \\    fn main(args: list<string>) -> int { c: Color = :Red; return color_value(c); }
+        \\}
+    ));
+}
+
+test "compile: enum returned from function" {
+    try testing.expectEqual(@as(u8, 20), try compileAndRun(
+        \\type Color = enum { Red, Green, Blue };
+        \\module App {
+        \\    fn pick() -> int { c: Color = :Green; return c; }
+        \\    fn main(args: list<string>) -> int {
+        \\        c: Color = :Green;
+        \\        match c { :Red => return 10; :Green => return 20; :Blue => return 30; }
+        \\    }
+        \\}
+    ));
+}
+
+test "compile: two enum types" {
+    try testing.expectEqual(@as(u8, 11), try compileAndRun(
+        \\type Color = enum { Red, Green, Blue };
+        \\type Size = enum { Small, Medium, Large };
+        \\module App { fn main(args: list<string>) -> int {
+        \\    c: Color = :Red;
+        \\    s: Size = :Medium;
+        \\    x: int = 0;
+        \\    match c { :Red => { x = 10; } :Green => { x = 20; } :Blue => { x = 30; } }
+        \\    match s { :Small => { x = x + 0; } :Medium => { x = x + 1; } :Large => { x = x + 2; } }
+        \\    return x;
+        \\} }
+    ));
+}
+
+test "compile: enum in if condition" {
+    try testing.expectEqual(@as(u8, 42), try compileAndRun(
+        \\type Toggle = enum { On, Off };
+        \\module App { fn main(args: list<string>) -> int {
+        \\    t: Toggle = :On;
+        \\    if t == :On { return 42; }
+        \\    return 0;
+        \\} }
+    ));
+}
+
+test "compile: enum reassignment" {
+    try testing.expectEqual(@as(u8, 30), try compileAndRun(
+        \\type Color = enum { Red, Green, Blue };
+        \\module App { fn main(args: list<string>) -> int {
+        \\    c: Color = :Red;
+        \\    c = :Blue;
+        \\    match c { :Red => return 10; :Green => return 20; :Blue => return 30; }
+        \\} }
+    ));
+}
+
+test "compile: enum many variants" {
+    try testing.expectEqual(@as(u8, 6), try compileAndRun(
+        \\type Day = enum { Mon, Tue, Wed, Thu, Fri, Sat, Sun };
+        \\module App { fn main(args: list<string>) -> int {
+        \\    d: Day = :Sun;
+        \\    match d { :Mon => return 0; :Tue => return 1; :Wed => return 2; :Thu => return 3; :Fri => return 4; :Sat => return 5; :Sun => return 6; }
+        \\} }
+    ));
+}
+
+// ════════════════════════════════════════════════════════════
+// Tagged Unions
+// ════════════════════════════════════════════════════════════
+
+test "compile: tagged union construct and match" {
+    try testing.expectEqual(@as(u8, 42), try compileAndRun(
+        \\type Shape = union { :circle { radius: int }; :rect { side: int }; };
+        \\module App { fn main(args: list<string>) -> int {
+        \\    s: Shape = :circle{42};
+        \\    match s { :circle{r} => return r; :rect{s} => return s; }
+        \\} }
+    ));
+}
+
+test "compile: tagged union second variant" {
+    try testing.expectEqual(@as(u8, 7), try compileAndRun(
+        \\type Shape = union { :circle { radius: int }; :rect { side: int }; };
+        \\module App { fn main(args: list<string>) -> int {
+        \\    s: Shape = :rect{7};
+        \\    match s { :circle{r} => return r; :rect{side} => return side; }
+        \\} }
+    ));
+}
+
+test "compile: tagged union bare tag" {
+    try testing.expectEqual(@as(u8, 1), try compileAndRun(
+        \\type Light = union { :red {}; :yellow {}; :green {}; };
+        \\module App { fn main(args: list<string>) -> int {
+        \\    l: Light = :yellow{};
+        \\    match l { :red{} => return 0; :yellow{} => return 1; :green{} => return 2; }
+        \\} }
+    ));
+}
+
+test "compile: tagged union wildcard" {
+    try testing.expectEqual(@as(u8, 99), try compileAndRun(
+        \\type Shape = union { :circle { radius: int }; :rect { side: int }; };
+        \\module App { fn main(args: list<string>) -> int {
+        \\    s: Shape = :rect{5};
+        \\    match s { :circle{r} => return r; _ => return 99; }
+        \\} }
+    ));
+}
+
+test "compile: tagged union with string value" {
+    const r = try compileAndCapture(
+        \\type Msg = union { :text { content: string }; :num { value: int }; };
+        \\module App { fn main(args: list<string>) -> int {
+        \\    m: Msg = :text{"hello"};
+        \\    match m { :text{s} => { Stdio.println(s); return 0; } :num{n} => return n; }
+        \\} }
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("hello\n", r.stdout);
+}
+
+test "compile: two tagged union types" {
+    try testing.expectEqual(@as(u8, 15), try compileAndRun(
+        \\type Shape = union { :circle { radius: int }; :rect { side: int }; };
+        \\type Result = union { :ok { value: int }; :err { code: int }; };
+        \\module App { fn main(args: list<string>) -> int {
+        \\    s: Shape = :circle{10};
+        \\    r: Result = :ok{5};
+        \\    x: int = 0;
+        \\    match s { :circle{radius} => { x = radius; } :rect{side} => { x = side; } }
+        \\    match r { :ok{v} => { x = x + v; } :err{c} => { x = x + c; } }
+        \\    return x;
+        \\} }
+    ));
+}
+
+test "compile: tagged union passed to function" {
+    try testing.expectEqual(@as(u8, 42), try compileAndRun(
+        \\type Shape = union { :circle { radius: int }; :rect { side: int }; };
+        \\module App {
+        \\    fn area(s: Shape) -> int { match s { :circle{r} => return r; :rect{side} => return side; } }
+        \\    fn main(args: list<string>) -> int { s: Shape = :circle{42}; return area(s); }
+        \\}
+    ));
+}
+
+test "compile: tagged union reassignment" {
+    try testing.expectEqual(@as(u8, 7), try compileAndRun(
+        \\type Shape = union { :circle { radius: int }; :rect { side: int }; };
+        \\module App { fn main(args: list<string>) -> int {
+        \\    s: Shape = :circle{42};
+        \\    s = :rect{7};
+        \\    match s { :circle{r} => return r; :rect{side} => return side; }
+        \\} }
+    ));
+}
+
+test "compile: tagged union three variants" {
+    try testing.expectEqual(@as(u8, 3), try compileAndRun(
+        \\type Op = union { :add { value: int }; :sub { value: int }; :mul { value: int }; };
+        \\module App { fn main(args: list<string>) -> int {
+        \\    op: Op = :mul{3};
+        \\    match op { :add{v} => return v; :sub{v} => return v; :mul{v} => return v; }
+        \\} }
+    ));
+}
+
+test "compile: existing Result match still works" {
+    const r = try compileAndCapture(
+        \\module App { fn main(args: list<string>) -> int {
+        \\    result: Result<stream> = File.open("examples/math.vv", "r");
+        \\    match result { :ok{f} => { Stdio.println("ok"); return 0; } :error{r} => { return 1; } }
+        \\} }
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("ok\n", r.stdout);
+}

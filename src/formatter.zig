@@ -644,6 +644,13 @@ pub const Formatter = struct {
                 try self.write(":");
                 try self.write(v);
             },
+            .tagged_value => |tv| {
+                try self.write(":");
+                try self.write(tv.tag);
+                try self.write("{");
+                if (tv.value) |v| try self.formatExpr(v.*);
+                try self.write("}");
+            },
             .identifier => |v| try self.write(v),
             .none_literal => try self.write("none"),
             .void_literal => try self.write("void"),

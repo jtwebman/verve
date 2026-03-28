@@ -79,6 +79,25 @@ pub fn getTagValue(ptr: i64) i64 {
     return @as(*const Tagged, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(ptr)))))).value;
 }
 
+/// Store a string (ptr+len) inside a tagged value. The slice metadata is
+/// copied into the arena so the caller can later recover it via getTagStr.
+pub fn makeTaggedStr(tag: i64, s: []const u8) i64 {
+    const SliceMeta = struct { ptr: [*]const u8, len: usize };
+    const meta_mem = arena_alloc(@sizeOf(SliceMeta)) orelse return 0;
+    const meta = @as(*SliceMeta, @ptrCast(@alignCast(meta_mem)));
+    meta.* = .{ .ptr = s.ptr, .len = s.len };
+    return makeTagged(tag, @intCast(@intFromPtr(meta)));
+}
+
+/// Recover a string slice from a tagged value created via makeTaggedStr.
+pub fn getTagStr(ptr: i64) []const u8 {
+    const val = getTagValue(ptr);
+    if (val == 0) return "";
+    const SliceMeta = struct { ptr: [*]const u8, len: usize };
+    const meta = @as(*const SliceMeta, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(val))))));
+    return meta.ptr[0..meta.len];
+}
+
 // ── Collections ────────────────────────────────────
 
 pub const List = struct {

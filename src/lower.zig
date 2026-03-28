@@ -10,6 +10,8 @@ pub const Lower = struct {
     current_block_id: ?ir.BlockId,
     current_module: []const u8,
     struct_decls: std.StringHashMapUnmanaged(ast.StructDecl),
+    enum_decls: std.StringHashMapUnmanaged([]const []const u8), // enum name → variant list
+    union_decls: std.StringHashMapUnmanaged([]const ast.UnionVariant), // union name → variant list
     var_types: std.StringHashMapUnmanaged([]const u8), // variable name → type name ("int", "float", "string", "bool", or struct name)
     float_regs: std.AutoHashMapUnmanaged(ir.Reg, void), // registers holding float values
     loop_cond_block: ?ir.BlockId,
@@ -27,6 +29,8 @@ pub const Lower = struct {
             .current_block_id = null,
             .current_module = "",
             .struct_decls = .{},
+            .enum_decls = .{},
+            .union_decls = .{},
             .var_types = .{},
             .float_regs = .{},
             .loop_cond_block = null,
@@ -52,6 +56,34 @@ pub const Lower = struct {
             switch (decl) {
                 .struct_decl => |s| try self.struct_decls.put(self.alloc, s.name, s),
                 .process_decl => |p| try self.process_decls.put(self.alloc, p.name, p),
+                .type_decl => |td| {
+                    if (td.value == .enum_type) {
+                        try self.enum_decls.put(self.alloc, td.name, td.value.enum_type);
+                        try self.program.enum_decls.append(self.alloc, .{
+                            .name = td.name,
+                            .variants = td.value.enum_type,
+                        });
+                    } else if (td.value == .union_type) {
+                        try self.union_decls.put(self.alloc, td.name, td.value.union_type);
+                        var variant_infos = std.ArrayListUnmanaged(ir.UnionVariantInfo){};
+                        for (td.value.union_type) |v| {
+                            const has_value = v.fields.len > 0;
+                            const value_type: []const u8 = if (has_value) switch (v.fields[0].type_expr) {
+                                .simple => |tn| tn,
+                                else => "unknown",
+                            } else "void";
+                            try variant_infos.append(self.alloc, .{
+                                .tag = v.tag,
+                                .has_value = has_value,
+                                .value_type = value_type,
+                            });
+                        }
+                        try self.program.union_decls.append(self.alloc, .{
+                            .name = td.name,
+                            .variants = try variant_infos.toOwnedSlice(self.alloc),
+                        });
+                    }
+                },
                 else => {},
             }
         }
@@ -409,6 +441,40 @@ pub const Lower = struct {
                 const subject_reg = self.lowerExpr(m.subject);
                 const merge_id = func.newBlock().id;
 
+                // Determine if match subject is an enum type
+                const subject_enum_variants: ?[]const []const u8 = blk: {
+                    if (m.subject == .identifier) {
+                        if (self.var_types.get(m.subject.identifier)) |type_name| {
+                            if (self.enum_decls.get(type_name)) |variants| {
+                                break :blk variants;
+                            }
+                        }
+                    }
+                    // Handle field access: a.currency where currency is an enum field
+                    if (m.subject == .field_access) {
+                        const fa = m.subject.field_access;
+                        if (fa.target.* == .identifier) {
+                            if (self.var_types.get(fa.target.identifier)) |struct_type| {
+                                if (self.struct_decls.get(struct_type)) |sd| {
+                                    for (sd.fields) |f| {
+                                        if (std.mem.eql(u8, f.name, fa.field)) {
+                                            const field_type = switch (f.type_expr) {
+                                                .simple => |tn| tn,
+                                                else => break,
+                                            };
+                                            if (self.enum_decls.get(field_type)) |variants| {
+                                                break :blk variants;
+                                            }
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    break :blk null;
+                };
+
                 for (m.arms) |arm| {
                     switch (arm.pattern) {
                         .wildcard => {
@@ -428,29 +494,76 @@ pub const Lower = struct {
                             self.current_block_id = next_id;
                         },
                         .tag => |t| {
-                            const tag_reg = func.newReg();
-                            self.appendInst(.{ .tag_get = .{ .dest = tag_reg, .tagged = subject_reg } });
-                            const tag_id: i64 = if (std.mem.eql(u8, t.tag, "ok")) 0 else if (std.mem.eql(u8, t.tag, "error")) 1 else if (std.mem.eql(u8, t.tag, "eof")) 2 else -1;
-                            const id_reg = func.newReg();
-                            self.appendInst(.{ .const_int = .{ .dest = id_reg, .value = tag_id } });
-                            const cmp_reg = func.newReg();
-                            self.appendInst(.{ .eq_i64 = .{ .dest = cmp_reg, .lhs = tag_reg, .rhs = id_reg } });
-                            const arm_id = func.newBlock().id;
-                            const next_id = func.newBlock().id;
-                            self.appendInst(.{ .branch = .{ .cond = cmp_reg, .then_block = arm_id, .else_block = next_id } });
-                            self.current_block_id = arm_id;
-                            if (t.bindings.len > 0) {
-                                const val_reg = func.newReg();
-                                self.appendInst(.{ .tag_value = .{ .dest = val_reg, .tagged = subject_reg } });
-                                self.appendInst(.{ .store_local = .{ .name = t.bindings[0], .src = val_reg } });
-                                const tag_key = std.fmt.allocPrint(self.alloc, "__tagged_struct_{d}", .{subject_reg}) catch "";
-                                if (self.var_types.get(tag_key)) |struct_type| {
-                                    self.var_types.put(self.alloc, t.bindings[0], struct_type) catch {};
+                            if (subject_enum_variants) |variants| {
+                                // Enum match: compare subject directly against variant index
+                                var tag_id: i64 = -1;
+                                for (variants, 0..) |variant, i| {
+                                    if (std.mem.eql(u8, variant, t.tag)) {
+                                        tag_id = @intCast(i);
+                                        break;
+                                    }
                                 }
+                                const id_reg = func.newReg();
+                                self.appendInst(.{ .const_int = .{ .dest = id_reg, .value = tag_id } });
+                                const cmp_reg = func.newReg();
+                                self.appendInst(.{ .eq_i64 = .{ .dest = cmp_reg, .lhs = subject_reg, .rhs = id_reg } });
+                                const arm_id = func.newBlock().id;
+                                const next_id = func.newBlock().id;
+                                self.appendInst(.{ .branch = .{ .cond = cmp_reg, .then_block = arm_id, .else_block = next_id } });
+                                self.current_block_id = arm_id;
+                                for (arm.body) |s| self.lowerStmt(s);
+                                self.appendInst(.{ .jump = .{ .target = merge_id } });
+                                self.current_block_id = next_id;
+                            } else {
+                                // Tagged union match (Result, custom unions, etc.): extract tag from tagged value
+                                const tag_reg = func.newReg();
+                                self.appendInst(.{ .tag_get = .{ .dest = tag_reg, .tagged = subject_reg } });
+                                const tag_id = self.resolveTagId(t.tag);
+                                const id_reg = func.newReg();
+                                self.appendInst(.{ .const_int = .{ .dest = id_reg, .value = tag_id } });
+                                const cmp_reg = func.newReg();
+                                self.appendInst(.{ .eq_i64 = .{ .dest = cmp_reg, .lhs = tag_reg, .rhs = id_reg } });
+                                const arm_id = func.newBlock().id;
+                                const next_id = func.newBlock().id;
+                                self.appendInst(.{ .branch = .{ .cond = cmp_reg, .then_block = arm_id, .else_block = next_id } });
+                                self.current_block_id = arm_id;
+                                if (t.bindings.len > 0) {
+                                    // Determine if this variant carries a string value
+                                    const is_string_variant = blk: {
+                                        var uiter = self.union_decls.iterator();
+                                        while (uiter.next()) |entry| {
+                                            for (entry.value_ptr.*) |variant| {
+                                                if (std.mem.eql(u8, variant.tag, t.tag)) {
+                                                    if (variant.fields.len > 0) {
+                                                        if (variant.fields[0].type_expr == .simple and
+                                                            std.mem.eql(u8, variant.fields[0].type_expr.simple, "string"))
+                                                        {
+                                                            break :blk true;
+                                                        }
+                                                    }
+                                                    break :blk false;
+                                                }
+                                            }
+                                        }
+                                        break :blk false;
+                                    };
+                                    const val_reg = func.newReg();
+                                    if (is_string_variant) {
+                                        self.appendInst(.{ .tag_value_str = .{ .dest = val_reg, .tagged = subject_reg } });
+                                        self.var_types.put(self.alloc, t.bindings[0], "string") catch {};
+                                    } else {
+                                        self.appendInst(.{ .tag_value = .{ .dest = val_reg, .tagged = subject_reg } });
+                                    }
+                                    self.appendInst(.{ .store_local = .{ .name = t.bindings[0], .src = val_reg } });
+                                    const tag_key = std.fmt.allocPrint(self.alloc, "__tagged_struct_{d}", .{subject_reg}) catch "";
+                                    if (self.var_types.get(tag_key)) |struct_type| {
+                                        self.var_types.put(self.alloc, t.bindings[0], struct_type) catch {};
+                                    }
+                                }
+                                for (arm.body) |s| self.lowerStmt(s);
+                                self.appendInst(.{ .jump = .{ .target = merge_id } });
+                                self.current_block_id = next_id;
                             }
-                            for (arm.body) |s| self.lowerStmt(s);
-                            self.appendInst(.{ .jump = .{ .target = merge_id } });
-                            self.current_block_id = next_id;
                         },
                     }
                 }
@@ -496,6 +609,29 @@ pub const Lower = struct {
     }
 
     // ── Expressions ──────────────────────────────────────────
+
+    /// Resolve a tag name to its integer ID across enums, unions, and builtins.
+    fn resolveTagId(self: *Lower, tag_name: []const u8) i64 {
+        // Check enum declarations
+        var iter = self.enum_decls.iterator();
+        while (iter.next()) |entry| {
+            for (entry.value_ptr.*, 0..) |variant, i| {
+                if (std.mem.eql(u8, variant, tag_name)) return @intCast(i);
+            }
+        }
+        // Check union declarations
+        var uiter = self.union_decls.iterator();
+        while (uiter.next()) |entry| {
+            for (entry.value_ptr.*, 0..) |variant, i| {
+                if (std.mem.eql(u8, variant.tag, tag_name)) return @intCast(i);
+            }
+        }
+        // Built-in tags
+        if (std.mem.eql(u8, tag_name, "ok")) return 0;
+        if (std.mem.eql(u8, tag_name, "error")) return 1;
+        if (std.mem.eql(u8, tag_name, "eof")) return 2;
+        return -1;
+    }
 
     fn isStringExpr(self: *Lower, expr: ast.Expr) bool {
         return switch (expr) {
@@ -565,6 +701,30 @@ pub const Lower = struct {
             .string_literal => |v| {
                 const dest = func.newReg();
                 self.appendInst(.{ .const_string = .{ .dest = dest, .value = v } });
+                return dest;
+            },
+            .tag => |tag_name| {
+                // Look up the variant index across all enum declarations
+                const dest = func.newReg();
+                const tag_id = self.resolveTagId(tag_name);
+                self.appendInst(.{ .const_int = .{ .dest = dest, .value = tag_id } });
+                return dest;
+            },
+            .tagged_value => |tv| {
+                // Construct a tagged value: :tag{expr} → makeTagged(tag_id, value)
+                const dest = func.newReg();
+                const tag_id = self.resolveTagId(tv.tag);
+                const tag_id_reg = func.newReg();
+                self.appendInst(.{ .const_int = .{ .dest = tag_id_reg, .value = tag_id } });
+                const val_reg = if (tv.value) |v| self.lowerExpr(v.*) else blk: {
+                    const zero = func.newReg();
+                    self.appendInst(.{ .const_int = .{ .dest = zero, .value = 0 } });
+                    break :blk zero;
+                };
+                var args = self.alloc.alloc(ir.Reg, 2) catch return dest;
+                args[0] = tag_id_reg;
+                args[1] = val_reg;
+                self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = "make_tagged", .args = args } });
                 return dest;
             },
             .identifier => |name| {

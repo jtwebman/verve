@@ -121,6 +121,9 @@ pub const ZigBackend = struct {
                     .process_state_get => |sg| {
                         types[sg.dest] = self.lookupFieldType(sg.struct_name, sg.field_name);
                     },
+                    .tag_value_str => |tv| {
+                        types[tv.dest] = .string;
+                    },
                     else => {},
                 }
             }
@@ -163,6 +166,27 @@ pub const ZigBackend = struct {
                 break;
             }
         }
+    }
+
+    fn isEnumType(self: *ZigBackend, type_name: []const u8) bool {
+        for (self.program.enum_decls.items) |ed| {
+            if (std.mem.eql(u8, ed.name, type_name)) return true;
+        }
+        return false;
+    }
+
+    fn fieldIsEnum(self: *ZigBackend, struct_name: []const u8, field_name: []const u8) ?[]const u8 {
+        for (self.program.struct_decls.items) |sd| {
+            if (std.mem.eql(u8, sd.name, struct_name)) {
+                for (sd.fields) |f| {
+                    if (std.mem.eql(u8, f.name, field_name)) {
+                        if (self.isEnumType(f.type_name)) return f.type_name;
+                        return null;
+                    }
+                }
+            }
+        }
+        return null;
     }
 
     fn lookupFieldType(self: *ZigBackend, struct_name: []const u8, field_name: []const u8) RegType {
@@ -289,7 +313,7 @@ pub const ZigBackend = struct {
         .{ "json_build_add_int", S{ .module = "json", .min_args = 3, .void_result = true } },
         .{ "json_build_add_float", S{ .module = "json", .min_args = 3, .void_result = true } },
         // ── Tags / Process ──────────────────────────
-        .{ "make_tagged", S{ .rt_name = "makeTagged", .min_args = 2 } },
+        .{ "make_tagged", S{ .rt_name = "!", .min_args = 2 } },
         .{ "process_exit", S{ .module = "process", .rt_name = "!", .void_result = true } },
         .{ "process_yield", S{ .module = "process", .rt_name = "!" } },
         .{ "process_self", S{ .module = "process", .rt_name = "!" } },
@@ -336,6 +360,16 @@ pub const ZigBackend = struct {
         self.line("const std = @import(\"std\");");
         self.line("const rt = @import(\"runtime/runtime.zig\");");
         self.line("");
+        // Emit Zig enum definitions
+        for (program.enum_decls.items) |ed| {
+            self.writeFmt("const VerveEnum_{s} = enum(i64) {{ ", .{ed.name});
+            for (ed.variants, 0..) |v, i| {
+                if (i > 0) self.write(", ");
+                self.write(v);
+            }
+            self.write(" };\n\n");
+        }
+
         // Emit Zig struct definitions for Json.parse typed parsing
         for (program.struct_decls.items) |sd| {
             self.writeFmt("const VerveStruct_{s} = struct {{\n", .{sd.name});
@@ -350,6 +384,8 @@ pub const ZigBackend = struct {
                     self.writeFmt("{s}: bool = false,\n", .{f.name});
                 } else if (std.mem.eql(u8, f.type_name, "string")) {
                     self.writeFmt("{s}: []const u8 = \"\",\n", .{f.name});
+                } else if (self.isEnumType(f.type_name)) {
+                    self.writeFmt("{s}: VerveEnum_{s} = @enumFromInt(0),\n", .{ f.name, f.type_name });
                 } else {
                     self.writeFmt("{s}: i64 = 0,\n", .{f.name});
                 }
@@ -484,13 +520,23 @@ pub const ZigBackend = struct {
         self.line("const rt = @import(\"runtime/runtime.zig\");");
         self.line("");
 
+        // Emit enum definitions
+        for (program.enum_decls.items) |ed| {
+            self.writeFmt("const VerveEnum_{s} = enum(i64) {{ ", .{ed.name});
+            for (ed.variants, 0..) |v, i| {
+                if (i > 0) self.write(", ");
+                self.write(v);
+            }
+            self.write(" };\n\n");
+        }
+
         // Emit struct definitions
         for (program.struct_decls.items) |sd| {
             self.writeFmt("const VerveStruct_{s} = struct {{\n", .{sd.name});
             self.indent += 1;
             for (sd.fields) |f| {
                 self.writeIndent();
-                if (std.mem.eql(u8, f.type_name, "int")) self.writeFmt("{s}: i64 = 0,\n", .{f.name}) else if (std.mem.eql(u8, f.type_name, "float")) self.writeFmt("{s}: f64 = 0.0,\n", .{f.name}) else if (std.mem.eql(u8, f.type_name, "bool")) self.writeFmt("{s}: bool = false,\n", .{f.name}) else if (std.mem.eql(u8, f.type_name, "string")) self.writeFmt("{s}: []const u8 = \"\",\n", .{f.name}) else self.writeFmt("{s}: i64 = 0,\n", .{f.name});
+                if (std.mem.eql(u8, f.type_name, "int")) self.writeFmt("{s}: i64 = 0,\n", .{f.name}) else if (std.mem.eql(u8, f.type_name, "float")) self.writeFmt("{s}: f64 = 0.0,\n", .{f.name}) else if (std.mem.eql(u8, f.type_name, "bool")) self.writeFmt("{s}: bool = false,\n", .{f.name}) else if (std.mem.eql(u8, f.type_name, "string")) self.writeFmt("{s}: []const u8 = \"\",\n", .{f.name}) else if (self.isEnumType(f.type_name)) self.writeFmt("{s}: VerveEnum_{s} = @enumFromInt(0),\n", .{ f.name, f.type_name }) else self.writeFmt("{s}: i64 = 0,\n", .{f.name});
             }
             self.indent -= 1;
             self.line("};");
@@ -928,12 +974,20 @@ pub const ZigBackend = struct {
                 self.lineFmt("{{ const _sp = std.heap.page_allocator.create(VerveStruct_{s}) catch unreachable; _sp.* = .{{}}; {s} = @intCast(@intFromPtr(_sp)); }}", .{ sa.struct_name, self.regName(sa.dest) });
             },
             .struct_store => |ss| {
-                // Direct typed field assignment — no slot arithmetic or bitcasting
-                self.lineFmt("@as(*VerveStruct_{s}, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s})))))).{s} = {s};", .{ ss.struct_name, self.regName(ss.base), ss.field_name, self.regName(ss.src) });
+                if (self.fieldIsEnum(ss.struct_name, ss.field_name)) |_| {
+                    // Enum field: convert i64 register to enum value
+                    self.lineFmt("@as(*VerveStruct_{s}, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s})))))).{s} = @enumFromInt({s});", .{ ss.struct_name, self.regName(ss.base), ss.field_name, self.regName(ss.src) });
+                } else {
+                    self.lineFmt("@as(*VerveStruct_{s}, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s})))))).{s} = {s};", .{ ss.struct_name, self.regName(ss.base), ss.field_name, self.regName(ss.src) });
+                }
             },
             .struct_load => |sl| {
-                // Direct typed field access
-                self.lineFmt("{s} = @as(*const VerveStruct_{s}, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s})))))).{s};", .{ self.regName(sl.dest), sl.struct_name, self.regName(sl.base), sl.field_name });
+                if (self.fieldIsEnum(sl.struct_name, sl.field_name)) |_| {
+                    // Enum field: convert enum value to i64 register
+                    self.lineFmt("{s} = @intFromEnum(@as(*const VerveStruct_{s}, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s})))))).{s});", .{ self.regName(sl.dest), sl.struct_name, self.regName(sl.base), sl.field_name });
+                } else {
+                    self.lineFmt("{s} = @as(*const VerveStruct_{s}, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s})))))).{s};", .{ self.regName(sl.dest), sl.struct_name, self.regName(sl.base), sl.field_name });
+                }
             },
 
             .list_new => |ln| {
@@ -954,6 +1008,9 @@ pub const ZigBackend = struct {
             },
             .tag_value => |tv| {
                 self.lineFmt("{s} = rt.getTagValue({s});", .{ self.regName(tv.dest), self.regName(tv.tagged) });
+            },
+            .tag_value_str => |tv| {
+                self.lineFmt("{s} = rt.getTagStr({s});", .{ self.regName(tv.dest), self.regName(tv.tagged) });
             },
 
             .string_byte_at => |sb| {
@@ -1027,11 +1084,18 @@ pub const ZigBackend = struct {
                 self.line("}");
             },
             .process_state_get => |sg| {
-                // Direct typed field access on process state struct
-                self.lineFmt("{s} = @as(*const VerveStruct_{s}, @ptrFromInt(rt.process.verve_state_ptr())).{s};", .{ self.regName(sg.dest), sg.struct_name, sg.field_name });
+                if (self.fieldIsEnum(sg.struct_name, sg.field_name)) |_| {
+                    self.lineFmt("{s} = @intFromEnum(@as(*const VerveStruct_{s}, @ptrFromInt(rt.process.verve_state_ptr())).{s});", .{ self.regName(sg.dest), sg.struct_name, sg.field_name });
+                } else {
+                    self.lineFmt("{s} = @as(*const VerveStruct_{s}, @ptrFromInt(rt.process.verve_state_ptr())).{s};", .{ self.regName(sg.dest), sg.struct_name, sg.field_name });
+                }
             },
             .process_state_set => |ss| {
-                self.lineFmt("@as(*VerveStruct_{s}, @ptrFromInt(rt.process.verve_state_ptr())).{s} = {s};", .{ ss.struct_name, ss.field_name, self.regName(ss.src) });
+                if (self.fieldIsEnum(ss.struct_name, ss.field_name)) |_| {
+                    self.lineFmt("@as(*VerveStruct_{s}, @ptrFromInt(rt.process.verve_state_ptr())).{s} = @enumFromInt({s});", .{ ss.struct_name, ss.field_name, self.regName(ss.src) });
+                } else {
+                    self.lineFmt("@as(*VerveStruct_{s}, @ptrFromInt(rt.process.verve_state_ptr())).{s} = {s};", .{ ss.struct_name, ss.field_name, self.regName(ss.src) });
+                }
             },
             .process_watch => |pw| {
                 self.lineFmt("rt.process.verve_watch({s});", .{self.regName(pw.target)});
@@ -1148,6 +1212,16 @@ pub const ZigBackend = struct {
                 }
             }
             self.lineFmt("{s} = 0;", .{self.regName(dest)});
+        } else if (std.mem.eql(u8, name, "make_tagged")) {
+            if (args.len >= 2) {
+                const val_type = getRegType(reg_types, args[1]);
+                switch (val_type) {
+                    .string => self.lineFmt("{s} = rt.makeTaggedStr({s}, {s});", .{ self.regName(dest), self.regName(args[0]), self.regName(args[1]) }),
+                    .float => self.lineFmt("{s} = rt.makeTagged({s}, @bitCast({s}));", .{ self.regName(dest), self.regName(args[0]), self.regName(args[1]) }),
+                    .boolean => self.lineFmt("{s} = rt.makeTagged({s}, if ({s}) @as(i64, 1) else @as(i64, 0));", .{ self.regName(dest), self.regName(args[0]), self.regName(args[1]) }),
+                    .int => self.lineFmt("{s} = rt.makeTagged({s}, {s});", .{ self.regName(dest), self.regName(args[0]), self.regName(args[1]) }),
+                }
+            }
         } else if (std.mem.eql(u8, name, "json_build_add_bool")) {
             if (args.len >= 3) {
                 if (getRegType(reg_types, args[2]) == .boolean) {
@@ -1254,6 +1328,7 @@ pub const ZigBackend = struct {
             .list_get => |lg| lg.dest,
             .tag_get => |tg| tg.dest,
             .tag_value => |tv| tv.dest,
+            .tag_value_str => |tv| tv.dest,
             .string_byte_at => |sb| sb.dest,
             .string_slice => |ss| ss.dest,
             .string_index => |si| si.dest,
