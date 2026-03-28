@@ -17,7 +17,7 @@ Typed IR + Zig slices: strings are []const u8, floats are f64, bools are native 
 These are things LANGUAGE-DESIGN.md and LANGUAGE.md claim that don't fully work in the compiler.
 
 ### Type System Gaps
-- [ ] Result<T> type checking — `send` returns Result but checker doesn't verify the inner type
+- [x] Result<T> type checking — process sends infer Result<T>, pattern bindings typed, File/Tcp/Http return types
 - [x] Compile-time generics (monomorphization) — struct Pair<T> monomorphized to Pair_int, Pair_string etc.
 - [x] Enum types in compiler — real Zig enums, struct field boundaries, match support
 - [x] Tagged union types in compiler — :tag{expr} construction, makeTagged runtime, string-aware extraction
