@@ -47,6 +47,9 @@ pub fn tcp_listen(host: []const u8, port: i64) i64 {
         return rt.makeTagged(1, 0);
     };
 
+    // Set listener to non-blocking for batch accept
+    setNonBlocking(fd);
+
     const s = std.heap.page_allocator.create(io.VerveStream) catch return rt.makeTagged(1, 0);
     s.* = .{
         .kind = .tcp_listener,
@@ -62,6 +65,38 @@ pub fn tcp_listen(host: []const u8, port: i64) i64 {
     return rt.makeTagged(0, s.streamPtr());
 }
 
+// ── Non-blocking accept with pre-accept buffer ────
+
+const ACCEPT_BUF_SIZE = 64;
+
+var accept_buf: [ACCEPT_BUF_SIZE]std.posix.fd_t = undefined;
+var accept_head: usize = 0;
+var accept_count: usize = 0;
+
+/// Drain all pending connections from the listener into the accept buffer.
+fn fillAcceptBuffer(listener_fd: std.posix.fd_t) void {
+    while (accept_count < ACCEPT_BUF_SIZE) {
+        const client_fd = std.posix.accept(listener_fd, null, null, std.posix.SOCK.CLOEXEC) catch |err| {
+            switch (err) {
+                error.WouldBlock => return, // no more queued connections
+                else => return,
+            }
+        };
+        const idx = (accept_head + accept_count) % ACCEPT_BUF_SIZE;
+        accept_buf[idx] = client_fd;
+        accept_count += 1;
+    }
+}
+
+/// Pop one pre-accepted fd from the buffer. Returns null if empty.
+fn popAcceptBuffer() ?std.posix.fd_t {
+    if (accept_count == 0) return null;
+    const fd = accept_buf[accept_head];
+    accept_head = (accept_head + 1) % ACCEPT_BUF_SIZE;
+    accept_count -= 1;
+    return fd;
+}
+
 pub fn tcp_accept(listener_ptr: i64) i64 {
     const t = rt.profile.begin();
     defer rt.profile.end(.accept, t);
@@ -69,8 +104,34 @@ pub fn tcp_accept(listener_ptr: i64) i64 {
     const listener = io.toStream(listener_ptr) orelse return rt.makeTagged(1, 0);
     if (listener.closed or listener.kind != .tcp_listener) return rt.makeTagged(1, 0);
 
-    const client_fd = std.posix.accept(listener.fd, null, null, 0) catch return rt.makeTagged(1, 0);
+    // Try the pre-accept buffer first
+    if (popAcceptBuffer()) |client_fd| {
+        return wrapClientFd(client_fd);
+    }
 
+    // Buffer empty — try non-blocking accept batch
+    fillAcceptBuffer(listener.fd);
+    if (popAcceptBuffer()) |client_fd| {
+        return wrapClientFd(client_fd);
+    }
+
+    // No connections queued — poll until one arrives, then batch accept
+    var pfd = [1]std.posix.pollfd{.{
+        .fd = listener.fd,
+        .events = std.posix.POLL.IN,
+        .revents = 0,
+    }};
+    _ = std.posix.poll(&pfd, -1) catch return rt.makeTagged(1, 0);
+
+    fillAcceptBuffer(listener.fd);
+    if (popAcceptBuffer()) |client_fd| {
+        return wrapClientFd(client_fd);
+    }
+
+    return rt.makeTagged(1, 0);
+}
+
+fn wrapClientFd(client_fd: std.posix.fd_t) i64 {
     const s = std.heap.page_allocator.create(io.VerveStream) catch {
         std.posix.close(client_fd);
         return rt.makeTagged(1, 0);
@@ -87,6 +148,11 @@ pub fn tcp_accept(listener_ptr: i64) i64 {
         .closed = false,
     };
     return rt.makeTagged(0, s.streamPtr());
+}
+
+fn setNonBlocking(fd: std.posix.fd_t) void {
+    const flags = std.posix.fcntl(fd, std.posix.F.GETFL, 0) catch return;
+    _ = std.posix.fcntl(fd, std.posix.F.SETFL, flags | @as(u32, @bitCast(std.posix.O{ .NONBLOCK = true }))) catch return;
 }
 
 /// Get the local port of a listener socket. Useful after listen with port 0.
