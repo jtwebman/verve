@@ -24,18 +24,18 @@ These are things LANGUAGE-DESIGN.md and LANGUAGE.md claim that don't fully work 
 - [x] Optional types (T?) in compiler — tagged values (some=0, none=1), match with :some{val}/none
 
 ### Checker Gaps
-- [ ] Doc comment enforcement in compiler (checker validates, but compiled code doesn't require them)
-- [ ] Guard type checking in compiler (checker validates, but guards may not compile correctly for all types)
-- [ ] Match exhaustiveness for enums in compiler
+- [x] Doc comment enforcement in compiler — checker runs in build/run, errors are hard failures
+- [x] Guard type checking in compiler — checker validates guards, now enforced in build/run
+- [x] Match exhaustiveness for enums in compiler — checker runs in build/run, non-exhaustive is a compile error
 
 ### String Gaps
 - [x] ~~Fully eliminate strlen~~ — strings are []const u8 slices everywhere, no strlen
 - [x] String interpolation in compiler — lowerer converts parts via int/float/bool_to_string + string_concat
 
 ### Compiler Correctness
-- [ ] Struct allocations still use page_allocator (should use arena)
-- [ ] `verve check` should use the compiler pipeline, not just the checker
-- [ ] Import/export system in compiler (multi-file programs)
+- [x] Struct allocations use arena — switched from page_allocator to rt.arena_alloc
+- [x] `verve check` uses compiler pipeline — checker runs in build/run commands
+- [x] Import/export system in compiler — Loader used by all commands (run/test/build/check)
 
 ## Priority 2 — Runtime for Concurrency Story
 
@@ -102,4 +102,4 @@ What's needed to build the 20 benchmark apps.
 
 ## NEXT
 
-Pick from Priority 1 above. String interpolation, Optional types, and Result<T> inner type checking are high-value next steps.
+Priority 1 complete. Pick from Priority 2 (concurrency), Priority 3 (stdlib for benchmarks), or Priority 4 (tooling).
