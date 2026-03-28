@@ -10,6 +10,7 @@ pub const io = @import("io.zig");
 pub const tcp = @import("tcp.zig");
 pub const http = @import("http.zig");
 pub const process = @import("process.zig");
+pub const fiber = @import("fiber.zig");
 pub const profile = @import("profile.zig");
 
 // ── Constants ──────────────────────────────────────

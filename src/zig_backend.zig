@@ -291,6 +291,9 @@ pub const ZigBackend = struct {
         // ── Tags / Process ──────────────────────────
         .{ "make_tagged", S{ .rt_name = "makeTagged", .min_args = 2 } },
         .{ "process_exit", S{ .module = "process", .rt_name = "!", .void_result = true } },
+        .{ "process_yield", S{ .module = "process", .rt_name = "!" } },
+        .{ "process_self", S{ .module = "process", .rt_name = "!" } },
+        .{ "process_run", S{ .module = "process", .rt_name = "!" } },
         // ── Custom handlers (rt_name = "!") ─────────
         .{ "println", S{ .rt_name = "!" } },
         .{ "print", S{ .rt_name = "!" } },
@@ -324,6 +327,7 @@ pub const ZigBackend = struct {
     const rt_tcp_source = @embedFile("runtime/tcp.zig");
     const rt_http_source = @embedFile("runtime/http.zig");
     const rt_process_source = @embedFile("runtime/process.zig");
+    const rt_fiber_source = @embedFile("runtime/fiber.zig");
     const rt_profile_source = @embedFile("runtime/profile.zig");
 
     pub fn emit(self: *ZigBackend, program: ir.Program) void {
@@ -1156,6 +1160,12 @@ pub const ZigBackend = struct {
         } else if (std.mem.eql(u8, name, "process_exit")) {
             self.line("rt.process.verve_exit_self();");
             self.lineFmt("{s} = 0;", .{self.regName(dest)});
+        } else if (std.mem.eql(u8, name, "process_yield")) {
+            self.lineFmt("{s} = rt.process.verve_yield();", .{self.regName(dest)});
+        } else if (std.mem.eql(u8, name, "process_self")) {
+            self.lineFmt("{s} = rt.process.verve_self();", .{self.regName(dest)});
+        } else if (std.mem.eql(u8, name, "process_run")) {
+            self.lineFmt("{s} = rt.process.verve_scheduler_run();", .{self.regName(dest)});
         }
     }
 
@@ -1296,6 +1306,7 @@ pub const ZigBackend = struct {
             .{ "tcp.zig", rt_tcp_source },
             .{ "http.zig", rt_http_source },
             .{ "process.zig", rt_process_source },
+            .{ "fiber.zig", rt_fiber_source },
             .{ "profile.zig", rt_profile_source },
         };
         inline for (rt_files) |entry| {
