@@ -30,7 +30,7 @@ These are things LANGUAGE-DESIGN.md and LANGUAGE.md claim that don't fully work 
 
 ### String Gaps
 - [x] ~~Fully eliminate strlen~~ — strings are []const u8 slices everywhere, no strlen
-- [ ] String interpolation in compiler — `"hello ${name}"` syntax parses but doesn't compile
+- [x] String interpolation in compiler — lowerer converts parts via int/float/bool_to_string + string_concat
 
 ### Compiler Correctness
 - [ ] Struct allocations still use page_allocator (should use arena)
