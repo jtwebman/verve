@@ -86,6 +86,15 @@ pub fn main() !void {
             return;
         };
 
+        // Validate IR before code generation
+        var validator = @import("ir_validate.zig").Validator.init(alloc);
+        validator.validate(program);
+        if (validator.hasErrors()) {
+            std.debug.print("IR validation errors:\n", .{});
+            validator.printErrors();
+            return;
+        }
+
         const ZigBackend = @import("zig_backend.zig").ZigBackend;
         var backend = ZigBackend.init(alloc);
         backend.emit(program);
@@ -143,12 +152,19 @@ pub fn main() !void {
             return;
         };
 
+        var validator = @import("ir_validate.zig").Validator.init(alloc);
+        validator.validate(program);
+        if (validator.hasErrors()) {
+            std.debug.print("IR validation errors:\n", .{});
+            validator.printErrors();
+            return;
+        }
+
         if (program.test_names.items.len == 0) {
             std.debug.print("No test blocks found in {s}\n", .{file_path});
             return;
         }
 
-        // Generate a test runner main that calls each test function
         const ZigBackend = @import("zig_backend.zig").ZigBackend;
         var backend = ZigBackend.init(alloc);
         backend.emitTestRunner(program);
@@ -237,6 +253,15 @@ pub fn main() !void {
             std.debug.print("Lowering error: {}\n", .{err});
             return;
         };
+
+        // Validate IR
+        var validator = @import("ir_validate.zig").Validator.init(alloc);
+        validator.validate(program);
+        if (validator.hasErrors()) {
+            std.debug.print("IR validation errors:\n", .{});
+            validator.printErrors();
+            return;
+        }
 
         // Compile IR via Zig backend
         const ZigBackend = @import("zig_backend.zig").ZigBackend;
