@@ -1334,13 +1334,16 @@ pub const ZigBackend = struct {
     pub fn build(self: *ZigBackend, output_path: []const u8, zig_path: []const u8) !void {
         const zig_source = self.getSource();
 
-        const src_path = try std.fmt.allocPrint(self.alloc, "{s}.zig", .{output_path});
+        // Put source + runtime in unique dir per build to avoid parallel collisions
+        const build_dir = try std.fmt.allocPrint(self.alloc, "{s}_build", .{output_path});
+        std.fs.cwd().makePath(build_dir) catch {};
+
+        const src_path = try std.fmt.allocPrint(self.alloc, "{s}/main.zig", .{build_dir});
         const src_file = try std.fs.cwd().createFile(src_path, .{});
         try src_file.writeAll(zig_source);
         src_file.close();
 
-        const src_dir = std.fs.path.dirname(src_path) orelse ".";
-        const rt_path = try std.fmt.allocPrint(self.alloc, "{s}/verve_runtime.zig", .{src_dir});
+        const rt_path = try std.fmt.allocPrint(self.alloc, "{s}/verve_runtime.zig", .{build_dir});
         const rt_file = try std.fs.cwd().createFile(rt_path, .{});
         try rt_file.writeAll(runtime_source);
         rt_file.close();
@@ -1364,10 +1367,8 @@ pub const ZigBackend = struct {
             return error.CompilationFailed;
         }
 
-        std.fs.cwd().deleteFile(rt_path) catch {};
-        std.fs.cwd().deleteFile(src_path) catch {};
+        std.fs.cwd().deleteTree(build_dir) catch {};
         const o_path = try std.fmt.allocPrint(self.alloc, "{s}.o", .{output_path});
         std.fs.cwd().deleteFile(o_path) catch {};
-        // Keep cache_dir for incremental compilation across tests
     }
 };
