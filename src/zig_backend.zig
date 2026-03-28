@@ -1346,8 +1346,9 @@ pub const ZigBackend = struct {
         rt_file.close();
 
         const emit_flag = try std.fmt.allocPrint(self.alloc, "-femit-bin={s}", .{output_path});
+        const cache_dir = try std.fmt.allocPrint(self.alloc, "{s}_cache", .{output_path});
         var child = std.process.Child.init(
-            &.{ zig_path, "build-exe", src_path, emit_flag },
+            &.{ zig_path, "build-exe", src_path, emit_flag, "--cache-dir", cache_dir },
             self.alloc,
         );
         child.stderr_behavior = .Pipe;
@@ -1364,8 +1365,9 @@ pub const ZigBackend = struct {
         }
 
         std.fs.cwd().deleteFile(rt_path) catch {};
-        std.fs.cwd().deleteTree(".zig-cache") catch {};
+        std.fs.cwd().deleteFile(src_path) catch {};
         const o_path = try std.fmt.allocPrint(self.alloc, "{s}.o", .{output_path});
         std.fs.cwd().deleteFile(o_path) catch {};
+        // Keep cache_dir for incremental compilation across tests
     }
 };

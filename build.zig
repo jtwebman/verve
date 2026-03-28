@@ -56,12 +56,23 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&b.addRunArtifact(checker_tests).step);
 
     // Compile pipeline tests (AST → IR → Zig → binary → run → verify)
-    const compile_tests = b.addTest(.{
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("src/compile_test.zig"),
-            .target = target,
-            .optimize = optimize,
-        }),
-    });
-    test_step.dependOn(&b.addRunArtifact(compile_tests).step);
+    // Split into 6 files with unique temp paths so they can run in parallel.
+    const compile_test_files = [_][]const u8{
+        "src/compile_test_basic.zig",
+        "src/compile_test_string.zig",
+        "src/compile_test_process.zig",
+        "src/compile_test_math.zig",
+        "src/compile_test_json.zig",
+        "src/compile_test_net.zig",
+    };
+    for (compile_test_files) |file| {
+        const ct = b.addTest(.{
+            .root_module = b.createModule(.{
+                .root_source_file = b.path(file),
+                .target = target,
+                .optimize = optimize,
+            }),
+        });
+        test_step.dependOn(&b.addRunArtifact(ct).step);
+    }
 }
