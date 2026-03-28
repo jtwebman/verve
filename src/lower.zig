@@ -76,6 +76,7 @@ pub const Lower = struct {
                     }
                     try self.program.process_decls.append(self.alloc, .{
                         .name = p.name,
+                        .state_type = p.state_type,
                         .state_fields = try state_fields.toOwnedSlice(self.alloc),
                         .handler_names = try handler_names.toOwnedSlice(self.alloc),
                     });
@@ -482,11 +483,10 @@ pub const Lower = struct {
                         if (self.current_process_decl) |pdecl| {
                             if (pdecl.state_type) |st| {
                                 if (self.struct_decls.get(st)) |sd| {
-                                    for (sd.fields, 0..) |f, fi| {
+                                    for (sd.fields) |f| {
                                         if (std.mem.eql(u8, f.name, field_name)) {
                                             const val_reg = self.lowerExpr(fa.value);
-                                            const slot = structSlotIndex(sd.fields, fi);
-                                            self.appendInst(.{ .process_state_set = .{ .field_index = slot, .src = val_reg, .field_type = resolveType(f.type_expr) } });
+                                            self.appendInst(.{ .process_state_set = .{ .struct_name = st, .field_name = f.name, .src = val_reg } });
                                             return;
                                         }
                                     }
@@ -924,26 +924,23 @@ pub const Lower = struct {
                 return dest;
             },
             .struct_literal => |sl| {
-                const decl = self.struct_decls.get(sl.name);
-                const num_fields: u32 = if (decl) |d| structTotalSlots(d.fields) else @intCast(sl.fields.len);
                 const base = func.newReg();
-                self.appendInst(.{ .struct_alloc = .{ .dest = base, .num_fields = num_fields } });
+                self.appendInst(.{ .struct_alloc = .{ .dest = base, .struct_name = sl.name } });
 
-                if (decl) |d| {
-                    for (d.fields, 0..) |df, fi| {
+                if (self.struct_decls.get(sl.name)) |d| {
+                    for (d.fields) |df| {
                         for (sl.fields) |lf| {
                             if (std.mem.eql(u8, lf.name, df.name)) {
                                 const val_reg = self.lowerExpr(lf.value);
-                                const slot = structSlotIndex(d.fields, fi);
-                                self.appendInst(.{ .struct_store = .{ .base = base, .field_index = slot, .src = val_reg, .field_type = resolveType(df.type_expr) } });
+                                self.appendInst(.{ .struct_store = .{ .base = base, .struct_name = sl.name, .field_name = df.name, .src = val_reg } });
                                 break;
                             }
                         }
                     }
                 } else {
-                    for (sl.fields, 0..) |lf, fi| {
+                    for (sl.fields) |lf| {
                         const val_reg = self.lowerExpr(lf.value);
-                        self.appendInst(.{ .struct_store = .{ .base = base, .field_index = @intCast(fi), .src = val_reg } });
+                        self.appendInst(.{ .struct_store = .{ .base = base, .struct_name = sl.name, .field_name = lf.name, .src = val_reg } });
                     }
                 }
                 return base;
@@ -956,11 +953,10 @@ pub const Lower = struct {
                         if (self.current_process_decl) |pdecl| {
                             if (pdecl.state_type) |st| {
                                 if (self.struct_decls.get(st)) |sd| {
-                                    for (sd.fields, 0..) |f, fi| {
+                                    for (sd.fields) |f| {
                                         if (std.mem.eql(u8, f.name, fa.field)) {
-                                            const slot = structSlotIndex(sd.fields, fi);
                                             const dest = func.newReg();
-                                            self.appendInst(.{ .process_state_get = .{ .dest = dest, .field_index = slot, .field_type = resolveType(f.type_expr) } });
+                                            self.appendInst(.{ .process_state_get = .{ .dest = dest, .struct_name = st, .field_name = f.name } });
                                             return dest;
                                         }
                                     }
@@ -970,12 +966,11 @@ pub const Lower = struct {
                     }
                     if (self.var_types.get(target_name)) |type_name| {
                         if (self.struct_decls.get(type_name)) |sd| {
-                            for (sd.fields, 0..) |f, fi| {
+                            for (sd.fields) |f| {
                                 if (std.mem.eql(u8, f.name, fa.field)) {
                                     const base_reg = self.lowerExpr(fa.target.*);
                                     const dest = func.newReg();
-                                    const slot = structSlotIndex(sd.fields, fi);
-                                    self.appendInst(.{ .struct_load = .{ .dest = dest, .base = base_reg, .field_index = slot, .field_type = resolveType(f.type_expr) } });
+                                    self.appendInst(.{ .struct_load = .{ .dest = dest, .base = base_reg, .struct_name = type_name, .field_name = f.name } });
                                     return dest;
                                 }
                             }
@@ -1017,30 +1012,6 @@ pub const Lower = struct {
                 return dest;
             },
         }
-    }
-
-    fn structSlotIndex(fields: []const ast.Field, field_idx: usize) u32 {
-        var slot: u32 = 0;
-        for (fields[0..field_idx]) |f| {
-            if (f.type_expr == .simple and std.mem.eql(u8, f.type_expr.simple, "string")) {
-                slot += 2;
-            } else {
-                slot += 1;
-            }
-        }
-        return slot;
-    }
-
-    fn structTotalSlots(fields: []const ast.Field) u32 {
-        var slot: u32 = 0;
-        for (fields) |f| {
-            if (f.type_expr == .simple and std.mem.eql(u8, f.type_expr.simple, "string")) {
-                slot += 2;
-            } else {
-                slot += 1;
-            }
-        }
-        return slot;
     }
 
     fn isStringFieldAccess(self: *Lower, fa: ast.FieldAccess) bool {

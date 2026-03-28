@@ -117,10 +117,10 @@ pub const ZigBackend = struct {
                         }
                     },
                     .struct_load => |sl| {
-                        types[sl.dest] = regTypeFromIr(sl.field_type);
+                        types[sl.dest] = self.lookupFieldType(sl.struct_name, sl.field_name);
                     },
                     .process_state_get => |sg| {
-                        types[sg.dest] = regTypeFromIr(sg.field_type);
+                        types[sg.dest] = self.lookupFieldType(sg.struct_name, sg.field_name);
                     },
                     else => {},
                 }
@@ -149,6 +149,37 @@ pub const ZigBackend = struct {
         }
 
         return types;
+    }
+
+    /// Emit state struct allocation for a process after spawn.
+    fn emitStateInit(self: *ZigBackend, process_name: []const u8, pid_reg: []const u8) void {
+        for (self.program.process_decls.items) |pd| {
+            if (std.mem.eql(u8, pd.name, process_name)) {
+                if (pd.state_type) |st| {
+                    // Allocate typed state struct, set pointer on the process
+                    self.writeIndent();
+                    self.writeFmt("{{ const _st = std.heap.page_allocator.create(VerveStruct_{s}) catch unreachable; _st.* = .{{}}; ", .{st});
+                    self.writeFmt("rt.process_table[@intCast(@as(u64, @bitCast({s})) - 1)].state_ptr = @intFromPtr(_st); }}\n", .{pid_reg});
+                }
+                break;
+            }
+        }
+    }
+
+    fn lookupFieldType(self: *ZigBackend, struct_name: []const u8, field_name: []const u8) RegType {
+        for (self.program.struct_decls.items) |sd| {
+            if (std.mem.eql(u8, sd.name, struct_name)) {
+                for (sd.fields) |f| {
+                    if (std.mem.eql(u8, f.name, field_name)) {
+                        if (std.mem.eql(u8, f.type_name, "string")) return .string;
+                        if (std.mem.eql(u8, f.type_name, "float")) return .float;
+                        if (std.mem.eql(u8, f.type_name, "bool")) return .boolean;
+                        return .int;
+                    }
+                }
+            }
+        }
+        return .int;
     }
 
     fn builtinReturnsBool(name: []const u8) bool {
@@ -230,39 +261,18 @@ pub const ZigBackend = struct {
             self.writeFmt("const parsed = std.json.parseFromSlice(VerveStruct_{s}, std.heap.page_allocator, data, .{{ .ignore_unknown_fields = true }}) catch return rt.makeTagged(1, 0);\n", .{sd.name});
             self.line("const val = parsed.value;");
 
-            // Allocate Verve struct (string fields take 2 slots: ptr + len)
-            var total_slots: u32 = 0;
+            // Allocate typed struct and copy parsed values
+            self.writeFmt("const _sp = std.heap.page_allocator.create(VerveStruct_{s}) catch return rt.makeTagged(1, 0);\n", .{sd.name});
             for (sd.fields) |f| {
                 if (std.mem.eql(u8, f.type_name, "string")) {
-                    total_slots += 2;
+                    // Copy string data into arena so it survives json parser cleanup
+                    self.writeFmt("    _sp.{s} = blk: {{ const sv = val.{s}; if (sv.len == 0) break :blk \"\"; const sb = rt.arena_alloc(sv.len) orelse break :blk \"\"; @memcpy(sb[0..sv.len], sv); break :blk sb[0..sv.len]; }};\n", .{ f.name, f.name });
                 } else {
-                    total_slots += 1;
-                }
-            }
-            self.lineFmt("const struct_mem = rt.arena_alloc({d} * @sizeOf(i64)) orelse return rt.makeTagged(1, 0);", .{total_slots});
-            self.line("const fields = @as([*]i64, @ptrCast(@alignCast(struct_mem)));");
-
-            var slot: u32 = 0;
-            for (sd.fields) |f| {
-                if (std.mem.eql(u8, f.type_name, "int")) {
-                    self.lineFmt("fields[{d}] = val.{s};", .{ slot, f.name });
-                    slot += 1;
-                } else if (std.mem.eql(u8, f.type_name, "float")) {
-                    self.lineFmt("fields[{d}] = @bitCast(val.{s});", .{ slot, f.name });
-                    slot += 1;
-                } else if (std.mem.eql(u8, f.type_name, "bool")) {
-                    self.lineFmt("fields[{d}] = if (val.{s}) @as(i64, 1) else @as(i64, 0);", .{ slot, f.name });
-                    slot += 1;
-                } else if (std.mem.eql(u8, f.type_name, "string")) {
-                    self.writeFmt("    {{ const sv = val.{s}; if (sv.len == 0) {{ fields[{d}] = 0; fields[{d}] = 0; }} else if (rt.arena_alloc(sv.len)) |sb| {{ @memcpy(sb[0..sv.len], sv); fields[{d}] = @intCast(@intFromPtr(sb)); fields[{d}] = @intCast(sv.len); }} else {{ fields[{d}] = 0; fields[{d}] = 0; }} }}\n", .{ f.name, slot, slot + 1, slot, slot + 1, slot, slot + 1 });
-                    slot += 2;
-                } else {
-                    self.lineFmt("fields[{d}] = 0;", .{slot});
-                    slot += 1;
+                    self.lineFmt("_sp.{s} = val.{s};", .{ f.name, f.name });
                 }
             }
 
-            self.line("return rt.makeTagged(0, @intCast(@intFromPtr(fields)));");
+            self.line("return rt.makeTagged(0, @intCast(@intFromPtr(_sp)));");
             self.indent -= 1;
             self.line("}");
             self.line("");
@@ -660,6 +670,9 @@ pub const ZigBackend = struct {
             if (std.mem.eql(u8, pd.name, func.module)) {
                 self.lineFmt("const pid = rt.verve_spawn({d});", .{pdi});
                 self.line("rt.current_process_id = pid;");
+                if (pd.state_type) |st| {
+                    self.lineFmt("{{ const _st = std.heap.page_allocator.create(VerveStruct_{s}) catch unreachable; _st.* = .{{}}; rt.process_table[@intCast(@as(u64, @bitCast(pid)) - 1)].state_ptr = @intFromPtr(_st); }}", .{st});
+                }
                 break;
             }
         }
@@ -808,29 +821,16 @@ pub const ZigBackend = struct {
             .call_builtin => |c| self.emitBuiltin(c.dest, c.name, c.args, reg_types),
 
             .struct_alloc => |sa| {
-                self.lineFmt("{s} = @intCast(@intFromPtr((std.heap.page_allocator.alloc(i64, {d}) catch &.{{}}).ptr));", .{ self.regName(sa.dest), sa.num_fields });
+                // Allocate typed struct with default values
+                self.lineFmt("{{ const _sp = std.heap.page_allocator.create(VerveStruct_{s}) catch unreachable; _sp.* = .{{}}; {s} = @intCast(@intFromPtr(_sp)); }}", .{ sa.struct_name, self.regName(sa.dest) });
             },
             .struct_store => |ss| {
-                if (ss.field_type == .string) {
-                    self.lineFmt("{{ const _ss = {s}; const _base = @as([*]i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s})))))); _base[{d}] = @intCast(@intFromPtr(_ss.ptr)); _base[{d}] = @intCast(_ss.len); }}", .{ self.regName(ss.src), self.regName(ss.base), ss.field_index, ss.field_index + 1 });
-                } else if (ss.field_type == .f64) {
-                    self.lineFmt("@as([*]i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s}))))))[{d}] = @bitCast({s});", .{ self.regName(ss.base), ss.field_index, self.regName(ss.src) });
-                } else if (ss.field_type == .bool) {
-                    self.lineFmt("@as([*]i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s}))))))[{d}] = if ({s}) @as(i64, 1) else @as(i64, 0);", .{ self.regName(ss.base), ss.field_index, self.regName(ss.src) });
-                } else {
-                    self.lineFmt("@as([*]i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s}))))))[{d}] = {s};", .{ self.regName(ss.base), ss.field_index, self.regName(ss.src) });
-                }
+                // Direct typed field assignment — no slot arithmetic or bitcasting
+                self.lineFmt("@as(*VerveStruct_{s}, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s})))))).{s} = {s};", .{ ss.struct_name, self.regName(ss.base), ss.field_name, self.regName(ss.src) });
             },
             .struct_load => |sl| {
-                if (sl.field_type == .string) {
-                    self.lineFmt("{{ const _base = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s})))))); {s} = rt.sliceFromPair(_base[{d}], _base[{d}]); }}", .{ self.regName(sl.base), self.regName(sl.dest), sl.field_index, sl.field_index + 1 });
-                } else if (sl.field_type == .f64) {
-                    self.lineFmt("{s} = @as(f64, @bitCast(@as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s}))))))[{d}]));", .{ self.regName(sl.dest), self.regName(sl.base), sl.field_index });
-                } else if (sl.field_type == .bool) {
-                    self.lineFmt("{s} = (@as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s}))))))[{d}] != 0);", .{ self.regName(sl.dest), self.regName(sl.base), sl.field_index });
-                } else {
-                    self.lineFmt("{s} = @as([*]const i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s}))))))[{d}];", .{ self.regName(sl.dest), self.regName(sl.base), sl.field_index });
-                }
+                // Direct typed field access
+                self.lineFmt("{s} = @as(*const VerveStruct_{s}, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s})))))).{s};", .{ self.regName(sl.dest), sl.struct_name, self.regName(sl.base), sl.field_name });
             },
 
             .list_new => |ln| {
@@ -878,6 +878,16 @@ pub const ZigBackend = struct {
 
             .process_spawn => |ps| {
                 self.lineFmt("{s} = rt.verve_spawn({d});", .{ self.regName(ps.dest), ps.process_type });
+                // Allocate typed state struct if this process type has state
+                if (ps.process_type < self.program.process_decls.items.len) {
+                    const pd = self.program.process_decls.items[ps.process_type];
+                    if (pd.state_fields.len > 0) {
+                        // Find state struct name from the process declaration
+                        // The state struct name matches the process's state_fields source
+                        // We need it from the IR — look up via the process name's struct_decl
+                        self.emitStateInit(pd.name, self.regName(ps.dest));
+                    }
+                }
             },
             .process_send => |ps| {
                 self.writeIndent();
@@ -914,26 +924,11 @@ pub const ZigBackend = struct {
                 self.line("}");
             },
             .process_state_get => |sg| {
-                if (sg.field_type == .string) {
-                    self.lineFmt("{s} = rt.sliceFromPair(rt.verve_state_get({d}), rt.verve_state_get({d}));", .{ self.regName(sg.dest), sg.field_index, sg.field_index + 1 });
-                } else if (sg.field_type == .f64) {
-                    self.lineFmt("{s} = @as(f64, @bitCast(rt.verve_state_get({d})));", .{ self.regName(sg.dest), sg.field_index });
-                } else if (sg.field_type == .bool) {
-                    self.lineFmt("{s} = (rt.verve_state_get({d}) != 0);", .{ self.regName(sg.dest), sg.field_index });
-                } else {
-                    self.lineFmt("{s} = rt.verve_state_get({d});", .{ self.regName(sg.dest), sg.field_index });
-                }
+                // Direct typed field access on process state struct
+                self.lineFmt("{s} = @as(*const VerveStruct_{s}, @ptrFromInt(rt.verve_state_ptr())).{s};", .{ self.regName(sg.dest), sg.struct_name, sg.field_name });
             },
             .process_state_set => |ss| {
-                if (ss.field_type == .string) {
-                    self.lineFmt("{{ const _sv = {s}; rt.verve_state_set({d}, @intCast(@intFromPtr(_sv.ptr))); rt.verve_state_set({d}, @intCast(_sv.len)); }}", .{ self.regName(ss.src), ss.field_index, ss.field_index + 1 });
-                } else if (ss.field_type == .f64) {
-                    self.lineFmt("rt.verve_state_set({d}, @bitCast({s}));", .{ ss.field_index, self.regName(ss.src) });
-                } else if (ss.field_type == .bool) {
-                    self.lineFmt("rt.verve_state_set({d}, if ({s}) @as(i64, 1) else @as(i64, 0));", .{ ss.field_index, self.regName(ss.src) });
-                } else {
-                    self.lineFmt("rt.verve_state_set({d}, {s});", .{ ss.field_index, self.regName(ss.src) });
-                }
+                self.lineFmt("@as(*VerveStruct_{s}, @ptrFromInt(rt.verve_state_ptr())).{s} = {s};", .{ ss.struct_name, ss.field_name, self.regName(ss.src) });
             },
             .process_watch => |pw| {
                 self.lineFmt("rt.verve_watch({s});", .{self.regName(pw.target)});

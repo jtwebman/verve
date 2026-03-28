@@ -3,7 +3,6 @@ const std = @import("std");
 // ── Constants ──────────────────────────────────────
 pub const MAILBOX_BUF_SIZE = 64 * 1024; // 64KB byte ring buffer per process
 pub const MAX_PROCESSES = 256; // initial capacity, grows dynamically
-pub const MAX_STATE_FIELDS = 16;
 pub const MAX_WATCHERS = 64;
 pub const MAX_INLINE_STRING = 4096; // strings > this use arena reference
 
@@ -1512,7 +1511,7 @@ pub const VerveProcess = struct {
     id: i64,
     alive: bool,
     process_type: i64,
-    state: [MAX_STATE_FIELDS]i64,
+    state_ptr: usize = 0, // Pointer to typed state struct (arena-allocated)
     mailbox: Mailbox,
     watcher_pids: [MAX_WATCHERS]i64,
     watcher_count: usize,
@@ -1545,7 +1544,7 @@ pub fn ensureProcessCapacity(min_count: usize) void {
             .id = 0,
             .alive = false,
             .process_type = 0,
-            .state = @splat(0),
+            .state_ptr = 0,
             .mailbox = .{},
             .watcher_pids = @splat(0),
             .watcher_count = 0,
@@ -1589,7 +1588,7 @@ pub fn verve_spawn(process_type: i64) i64 {
         .id = @intCast(idx + 1),
         .alive = true,
         .process_type = process_type,
-        .state = @splat(0),
+        .state_ptr = 0,
         .mailbox = .{},
         .watcher_pids = @splat(0),
         .watcher_count = 0,
@@ -1598,14 +1597,16 @@ pub fn verve_spawn(process_type: i64) i64 {
     return process_count;
 }
 
-pub fn verve_state_get(field_index: i64) i64 {
+/// Get pointer to the current process's typed state struct.
+pub fn verve_state_ptr() usize {
     const idx = pidx(current_process_id);
-    return process_table[idx].state[@intCast(@as(u64, @bitCast(field_index)))];
+    return process_table[idx].state_ptr;
 }
 
-pub fn verve_state_set(field_index: i64, value: i64) void {
+/// Set the state pointer for the current process (called at spawn time).
+pub fn verve_state_init(ptr: usize) void {
     const idx = pidx(current_process_id);
-    process_table[idx].state[@intCast(@as(u64, @bitCast(field_index)))] = value;
+    process_table[idx].state_ptr = ptr;
 }
 
 pub fn verve_watch(target_pid: i64) void {

@@ -79,12 +79,12 @@ pub const Inst = union(enum) {
     /// Call a user-defined function.
     call: struct { dest: Reg, module: []const u8, function: []const u8, args: []const Reg },
     // ── Structs ──────────────────────────────────────────
-    /// Allocate N 8-byte stack slots, store base address in dest.
-    struct_alloc: struct { dest: Reg, num_fields: u32 },
-    /// Store value into struct field: mem[base + index*8] = src
-    struct_store: struct { base: Reg, field_index: u32, src: Reg, field_type: Type = .i64 },
-    /// Load value from struct field: dest = mem[base + index*8]
-    struct_load: struct { dest: Reg, base: Reg, field_index: u32, field_type: Type = .i64 },
+    /// Allocate a typed struct instance, store pointer in dest.
+    struct_alloc: struct { dest: Reg, struct_name: []const u8 },
+    /// Store value into typed struct field.
+    struct_store: struct { base: Reg, struct_name: []const u8, field_name: []const u8, src: Reg },
+    /// Load value from typed struct field.
+    struct_load: struct { dest: Reg, base: Reg, struct_name: []const u8, field_name: []const u8 },
 
     // ── Lists ───────────────────────────────────────────
     /// Allocate a new list (returns pointer to list header)
@@ -120,9 +120,9 @@ pub const Inst = union(enum) {
     /// Tell a process (fire-and-forget).
     process_tell: struct { target: Reg, handler_index: u32, args: []const Reg },
     /// Read process state field into dest.
-    process_state_get: struct { dest: Reg, field_index: u32, field_type: Type = .i64 },
+    process_state_get: struct { dest: Reg, struct_name: []const u8, field_name: []const u8 },
     /// Write value to process state field.
-    process_state_set: struct { field_index: u32, src: Reg, field_type: Type = .i64 },
+    process_state_set: struct { struct_name: []const u8, field_name: []const u8, src: Reg },
     /// Register current process as watcher of target.
     process_watch: struct { target: Reg },
     /// Send with timeout (milliseconds). Returns :error{:timeout} if exceeded.
@@ -197,6 +197,7 @@ pub const Function = struct {
 
 pub const ProcessInfo = struct {
     name: []const u8,
+    state_type: ?[]const u8 = null, // Name of the state struct type (e.g., "CounterState")
     state_fields: []const StateFieldInfo,
     handler_names: []const []const u8,
 };
