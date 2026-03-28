@@ -19,8 +19,8 @@ These are things LANGUAGE-DESIGN.md and LANGUAGE.md claim that don't fully work 
 ### Type System Gaps
 - [ ] Result<T> type checking — `send` returns Result but checker doesn't verify the inner type
 - [ ] Compile-time generics (monomorphization) — `list<int>` parses but types aren't specialized
-- [ ] Enum types in compiler — parser supports, lowerer/backend don't
-- [ ] Tagged union types in compiler — parser supports, lowerer/backend don't
+- [x] Enum types in compiler — real Zig enums, struct field boundaries, match support
+- [x] Tagged union types in compiler — :tag{expr} construction, makeTagged runtime, string-aware extraction
 - [ ] Optional types (T?) in compiler — parser supports, no runtime representation
 
 ### Checker Gaps
@@ -102,4 +102,4 @@ What's needed to build the 20 benchmark apps.
 
 ## NEXT
 
-Pick from Priority 1 above. String interpolation and enum types are high-value next steps.
+Pick from Priority 1 above. String interpolation, Optional types, and Result<T> inner type checking are high-value next steps.
