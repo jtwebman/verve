@@ -3180,3 +3180,166 @@ test "compile: process state with new struct syntax" {
     try testing.expectEqual(@as(u8, 0), r.exit);
     try testing.expectEqualStrings("10\n20\n15\n15\n20\n", r.stdout);
 }
+
+// ── Typed message protocol coverage ───────────────────
+
+test "compile: process handler with string param" {
+    const r = try compileAndCapture(
+        \\struct NameState {
+        \\    name: string = "";
+        \\}
+        \\process Greeter<NameState> {
+        \\    receive SetName(state: NameState, n: string) -> int {
+        \\        state.name = n;
+        \\        return 0;
+        \\    }
+        \\    receive Greet(state: NameState) -> int {
+        \\        Stdio.println("Hello " + state.name);
+        \\        return 0;
+        \\    }
+        \\}
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        g: int = spawn Greeter();
+        \\        tell g.SetName("world");
+        \\        match g.Greet() {
+        \\            :ok{v} => Stdio.println("ok");
+        \\            :error{e} => Stdio.println("err");
+        \\        }
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("Hello world\nok\n", r.stdout);
+}
+
+test "compile: process handler with float param" {
+    const r = try compileAndCapture(
+        \\struct AccState {
+        \\    total: float = 0.0;
+        \\}
+        \\process Accumulator<AccState> {
+        \\    receive Add(state: AccState, x: float) -> int {
+        \\        state.total = state.total + x;
+        \\        return Math.round(state.total);
+        \\    }
+        \\}
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        a: int = spawn Accumulator();
+        \\        match a.Add(1.5) {
+        \\            :ok{v} => Stdio.println(v);
+        \\            :error{e} => Stdio.println("err");
+        \\        }
+        \\        match a.Add(2.5) {
+        \\            :ok{v} => Stdio.println(v);
+        \\            :error{e} => Stdio.println("err");
+        \\        }
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("2\n4\n", r.stdout);
+}
+
+test "compile: process handler with bool param" {
+    const r = try compileAndCapture(
+        \\struct FlagState {
+        \\    active: bool = false;
+        \\}
+        \\process Flag<FlagState> {
+        \\    receive Set(state: FlagState, val: bool) -> int {
+        \\        state.active = val;
+        \\        return 0;
+        \\    }
+        \\    receive IsActive(state: FlagState) -> int {
+        \\        if state.active {
+        \\            return 1;
+        \\        }
+        \\        return 0;
+        \\    }
+        \\}
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        f: int = spawn Flag();
+        \\        match f.IsActive() {
+        \\            :ok{v} => Stdio.println(v);
+        \\            :error{e} => Stdio.println("err");
+        \\        }
+        \\        tell f.Set(true);
+        \\        match f.IsActive() {
+        \\            :ok{v} => Stdio.println(v);
+        \\            :error{e} => Stdio.println("err");
+        \\        }
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("0\n1\n", r.stdout);
+}
+
+test "compile: float struct field access" {
+    const r = try compileAndCapture(
+        \\struct Point {
+        \\    x: float = 0.0;
+        \\    y: float = 0.0;
+        \\}
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        p: Point = Point { x: 3.14, y: 2.72 };
+        \\        Stdio.println(Math.round(p.x));
+        \\        Stdio.println(Math.round(p.y));
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("3\n3\n", r.stdout);
+}
+
+test "compile: bool struct field access" {
+    const r = try compileAndCapture(
+        \\struct Config {
+        \\    debug: bool = false;
+        \\    count: int = 0;
+        \\}
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        c: Config = Config { debug: true, count: 42 };
+        \\        if c.debug {
+        \\            Stdio.println(c.count);
+        \\        }
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("42\n", r.stdout);
+}
+
+test "compile: mixed typed struct fields" {
+    const r = try compileAndCapture(
+        \\struct Record {
+        \\    name: string = "";
+        \\    score: float = 0.0;
+        \\    active: bool = false;
+        \\    age: int = 0;
+        \\}
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        r: Record = Record { name: "Alice", score: 9.5, active: true, age: 30 };
+        \\        Stdio.println(r.name);
+        \\        Stdio.println(Math.round(r.score));
+        \\        if r.active {
+        \\            Stdio.println(r.age);
+        \\        }
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("Alice\n10\n30\n", r.stdout);
+}

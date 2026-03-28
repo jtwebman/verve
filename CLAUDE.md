@@ -53,7 +53,12 @@ See `LANGUAGE.md` for complete syntax, built-in modules, and API reference.
 
 ## Key design decisions
 
-- Strings are UTF-8 byte sequences stored as (ptr, len) fat pointers in compiled code
+- Strings are `[]const u8` (Zig slices) in generated code — true fat pointers, no strlen
+- Floats are native `f64` registers; bools are native `bool` registers
+- Registers are fully typed: the backend tracks `RegType = { int, float, boolean, string }` per register
+- Struct fields stored as `[N]i64` with boundary conversion (f64 via @bitCast, string via ptr+len pairs, bool via 0/1)
+- Process messages use a binary protocol: `[handler_id:u8][param_count:u8][type:u8][value...]...` — self-describing, clustering-ready
+- Process mailbox is a 64KB byte ring buffer (variable-size messages)
 - IO uses opaque `stream` values. Stdio/File return streams, Stream module operates on them
 - Doc comments (`///`) required on all exported modules, processes, and functions
 - No recursion — enforced by call graph cycle detection. Use while loops with explicit stacks

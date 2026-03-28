@@ -1226,11 +1226,16 @@ pub const ZigBackend = struct {
         // Skip the type tag byte (1 byte)
         self.line("_pos += 1;");
         if (param.type_ == .string) {
-            // Read u32 length, then slice the bytes
-            self.lineFmt("const _p_{s}_len: usize = @as(u32, @bitCast([4]u8{{ _msg_ptr[_pos], _msg_ptr[_pos+1], _msg_ptr[_pos+2], _msg_ptr[_pos+3] }}));", .{param.name});
+            // Read u32 length, then copy bytes into arena (message buffer is temporary)
+            self.writeFmt("    const _p_{s}_len", .{param.name});
+            self.write(": usize = @as(u32, @bitCast([4]u8{ _msg_ptr[_pos], _msg_ptr[_pos+1], _msg_ptr[_pos+2], _msg_ptr[_pos+3] }));\n");
             self.line("_pos += 4;");
-            self.lineFmt("const _p_{s}: []const u8 = _msg_ptr[_pos.._pos + _p_{s}_len];", .{ param.name, param.name });
-            self.lineFmt("_pos += _p_{s}_len;", .{param.name});
+            self.writeIndent();
+            self.writeFmt("const _p_{s}", .{param.name});
+            self.writeFmt(": []const u8 = _s_{s}: {{ const _sb = rt.arena_alloc(_p_{s}_len) orelse break :_s_{s} \"\"; ", .{ param.name, param.name, param.name });
+            self.writeFmt("@memcpy(_sb[0.._p_{s}_len], _msg_ptr[_pos.._pos + _p_{s}_len]); ", .{ param.name, param.name });
+            self.writeFmt("break :_s_{s} _sb[0.._p_{s}_len]; }};\n", .{ param.name, param.name });
+            self.writeFmt("    _pos += _p_{s}_len;\n", .{param.name});
         } else if (param.type_ == .f64) {
             // Read 8 bytes as f64
             self.lineFmt("const _p_{s}: f64 = @bitCast([8]u8{{ _msg_ptr[_pos], _msg_ptr[_pos+1], _msg_ptr[_pos+2], _msg_ptr[_pos+3], _msg_ptr[_pos+4], _msg_ptr[_pos+5], _msg_ptr[_pos+6], _msg_ptr[_pos+7] }});", .{param.name});

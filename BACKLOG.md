@@ -6,7 +6,9 @@ Parser, formatter, type checker (121 tests), native compiler via Zig backend, pe
 
 Stdlib: Tcp, Http (lazy parsing, size limits), Json (scanning + typed struct parse + builder), Stream, Math (int + float), String (all operations), Convert, Env, System, Process, Stdio (println/print).
 
-356 tests across parser (49), parser errors (42), checker (121), compile pipeline (144).
+368 tests across parser (49), parser errors (42), checker (121), compile pipeline (156).
+
+Typed IR + Zig slices: strings are []const u8, floats are f64, bools are native bool in generated Zig. Binary message protocol for process communication — self-describing byte sequences, ready for clustering.
 
 ---
 
@@ -27,7 +29,7 @@ These are things LANGUAGE-DESIGN.md and LANGUAGE.md claim that don't fully work 
 - [ ] Match exhaustiveness for enums in compiler
 
 ### String Gaps
-- [ ] Fully eliminate strlen — 2 fallback sites remain for unknown-source strings
+- [x] ~~Fully eliminate strlen~~ — strings are []const u8 slices everywhere, no strlen
 - [ ] String interpolation in compiler — `"hello ${name}"` syntax parses but doesn't compile
 
 ### Compiler Correctness
@@ -97,8 +99,6 @@ What's needed to build the 20 benchmark apps.
 - [ ] LLVM backend
 - [ ] Self-hosting compiler
 
-## NEXT: Typed IR + Zig Slices (approved, in progress)
+## NEXT
 
-Eliminate string_lens hashmap forever. Strings become []const u8 in generated Zig code.
-Runtime functions take/return slices. Backend emits typed registers.
-All _len companion functions removed. See plans/fluffy-snacking-pretzel.md for full plan.
+Pick from Priority 1 above. String interpolation and enum types are high-value next steps.
