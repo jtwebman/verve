@@ -89,14 +89,13 @@ pub fn main() !void {
             return;
         };
 
-        const source = std.fs.cwd().readFileAlloc(alloc, file_path, 10 * 1024 * 1024) catch |err| {
-            std.debug.print("Error reading {s}: {}\n", .{ file_path, err });
-            return;
-        };
-
-        var parser = Parser.init(source, alloc);
-        const file = parser.parseFile() catch {
-            std.debug.print("Parse error in {s}\n", .{file_path});
+        var loader = Loader.init(alloc);
+        const file = loader.loadFile(file_path) catch |err| {
+            switch (err) {
+                error.FileNotFound => std.debug.print("Error: file not found: {s}\n", .{file_path}),
+                error.ParseFailed => std.debug.print("Parse error in {s}\n", .{file_path}),
+                else => std.debug.print("Error: {}\n", .{err}),
+            }
             return;
         };
 
@@ -166,14 +165,13 @@ pub fn main() !void {
             return;
         };
 
-        const source = std.fs.cwd().readFileAlloc(alloc, file_path, 10 * 1024 * 1024) catch |err| {
-            std.debug.print("Error reading {s}: {}\n", .{ file_path, err });
-            return;
-        };
-
-        var parser = Parser.init(source, alloc);
-        const file = parser.parseFile() catch {
-            std.debug.print("Parse error in {s}\n", .{file_path});
+        var loader2 = Loader.init(alloc);
+        const file = loader2.loadFile(file_path) catch |err| {
+            switch (err) {
+                error.FileNotFound => std.debug.print("Error: file not found: {s}\n", .{file_path}),
+                error.ParseFailed => std.debug.print("Parse error in {s}\n", .{file_path}),
+                else => std.debug.print("Error: {}\n", .{err}),
+            }
             return;
         };
 
