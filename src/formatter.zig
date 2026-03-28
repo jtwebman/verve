@@ -378,10 +378,6 @@ pub const Formatter = struct {
                 try self.writeIndent();
                 try self.write("}");
             },
-            .constrained => |c| {
-                try self.formatTypeExpr(c.base.*);
-                try self.write(" { ... }");
-            },
             .fn_type => |f| {
                 try self.write("fn(");
                 for (f.params, 0..) |p, i| {

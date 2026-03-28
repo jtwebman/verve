@@ -886,7 +886,6 @@ pub const Checker = struct {
                 for (f.params) |p| try self.checkTypeExists(p);
                 try self.checkTypeExists(f.return_type.*);
             },
-            .constrained => |c| try self.checkTypeExists(c.base.*),
         }
     }
 
@@ -895,10 +894,6 @@ pub const Checker = struct {
         return switch (t) {
             .simple => |name| name,
             .generic => |g| g.name,
-            .constrained => |c| switch (c.base.*) {
-                .simple => |name| name,
-                else => "unknown",
-            },
             else => "unknown",
         };
     }
@@ -1120,7 +1115,6 @@ pub const Checker = struct {
                         const resolved_act = self.resolveAlias(act_name);
                         return std.mem.eql(u8, resolved_exp, resolved_act);
                     },
-                    .constrained => |c| return self.typeExprsMatch(expected, c.base.*),
                     else => return false,
                 }
             },
@@ -1137,7 +1131,6 @@ pub const Checker = struct {
                     else => return false,
                 }
             },
-            .constrained => |c| return self.typeExprsMatch(c.base.*, actual),
             else => return true, // optional, enum, union, fn_type — skip for now
         }
     }

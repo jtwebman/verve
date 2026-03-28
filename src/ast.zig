@@ -118,7 +118,6 @@ pub const TypeExpr = union(enum) {
     optional: *const TypeExpr, // Account?
     enum_type: []const []const u8, // enum { USD, EUR, GBP }
     union_type: []const UnionVariant, // union { :ok { value: T }; :error { reason: string }; }
-    constrained: Constrained, // int { range: 0..150 }
     fn_type: FnType, // fn(int, int) -> bool
 };
 
@@ -130,16 +129,6 @@ pub const FnType = struct {
 pub const Generic = struct {
     name: []const u8,
     args: []const TypeExpr,
-};
-
-pub const Constrained = struct {
-    base: *const TypeExpr,
-    constraints: []const Constraint,
-};
-
-pub const Constraint = struct {
-    name: []const u8,
-    value: Expr,
 };
 
 pub const UnionVariant = struct {
