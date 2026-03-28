@@ -3,6 +3,26 @@ const Parser = @import("parser.zig").Parser;
 const Lower = @import("lower.zig").Lower;
 const Loader = @import("loader.zig").Loader;
 
+fn getZigPath(alloc: std.mem.Allocator) []const u8 {
+    // VERVE_ZIG env var takes priority, then search PATH for "zig"
+    if (std.posix.getenv("VERVE_ZIG")) |p| return p;
+    const result = std.process.Child.run(.{
+        .allocator = alloc,
+        .argv = &.{ "which", "zig" },
+    }) catch return "zig";
+    const path = std.mem.trim(u8, result.stdout, &std.ascii.whitespace);
+    if (path.len > 0) return path;
+    return "zig";
+}
+
+fn getTmpPath(alloc: std.mem.Allocator, name: []const u8) []const u8 {
+    const tmp_dir = std.posix.getenv("TMPDIR") orelse
+        std.posix.getenv("TMP") orelse
+        std.posix.getenv("TEMP") orelse "/tmp";
+    const pid = std.os.linux.getpid();
+    return std.fmt.allocPrint(alloc, "{s}/{s}_{d}", .{ tmp_dir, name, pid }) catch "/tmp/verve_fallback";
+}
+
 pub fn main() !void {
     const alloc = std.heap.page_allocator;
     var args = try std.process.argsWithAllocator(alloc);
@@ -100,8 +120,9 @@ pub fn main() !void {
         backend.emit(program);
 
         // Build to temp path
-        const tmp_path = "/tmp/verve_run_tmp";
-        backend.build(tmp_path, "/home/jt/.local/zig/zig") catch |err| {
+        const zig_path = getZigPath(alloc);
+        const tmp_path = getTmpPath(alloc, "verve_run");
+        backend.build(tmp_path, zig_path) catch |err| {
             std.debug.print("Build error: {}\n", .{err});
             return;
         };
@@ -169,8 +190,9 @@ pub fn main() !void {
         var backend = ZigBackend.init(alloc);
         backend.emitTestRunner(program);
 
-        const tmp_path = "/tmp/verve_test_runner";
-        backend.build(tmp_path, "/home/jt/.local/zig/zig") catch |err| {
+        const zig_path = getZigPath(alloc);
+        const tmp_path = getTmpPath(alloc, "verve_test");
+        backend.build(tmp_path, zig_path) catch |err| {
             std.debug.print("Build error: {}\n", .{err});
             return;
         };
@@ -274,7 +296,8 @@ pub fn main() !void {
         else
             std.fmt.allocPrint(alloc, "{s}.out", .{file_path}) catch "a.out";
 
-        backend.build(out_path, "/home/jt/.local/zig/zig") catch |err| {
+        const zig_path = getZigPath(alloc);
+        backend.build(out_path, zig_path) catch |err| {
             std.debug.print("Build error: {}\n", .{err});
             return;
         };
