@@ -50,38 +50,36 @@ pub fn verve_runtime_init() void {
     std.posix.sigaction(std.posix.SIG.INT, &term_act, null);
 }
 
-/// Convert i64 pair (ptr, len) back to []const u8 — used at struct boundaries.
-pub fn sliceFromPair(ptr_val: i64, len_val: i64) []const u8 {
+/// Convert (ptr, len) pair back to []const u8 — used at struct boundaries.
+pub fn sliceFromPair(ptr_val: usize, len_val: usize) []const u8 {
     if (ptr_val == 0) return "";
-    const p = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(ptr_val))))));
-    const l: usize = @intCast(@as(u64, @bitCast(len_val)));
-    return p[0..l];
+    return @as([*]const u8, @ptrFromInt(ptr_val))[0..len_val];
 }
 
 // ── Tagged values (Result<T>) ──────────────────────
 
 pub const Tagged = struct { tag: i64, value: i64 };
 
-pub fn makeTagged(tag: i64, value: i64) i64 {
+pub fn makeTagged(tag: i64, value: i64) usize {
     const mem = arena_alloc(@sizeOf(Tagged)) orelse return 0;
     const t = @as(*Tagged, @ptrCast(@alignCast(mem)));
     t.* = .{ .tag = tag, .value = value };
-    return @intCast(@intFromPtr(t));
+    return @intFromPtr(t);
 }
 
-pub fn getTag(ptr: i64) i64 {
+pub fn getTag(ptr: usize) i64 {
     if (ptr == 0) return -1;
-    return @as(*const Tagged, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(ptr)))))).tag;
+    return @as(*const Tagged, @ptrFromInt(ptr)).tag;
 }
 
-pub fn getTagValue(ptr: i64) i64 {
+pub fn getTagValue(ptr: usize) i64 {
     if (ptr == 0) return 0;
-    return @as(*const Tagged, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(ptr)))))).value;
+    return @as(*const Tagged, @ptrFromInt(ptr)).value;
 }
 
 /// Store a string (ptr+len) inside a tagged value. The slice metadata is
 /// copied into the arena so the caller can later recover it via getTagStr.
-pub fn makeTaggedStr(tag: i64, s: []const u8) i64 {
+pub fn makeTaggedStr(tag: i64, s: []const u8) usize {
     const SliceMeta = struct { ptr: [*]const u8, len: usize };
     const meta_mem = arena_alloc(@sizeOf(SliceMeta)) orelse return 0;
     const meta = @as(*SliceMeta, @ptrCast(@alignCast(meta_mem)));
@@ -90,7 +88,7 @@ pub fn makeTaggedStr(tag: i64, s: []const u8) i64 {
 }
 
 /// Recover a string slice from a tagged value created via makeTaggedStr.
-pub fn getTagStr(ptr: i64) []const u8 {
+pub fn getTagStr(ptr: usize) []const u8 {
     const val = getTagValue(ptr);
     if (val == 0) return "";
     const SliceMeta = struct { ptr: [*]const u8, len: usize };
@@ -117,6 +115,12 @@ pub const List = struct {
         self.len += 1;
     }
 
+    pub fn appendPtr(self: *List, val: usize) void {
+        const idx: usize = @intCast(@as(u64, @bitCast(self.len)));
+        self.items[idx] = @intCast(val);
+        self.len += 1;
+    }
+
     pub fn get(self: *const List, idx: i64) i64 {
         return self.items[@intCast(@as(u64, @bitCast(idx)))];
     }
@@ -138,7 +142,7 @@ fn handleShutdown(_: i32) callconv(.c) void {
 
 pub fn system_exit(code: i64) noreturn {
     profile.dump();
-    std.process.exit(@intCast(@as(u64, @bitCast(code))));
+    std.process.exit(@truncate(@as(u64, @bitCast(code))));
 }
 
 pub fn system_time_ms() i64 {

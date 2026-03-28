@@ -50,9 +50,35 @@ pub const ZigBackend = struct {
         return std.fmt.allocPrint(self.alloc, "r{d}", .{reg}) catch "r0";
     }
 
+    /// Check if a function returns a pointer-typed register (e.g., tagged value).
+    fn returnsPointer(self: *ZigBackend, func: ir.Function, reg_types: []const RegType) bool {
+        _ = self;
+        for (func.blocks.items) |block| {
+            for (block.insts.items) |inst| {
+                switch (inst) {
+                    .ret => |r| {
+                        if (r.value) |reg| {
+                            if (reg < reg_types.len and reg_types[reg] == .pointer) return true;
+                        }
+                    },
+                    else => {},
+                }
+            }
+        }
+        return false;
+    }
+
+    /// Check if a function is a process handler (its module matches a process decl name).
+    fn isProcessHandler(self: *ZigBackend, func: ir.Function) bool {
+        for (self.program.process_decls.items) |pd| {
+            if (std.mem.eql(u8, func.module, pd.name)) return true;
+        }
+        return false;
+    }
+
     // ── Register type tracking ───────────────────────────────
 
-    const RegType = enum { int, float, boolean, string };
+    const RegType = enum { int, float, boolean, string, pointer };
 
     fn regTypeFromIr(t: ir.Type) RegType {
         return switch (t) {
@@ -62,6 +88,17 @@ pub const ZigBackend = struct {
             .string => .string,
             .void => .int,
         };
+    }
+
+    /// Map IR param type to RegType — treats void (struct/union) params as pointers.
+    /// Needs function context to distinguish enum (int) from struct (pointer).
+    fn regTypeFromIrParam(t: ir.Type) RegType {
+        if (t != .void) return regTypeFromIr(t);
+        // void IR type = struct, union, or enum. Without the source type name
+        // we can't distinguish here. Return .pointer as default since structs
+        // and unions are pointer-backed. Enums are handled separately where
+        // the source type name is available.
+        return .pointer;
     }
 
     /// Determine the type of each register in a function by scanning all instructions.
@@ -84,7 +121,7 @@ pub const ZigBackend = struct {
 
         // Params set initial local types
         for (func.params) |param| {
-            local_type_map.put(self.alloc, param.name, regTypeFromIr(param.type_)) catch {};
+            local_type_map.put(self.alloc, param.name, regTypeFromIrParam(param.type_)) catch {};
         }
 
         // First pass: determine types from direct sources
@@ -110,7 +147,12 @@ pub const ZigBackend = struct {
                     .call => |c| {
                         for (self.program.functions.items) |f| {
                             if (std.mem.eql(u8, f.module, c.module) and std.mem.eql(u8, f.name, c.function)) {
-                                types[c.dest] = regTypeFromIr(f.return_type);
+                                const called_reg_types = self.buildRegTypes(f);
+                                if (self.isProcessHandler(f) or self.returnsPointer(f, called_reg_types)) {
+                                    types[c.dest] = .pointer;
+                                } else {
+                                    types[c.dest] = regTypeFromIr(f.return_type);
+                                }
                                 break;
                             }
                         }
@@ -121,8 +163,30 @@ pub const ZigBackend = struct {
                     .process_state_get => |sg| {
                         types[sg.dest] = self.lookupFieldType(sg.struct_name, sg.field_name);
                     },
+                    .tag_value => |tv| {
+                        // If the tagged source is a pointer (from tcp_open, etc.),
+                        // the extracted value is also a pointer.
+                        if (tv.tagged < types.len and types[tv.tagged] == .pointer) {
+                            types[tv.dest] = .pointer;
+                        }
+                    },
                     .tag_value_str => |tv| {
                         types[tv.dest] = .string;
+                    },
+                    .struct_alloc => |sa| {
+                        types[sa.dest] = .pointer;
+                    },
+                    .list_new => |ln| {
+                        types[ln.dest] = .pointer;
+                    },
+                    .process_spawn => |ps| {
+                        types[ps.dest] = .pointer;
+                    },
+                    .process_send => |ps| {
+                        types[ps.dest] = .pointer;
+                    },
+                    .process_send_timeout => |ps| {
+                        types[ps.dest] = .pointer;
                     },
                     else => {},
                 }
@@ -161,7 +225,7 @@ pub const ZigBackend = struct {
                     // Allocate typed state struct, set pointer on the process
                     self.writeIndent();
                     self.writeFmt("{{ const _st = std.heap.page_allocator.create(VerveStruct_{s}) catch unreachable; _st.* = .{{}}; ", .{st});
-                    self.writeFmt("rt.process.process_table[@intCast(@as(u64, @bitCast({s})) - 1)].state_ptr = @intFromPtr(_st); }}\n", .{pid_reg});
+                    self.writeFmt("rt.process.process_table[{s} - 1].state_ptr = @intFromPtr(_st); }}\n", .{pid_reg});
                 }
                 break;
             }
@@ -276,14 +340,14 @@ pub const ZigBackend = struct {
         .{ "stream_write_line", S{ .module = "io", .min_args = 2, .void_result = true } },
         .{ "stream_close", S{ .module = "io", .min_args = 1, .void_result = true } },
         // ── File ────────────────────────────────────
-        .{ "file_open", S{ .module = "io", .rt_name = "fileOpen", .min_args = 1 } },
+        .{ "file_open", S{ .module = "io", .rt_name = "fileOpen", .min_args = 1, .returns = .pointer } },
         // ── TCP ─────────────────────────────────────
-        .{ "tcp_open", S{ .module = "tcp", .min_args = 2 } },
-        .{ "tcp_listen", S{ .module = "tcp", .min_args = 2 } },
-        .{ "tcp_accept", S{ .module = "tcp", .min_args = 1 } },
+        .{ "tcp_open", S{ .module = "tcp", .min_args = 2, .returns = .pointer } },
+        .{ "tcp_listen", S{ .module = "tcp", .min_args = 2, .returns = .pointer } },
+        .{ "tcp_accept", S{ .module = "tcp", .min_args = 1, .returns = .pointer } },
         .{ "tcp_port", S{ .module = "tcp", .min_args = 1 } },
         // ── HTTP ────────────────────────────────────
-        .{ "http_parse_request", S{ .module = "http", .min_args = 1 } },
+        .{ "http_parse_request", S{ .module = "http", .min_args = 1, .returns = .pointer } },
         .{ "http_read_request", S{ .module = "http", .min_args = 1, .returns = .string } },
         .{ "http_set_timeout", S{ .module = "http", .min_args = 1 } },
         .{ "http_set_max_header_size", S{ .module = "http", .min_args = 1 } },
@@ -307,16 +371,17 @@ pub const ZigBackend = struct {
         .{ "json_to_string", S{ .module = "json", .min_args = 1, .returns = .string } },
         .{ "json_build_object", S{
             .module = "json",
+            .returns = .pointer,
         } },
         .{ "json_build_end", S{ .module = "json", .min_args = 1, .returns = .string } },
         .{ "json_build_add_string", S{ .module = "json", .min_args = 3, .void_result = true } },
         .{ "json_build_add_int", S{ .module = "json", .min_args = 3, .void_result = true } },
         .{ "json_build_add_float", S{ .module = "json", .min_args = 3, .void_result = true } },
         // ── Tags / Process ──────────────────────────
-        .{ "make_tagged", S{ .rt_name = "!", .min_args = 2 } },
+        .{ "make_tagged", S{ .rt_name = "!", .min_args = 2, .returns = .pointer } },
         .{ "process_exit", S{ .module = "process", .rt_name = "!", .void_result = true } },
         .{ "process_yield", S{ .module = "process", .rt_name = "!" } },
-        .{ "process_self", S{ .module = "process", .rt_name = "!" } },
+        .{ "process_self", S{ .module = "process", .rt_name = "!", .returns = .pointer } },
         .{ "process_run", S{ .module = "process", .rt_name = "!" } },
         // ── Custom handlers (rt_name = "!") ─────────
         .{ "println", S{ .rt_name = "!" } },
@@ -336,6 +401,7 @@ pub const ZigBackend = struct {
 
     fn builtinReturnType(name: []const u8) RegType {
         if (builtin_specs.get(name)) |spec| return spec.returns;
+        if (std.mem.startsWith(u8, name, "json_parse_struct:")) return .pointer;
         return .int;
     }
 
@@ -395,7 +461,7 @@ pub const ZigBackend = struct {
             self.line("");
 
             // Emit parse function for Json.parse typed struct parsing
-            self.writeFmt("fn verve_json_parse_{s}(data: []const u8) i64 {{\n", .{sd.name});
+            self.writeFmt("fn verve_json_parse_{s}(data: []const u8) usize {{\n", .{sd.name});
             self.indent += 1;
             self.writeFmt("const parsed = std.json.parseFromSlice(VerveStruct_{s}, std.heap.page_allocator, data, .{{ .ignore_unknown_fields = true }}) catch return rt.makeTagged(1, 0);\n", .{sd.name});
             self.line("const val = parsed.value;");
@@ -420,7 +486,7 @@ pub const ZigBackend = struct {
         // Emit per-process dispatch functions (binary message protocol)
         if (program.process_decls.items.len > 0) {
             for (program.process_decls.items, 0..) |pd, pdi| {
-                self.writeFmt("fn verve_dispatch_{d}(_msg_ptr: [*]const u8, _msg_len: usize) i64 {{\n", .{pdi});
+                self.writeFmt("fn verve_dispatch_{d}(_msg_ptr: [*]const u8, _msg_len: usize) usize {{\n", .{pdi});
                 self.indent += 1;
                 self.line("_ = _msg_len;");
                 self.line("const _hid = _msg_ptr[0];");
@@ -546,7 +612,7 @@ pub const ZigBackend = struct {
         // Emit dispatch init if processes exist (same binary protocol as emit())
         if (program.process_decls.items.len > 0) {
             for (program.process_decls.items, 0..) |pd, pdi| {
-                self.writeFmt("fn verve_dispatch_{d}(_msg_ptr: [*]const u8, _msg_len: usize) i64 {{\n", .{pdi});
+                self.writeFmt("fn verve_dispatch_{d}(_msg_ptr: [*]const u8, _msg_len: usize) usize {{\n", .{pdi});
                 self.indent += 1;
                 self.line("_ = _msg_len;");
                 self.line("const _hid = _msg_ptr[0];");
@@ -679,6 +745,9 @@ pub const ZigBackend = struct {
                     self.writeFmt("param_{s}: f64", .{param.name});
                 } else if (param.type_ == .bool) {
                     self.writeFmt("param_{s}: bool", .{param.name});
+                } else if (param.type_ == .void) {
+                    // void IR type = struct/union/opaque pointer param
+                    self.writeFmt("param_{s}: usize", .{param.name});
                 } else {
                     self.writeFmt("param_{s}: i64", .{param.name});
                 }
@@ -688,6 +757,8 @@ pub const ZigBackend = struct {
                 self.write(") f64 {\n");
             } else if (func.return_type == .bool) {
                 self.write(") bool {\n");
+            } else if (self.isProcessHandler(func) or self.returnsPointer(func, reg_types)) {
+                self.write(") usize {\n");
             } else {
                 self.write(") i64 {\n");
             }
@@ -712,6 +783,8 @@ pub const ZigBackend = struct {
                     self.lineFmt("var {s}: f64 = 0.0;", .{self.regName(r)});
                 } else if (r < reg_types.len and reg_types[r] == .boolean) {
                     self.lineFmt("var {s}: bool = false;", .{self.regName(r)});
+                } else if (r < reg_types.len and reg_types[r] == .pointer) {
+                    self.lineFmt("var {s}: usize = 0;", .{self.regName(r)});
                 } else {
                     self.lineFmt("var {s}: i64 = 0;", .{self.regName(r)});
                 }
@@ -728,6 +801,8 @@ pub const ZigBackend = struct {
         self.line("_ = &locals_float;");
         self.line("var locals_bool: [256]bool = .{false} ** 256;");
         self.line("_ = &locals_bool;");
+        self.line("var locals_ptr: [256]usize = .{0} ** 256;");
+        self.line("_ = &locals_ptr;");
 
         // Track local name → index mapping and types
         var local_count: usize = 0;
@@ -742,18 +817,20 @@ pub const ZigBackend = struct {
                     self.lineFmt("locals_int[{d}] = @intCast(@intFromPtr(&verve_args_list));", .{local_count});
                 }
                 local_names[local_count] = param.name;
-                local_types[local_count] = regTypeFromIr(param.type_);
+                local_types[local_count] = regTypeFromIrParam(param.type_);
                 local_count += 1;
             }
         } else {
             for (func.params) |param| {
-                const pt = regTypeFromIr(param.type_);
+                const pt = regTypeFromIrParam(param.type_);
                 if (pt == .string) {
                     self.lineFmt("locals_str[{d}] = param_{s};", .{ local_count, param.name });
                 } else if (pt == .float) {
                     self.lineFmt("locals_float[{d}] = param_{s};", .{ local_count, param.name });
                 } else if (pt == .boolean) {
                     self.lineFmt("locals_bool[{d}] = param_{s};", .{ local_count, param.name });
+                } else if (pt == .pointer) {
+                    self.lineFmt("locals_ptr[{d}] = param_{s};", .{ local_count, param.name });
                 } else {
                     self.lineFmt("locals_int[{d}] = param_{s};", .{ local_count, param.name });
                 }
@@ -778,7 +855,8 @@ pub const ZigBackend = struct {
             var terminated = false;
             for (block.insts.items) |inst| {
                 if (terminated) break;
-                self.emitInst(inst, &local_names, &local_count, &local_types, reg_types, is_entry);
+                const fn_returns_ptr = !is_entry and (self.isProcessHandler(func) or self.returnsPointer(func, reg_types));
+                self.emitInst(inst, &local_names, &local_count, &local_types, reg_types, is_entry, fn_returns_ptr);
                 if (isTerminator(inst)) terminated = true;
             }
 
@@ -820,7 +898,7 @@ pub const ZigBackend = struct {
                 self.lineFmt("const pid = rt.process.verve_spawn({d});", .{pdi});
                 self.line("rt.process.current_process_id = pid;");
                 if (pd.state_type) |st| {
-                    self.lineFmt("{{ const _st = std.heap.page_allocator.create(VerveStruct_{s}) catch unreachable; _st.* = .{{}}; rt.process.process_table[@intCast(@as(u64, @bitCast(pid)) - 1)].state_ptr = @intFromPtr(_st); }}", .{st});
+                    self.lineFmt("{{ const _st = std.heap.page_allocator.create(VerveStruct_{s}) catch unreachable; _st.* = .{{}}; rt.process.process_table[pid - 1].state_ptr = @intFromPtr(_st); }}", .{st});
                 }
                 break;
             }
@@ -833,7 +911,7 @@ pub const ZigBackend = struct {
         self.write(");\n");
         self.line("if (result != 0) {");
         self.indent += 1;
-        self.line("std.posix.exit(@intCast(@as(u64, @bitCast(result))));");
+        self.line("std.posix.exit(@intCast(result));");
         self.indent -= 1;
         self.line("}");
         self.indent -= 1;
@@ -845,7 +923,7 @@ pub const ZigBackend = struct {
         return .int;
     }
 
-    fn emitInst(self: *ZigBackend, inst: ir.Inst, local_names: *[128][]const u8, local_count: *usize, local_types: *[128]RegType, reg_types: []const RegType, is_entry: bool) void {
+    fn emitInst(self: *ZigBackend, inst: ir.Inst, local_names: *[128][]const u8, local_count: *usize, local_types: *[128]RegType, reg_types: []const RegType, is_entry: bool, fn_returns_ptr: bool) void {
         switch (inst) {
             .const_int => |c| self.lineFmt("{s} = {d};", .{ self.regName(c.dest), c.value }),
             .const_bool => |c| self.lineFmt("{s} = {s};", .{ self.regName(c.dest), if (c.value) "true" else "false" }),
@@ -916,6 +994,8 @@ pub const ZigBackend = struct {
                     self.lineFmt("locals_float[{d}] = {s};", .{ idx, self.regName(s.src) });
                 } else if (src_type == .boolean) {
                     self.lineFmt("locals_bool[{d}] = {s};", .{ idx, self.regName(s.src) });
+                } else if (src_type == .pointer) {
+                    self.lineFmt("locals_ptr[{d}] = {s};", .{ idx, self.regName(s.src) });
                 } else {
                     self.lineFmt("locals_int[{d}] = {s};", .{ idx, self.regName(s.src) });
                 }
@@ -929,6 +1009,8 @@ pub const ZigBackend = struct {
                     self.lineFmt("{s} = locals_float[{d}];", .{ self.regName(l.dest), idx });
                 } else if (local_types[idx] == .boolean) {
                     self.lineFmt("{s} = locals_bool[{d}];", .{ self.regName(l.dest), idx });
+                } else if (local_types[idx] == .pointer) {
+                    self.lineFmt("{s} = locals_ptr[{d}];", .{ self.regName(l.dest), idx });
                 } else {
                     self.lineFmt("{s} = locals_int[{d}];", .{ self.regName(l.dest), idx });
                 }
@@ -951,7 +1033,12 @@ pub const ZigBackend = struct {
                     }
                 } else {
                     if (r.value) |reg| {
-                        self.lineFmt("return {s};", .{self.regName(reg)});
+                        const rt = getRegType(reg_types, reg);
+                        if (fn_returns_ptr and rt == .int) {
+                            self.lineFmt("return @intCast(@as(u64, @bitCast({s})));", .{self.regName(reg)});
+                        } else {
+                            self.lineFmt("return {s};", .{self.regName(reg)});
+                        }
                     } else {
                         self.line("return 0;");
                     }
@@ -970,44 +1057,45 @@ pub const ZigBackend = struct {
             .call_builtin => |c| self.emitBuiltin(c.dest, c.name, c.args, reg_types),
 
             .struct_alloc => |sa| {
-                // Allocate typed struct with default values
-                self.lineFmt("{{ const _sp = std.heap.page_allocator.create(VerveStruct_{s}) catch unreachable; _sp.* = .{{}}; {s} = @intCast(@intFromPtr(_sp)); }}", .{ sa.struct_name, self.regName(sa.dest) });
+                self.lineFmt("{{ const _sp = std.heap.page_allocator.create(VerveStruct_{s}) catch unreachable; _sp.* = .{{}}; {s} = @intFromPtr(_sp); }}", .{ sa.struct_name, self.regName(sa.dest) });
             },
             .struct_store => |ss| {
                 if (self.fieldIsEnum(ss.struct_name, ss.field_name)) |_| {
-                    // Enum field: convert i64 register to enum value
-                    self.lineFmt("@as(*VerveStruct_{s}, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s})))))).{s} = @enumFromInt({s});", .{ ss.struct_name, self.regName(ss.base), ss.field_name, self.regName(ss.src) });
+                    self.lineFmt("@as(*VerveStruct_{s}, @ptrFromInt({s})).{s} = @enumFromInt({s});", .{ ss.struct_name, self.regName(ss.base), ss.field_name, self.regName(ss.src) });
                 } else {
-                    self.lineFmt("@as(*VerveStruct_{s}, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s})))))).{s} = {s};", .{ ss.struct_name, self.regName(ss.base), ss.field_name, self.regName(ss.src) });
+                    self.lineFmt("@as(*VerveStruct_{s}, @ptrFromInt({s})).{s} = {s};", .{ ss.struct_name, self.regName(ss.base), ss.field_name, self.regName(ss.src) });
                 }
             },
             .struct_load => |sl| {
                 if (self.fieldIsEnum(sl.struct_name, sl.field_name)) |_| {
-                    // Enum field: convert enum value to i64 register
-                    self.lineFmt("{s} = @intFromEnum(@as(*const VerveStruct_{s}, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s})))))).{s});", .{ self.regName(sl.dest), sl.struct_name, self.regName(sl.base), sl.field_name });
+                    self.lineFmt("{s} = @intFromEnum(@as(*const VerveStruct_{s}, @ptrFromInt({s})).{s});", .{ self.regName(sl.dest), sl.struct_name, self.regName(sl.base), sl.field_name });
                 } else {
-                    self.lineFmt("{s} = @as(*const VerveStruct_{s}, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s})))))).{s};", .{ self.regName(sl.dest), sl.struct_name, self.regName(sl.base), sl.field_name });
+                    self.lineFmt("{s} = @as(*const VerveStruct_{s}, @ptrFromInt({s})).{s};", .{ self.regName(sl.dest), sl.struct_name, self.regName(sl.base), sl.field_name });
                 }
             },
 
             .list_new => |ln| {
-                self.lineFmt("{{ const lm = rt.arena_alloc(@sizeOf(rt.List)) orelse @as([*]u8, undefined); const lp = @as(*rt.List, @ptrCast(@alignCast(lm))); lp.* = rt.List.init(); {s} = @intCast(@intFromPtr(lp)); }}", .{self.regName(ln.dest)});
+                self.lineFmt("{{ const lm = rt.arena_alloc(@sizeOf(rt.List)) orelse @as([*]u8, undefined); const lp = @as(*rt.List, @ptrCast(@alignCast(lm))); lp.* = rt.List.init(); {s} = @intFromPtr(lp); }}", .{self.regName(ln.dest)});
             },
             .list_append => |la| {
-                self.lineFmt("@as(*rt.List, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s})))))).append({s});", .{ self.regName(la.list), self.regName(la.value) });
+                self.lineFmt("@as(*rt.List, @ptrFromInt({s})).append({s});", .{ self.regName(la.list), self.regName(la.value) });
             },
             .list_len => |ll| {
-                self.lineFmt("{s} = @as(*const rt.List, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s})))))).len;", .{ self.regName(ll.dest), self.regName(ll.list) });
+                self.lineFmt("{s} = @as(*const rt.List, @ptrFromInt({s})).len;", .{ self.regName(ll.dest), self.regName(ll.list) });
             },
             .list_get => |lg| {
-                self.lineFmt("{s} = @as(*const rt.List, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s})))))).get({s});", .{ self.regName(lg.dest), self.regName(lg.list), self.regName(lg.index) });
+                self.lineFmt("{s} = @as(*const rt.List, @ptrFromInt({s})).get({s});", .{ self.regName(lg.dest), self.regName(lg.list), self.regName(lg.index) });
             },
 
             .tag_get => |tg| {
                 self.lineFmt("{s} = rt.getTag({s});", .{ self.regName(tg.dest), self.regName(tg.tagged) });
             },
             .tag_value => |tv| {
-                self.lineFmt("{s} = rt.getTagValue({s});", .{ self.regName(tv.dest), self.regName(tv.tagged) });
+                if (getRegType(reg_types, tv.dest) == .pointer) {
+                    self.lineFmt("{s} = @intCast(@as(u64, @bitCast(rt.getTagValue({s}))));", .{ self.regName(tv.dest), self.regName(tv.tagged) });
+                } else {
+                    self.lineFmt("{s} = rt.getTagValue({s});", .{ self.regName(tv.dest), self.regName(tv.tagged) });
+                }
             },
             .tag_value_str => |tv| {
                 self.lineFmt("{s} = rt.getTagStr({s});", .{ self.regName(tv.dest), self.regName(tv.tagged) });
@@ -1178,7 +1266,7 @@ pub const ZigBackend = struct {
                     .string => self.lineFmt("rt.io.verve_write(1, {s});", .{self.regName(arg)}),
                     .float => self.lineFmt("{{ var _buf: [64]u8 = undefined; const _s = std.fmt.bufPrint(&_buf, \"{{d}}\", .{{{s}}}) catch \"?\"; rt.io.verve_write(1, _s); }}", .{self.regName(arg)}),
                     .boolean => self.lineFmt("rt.io.verve_write(1, if ({s}) \"true\" else \"false\");", .{self.regName(arg)}),
-                    .int => self.lineFmt("{{ var _buf: [32]u8 = undefined; const _s = std.fmt.bufPrint(&_buf, \"{{d}}\", .{{{s}}}) catch \"?\"; rt.io.verve_write(1, _s); }}", .{self.regName(arg)}),
+                    .int, .pointer => self.lineFmt("{{ var _buf: [32]u8 = undefined; const _s = std.fmt.bufPrint(&_buf, \"{{d}}\", .{{{s}}}) catch \"?\"; rt.io.verve_write(1, _s); }}", .{self.regName(arg)}),
                 }
             }
             if (newline) self.line("rt.io.verve_write(1, \"\\n\");");
@@ -1198,9 +1286,9 @@ pub const ZigBackend = struct {
         } else if (std.mem.eql(u8, name, "string_contains") or std.mem.eql(u8, name, "string_starts_with") or std.mem.eql(u8, name, "string_ends_with")) {
             if (args.len >= 2) self.lineFmt("{s} = (rt.string.{s}({s}, {s}) != 0);", .{ self.regName(dest), name, self.regName(args[0]), self.regName(args[1]) });
         } else if (std.mem.eql(u8, name, "set_has_str")) {
-            if (args.len >= 2) self.lineFmt("{{ const list = @as(*const rt.List, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s})))))); var found: i64 = 0; var si: i64 = 0; while (si + 1 < list.len) : (si += 2) {{ const esl = rt.sliceFromPair(list.get(si), list.get(si + 1)); if (std.mem.eql(u8, esl, {s})) {{ found = 1; break; }} }} {s} = found; }}", .{ self.regName(args[0]), self.regName(args[1]), self.regName(dest) });
+            if (args.len >= 2) self.lineFmt("{{ const list = @as(*const rt.List, @ptrFromInt({s})); var found: i64 = 0; var si: i64 = 0; while (si + 1 < list.len) : (si += 2) {{ const esl = rt.sliceFromPair(list.get(si), list.get(si + 1)); if (std.mem.eql(u8, esl, {s})) {{ found = 1; break; }} }} {s} = found; }}", .{ self.regName(args[0]), self.regName(args[1]), self.regName(dest) });
         } else if (std.mem.eql(u8, name, "set_has")) {
-            if (args.len >= 2) self.lineFmt("{{ const list = @as(*const rt.List, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s})))))); var found: i64 = 0; var si: i64 = 0; while (si < list.len) : (si += 1) {{ if (list.get(si) == {s}) {{ found = 1; break; }} }} {s} = found; }}", .{ self.regName(args[0]), self.regName(args[1]), self.regName(dest) });
+            if (args.len >= 2) self.lineFmt("{{ const list = @as(*const rt.List, @ptrFromInt({s})); var found: i64 = 0; var si: i64 = 0; while (si < list.len) : (si += 1) {{ if (list.get(si) == {s}) {{ found = 1; break; }} }} {s} = found; }}", .{ self.regName(args[0]), self.regName(args[1]), self.regName(dest) });
         } else if (std.mem.eql(u8, name, "string_len")) {
             if (args.len >= 1) self.lineFmt("{s} = @intCast({s}.len);", .{ self.regName(dest), self.regName(args[0]) });
         } else if (std.mem.eql(u8, name, "assert_check")) {
@@ -1220,6 +1308,7 @@ pub const ZigBackend = struct {
                     .float => self.lineFmt("{s} = rt.makeTagged({s}, @bitCast({s}));", .{ self.regName(dest), self.regName(args[0]), self.regName(args[1]) }),
                     .boolean => self.lineFmt("{s} = rt.makeTagged({s}, if ({s}) @as(i64, 1) else @as(i64, 0));", .{ self.regName(dest), self.regName(args[0]), self.regName(args[1]) }),
                     .int => self.lineFmt("{s} = rt.makeTagged({s}, {s});", .{ self.regName(dest), self.regName(args[0]), self.regName(args[1]) }),
+                    .pointer => self.lineFmt("{s} = rt.makeTagged({s}, @intCast({s}));", .{ self.regName(dest), self.regName(args[0]), self.regName(args[1]) }),
                 }
             }
         } else if (std.mem.eql(u8, name, "json_build_add_bool")) {
@@ -1288,6 +1377,9 @@ pub const ZigBackend = struct {
         } else if (t == .boolean) {
             self.lineFmt("_msg_buf[_mpos] = 2; _mpos += 1;", .{}); // ArgType.boolean
             self.lineFmt("_msg_buf[_mpos] = if ({s}) 1 else 0; _mpos += 1;", .{rn});
+        } else if (t == .pointer) {
+            self.lineFmt("_msg_buf[_mpos] = 0; _mpos += 1;", .{}); // ArgType.int (pointer as int)
+            self.lineFmt("const _ib_{d}: [8]u8 = @bitCast(@as(i64, @intCast({s}))); @memcpy(_msg_buf[_mpos.._mpos+8], &_ib_{d}); _mpos += 8;", .{ reg, rn, reg });
         } else {
             self.lineFmt("_msg_buf[_mpos] = 0; _mpos += 1;", .{}); // ArgType.int
             self.lineFmt("const _ib_{d}: [8]u8 = @bitCast({s}); @memcpy(_msg_buf[_mpos.._mpos+8], &_ib_{d}); _mpos += 8;", .{ reg, rn, reg });

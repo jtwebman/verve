@@ -45,7 +45,8 @@ pub fn string_replace(str: []const u8, old: []const u8, new: []const u8) []const
 }
 
 pub fn string_char_at(str: []const u8, idx: i64) []const u8 {
-    const i: usize = @intCast(@as(u64, @bitCast(idx)));
+    if (idx < 0) return "";
+    const i: usize = @intCast(idx);
     if (i >= str.len) return "";
     return str[i .. i + 1];
 }

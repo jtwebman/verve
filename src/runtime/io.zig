@@ -20,17 +20,17 @@ pub const VerveStream = struct {
 
     pub const Kind = enum { file_read, file_write, tcp_client, tcp_listener };
 
-    pub fn streamPtr(self: *VerveStream) i64 {
-        return @intCast(@intFromPtr(self));
+    pub fn streamPtr(self: *VerveStream) usize {
+        return @intFromPtr(self);
     }
 };
 
-pub fn toStream(ptr: i64) ?*VerveStream {
+pub fn toStream(ptr: usize) ?*VerveStream {
     if (ptr == 0) return null;
-    return @as(*VerveStream, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(ptr))))));
+    return @as(*VerveStream, @ptrFromInt(ptr));
 }
 
-pub fn stream_write(stream_ptr: i64, data: []const u8) void {
+pub fn stream_write(stream_ptr: usize, data: []const u8) void {
     const t = rt.profile.begin();
     defer rt.profile.end(.write, t);
 
@@ -50,7 +50,7 @@ pub fn stream_write(stream_ptr: i64, data: []const u8) void {
     }
 }
 
-pub fn stream_write_line(stream_ptr: i64, data: []const u8) void {
+pub fn stream_write_line(stream_ptr: usize, data: []const u8) void {
     stream_write(stream_ptr, data);
     const s = toStream(stream_ptr) orelse return;
     if (s.closed) return;
@@ -64,7 +64,7 @@ pub fn stream_write_line(stream_ptr: i64, data: []const u8) void {
 
 /// Read one line from a stream. Returns the line as []const u8.
 /// Returns "" on EOF.
-pub fn stream_read_line(stream_ptr: i64) []const u8 {
+pub fn stream_read_line(stream_ptr: usize) []const u8 {
     const s = toStream(stream_ptr) orelse return "";
     if (s.closed) return "";
     switch (s.kind) {
@@ -110,7 +110,7 @@ pub fn stream_read_line(stream_ptr: i64) []const u8 {
 }
 
 /// Read all remaining data from a stream. Returns []const u8.
-pub fn stream_read_all_new(stream_ptr: i64) []const u8 {
+pub fn stream_read_all_new(stream_ptr: usize) []const u8 {
     const s = toStream(stream_ptr) orelse return "";
     if (s.closed) return "";
     switch (s.kind) {
@@ -138,7 +138,7 @@ pub fn stream_read_all_new(stream_ptr: i64) []const u8 {
     }
 }
 
-pub fn stream_close(stream_ptr: i64) void {
+pub fn stream_close(stream_ptr: usize) void {
     const t = rt.profile.begin();
     defer rt.profile.end(.close, t);
 
@@ -156,7 +156,7 @@ pub fn stream_close(stream_ptr: i64) void {
 }
 
 /// Read up to `max_bytes` from a stream. Returns []const u8.
-pub fn stream_read_bytes(stream_ptr: i64, max: i64) []const u8 {
+pub fn stream_read_bytes(stream_ptr: usize, max: i64) []const u8 {
     const t = rt.profile.begin();
     defer rt.profile.end(.read, t);
 
@@ -204,19 +204,19 @@ pub fn verve_write_float(fd: i64, val: i64) void {
     _ = std.posix.write(std.posix.STDOUT_FILENO, s) catch 0;
 }
 
-pub fn fileOpen(path: []const u8) i64 {
+pub fn fileOpen(path: []const u8) usize {
     const data = std.fs.cwd().readFileAlloc(std.heap.page_allocator, path, 10 * 1024 * 1024) catch return rt.makeTagged(1, 0);
-    const stream_mem = rt.arena_alloc(3 * @sizeOf(i64)) orelse return rt.makeTagged(1, 0);
-    const stream = @as([*]i64, @ptrCast(@alignCast(stream_mem)));
-    stream[0] = @intCast(@intFromPtr(data.ptr));
-    stream[1] = @intCast(data.len);
+    const stream_mem = rt.arena_alloc(3 * @sizeOf(usize)) orelse return rt.makeTagged(1, 0);
+    const stream = @as([*]usize, @ptrCast(@alignCast(stream_mem)));
+    stream[0] = @intFromPtr(data.ptr);
+    stream[1] = data.len;
     stream[2] = 0;
     return rt.makeTagged(0, @intCast(@intFromPtr(stream)));
 }
 
-pub fn streamReadAll(stream_ptr: i64) []const u8 {
-    const s = @as([*]i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(stream_ptr))))));
-    const ptr = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(s[0]))))));
-    const len: usize = @intCast(@as(u64, @bitCast(s[1])));
+pub fn streamReadAll(stream_ptr: usize) []const u8 {
+    const s = @as([*]usize, @ptrFromInt(stream_ptr));
+    const ptr = @as([*]const u8, @ptrFromInt(s[0]));
+    const len: usize = s[1];
     return ptr[0..len];
 }

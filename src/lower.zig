@@ -223,7 +223,7 @@ pub const Lower = struct {
 
         var params = std.ArrayListUnmanaged(ir.Function.Param){};
         for (func.params) |p| {
-            try params.append(self.alloc, .{ .name = p.name, .type_ = resolveType(p.type_expr) });
+            try params.append(self.alloc, .{ .name = p.name, .type_ = self.resolveType(p.type_expr) });
             switch (p.type_expr) {
                 .simple => |tn| {
                     self.var_types.put(self.alloc, p.name, tn) catch {};
@@ -232,7 +232,7 @@ pub const Lower = struct {
             }
         }
         f.params = try params.toOwnedSlice(self.alloc);
-        f.return_type = resolveType(func.return_type);
+        f.return_type = self.resolveType(func.return_type);
 
         self.current_fn = &f;
         const entry = f.newBlock();
@@ -255,7 +255,7 @@ pub const Lower = struct {
             std.mem.eql(u8, handler.params[0].name, "state");
         const user_params = if (skip_state) handler.params[1..] else handler.params;
         for (user_params) |p| {
-            try params.append(self.alloc, .{ .name = p.name, .type_ = resolveType(p.type_expr) });
+            try params.append(self.alloc, .{ .name = p.name, .type_ = self.resolveType(p.type_expr) });
             switch (p.type_expr) {
                 .simple => |tn| {
                     self.var_types.put(self.alloc, p.name, tn) catch {};
@@ -264,7 +264,7 @@ pub const Lower = struct {
             }
         }
         f.params = try params.toOwnedSlice(self.alloc);
-        f.return_type = resolveType(handler.return_type);
+        f.return_type = self.resolveType(handler.return_type);
 
         self.current_fn = &f;
         self.current_process_decl = proc_decl;
@@ -1182,13 +1182,15 @@ pub const Lower = struct {
         return false;
     }
 
-    fn resolveType(type_expr: ast.TypeExpr) ir.Type {
+    fn resolveType(self: *Lower, type_expr: ast.TypeExpr) ir.Type {
         switch (type_expr) {
             .simple => |name| {
                 if (std.mem.eql(u8, name, "int")) return .i64;
                 if (std.mem.eql(u8, name, "float")) return .f64;
                 if (std.mem.eql(u8, name, "bool")) return .bool;
                 if (std.mem.eql(u8, name, "string")) return .string;
+                // Enums are integer-backed
+                if (self.enum_decls.contains(name)) return .i64;
                 return .void;
             },
             else => return .void,

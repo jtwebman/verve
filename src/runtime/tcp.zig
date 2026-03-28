@@ -4,7 +4,7 @@ const io = @import("io.zig");
 
 // ── TCP ────────────────────────────────────────────
 
-pub fn tcp_open(host: []const u8, port: i64) i64 {
+pub fn tcp_open(host: []const u8, port: i64) usize {
     const port_u16: u16 = @intCast(@as(u64, @bitCast(port)));
 
     const addr = std.net.Address.resolveIp(host, port_u16) catch return rt.makeTagged(1, 0);
@@ -26,10 +26,10 @@ pub fn tcp_open(host: []const u8, port: i64) i64 {
         .file_pos = 0,
         .closed = false,
     };
-    return rt.makeTagged(0, s.streamPtr());
+    return rt.makeTagged(0, @intCast(s.streamPtr()));
 }
 
-pub fn tcp_listen(host: []const u8, port: i64) i64 {
+pub fn tcp_listen(host: []const u8, port: i64) usize {
     const port_u16: u16 = @intCast(@as(u64, @bitCast(port)));
 
     const addr = std.net.Address.resolveIp(host, port_u16) catch return rt.makeTagged(1, 0);
@@ -62,7 +62,7 @@ pub fn tcp_listen(host: []const u8, port: i64) i64 {
         .file_pos = 0,
         .closed = false,
     };
-    return rt.makeTagged(0, s.streamPtr());
+    return rt.makeTagged(0, @intCast(s.streamPtr()));
 }
 
 // ── Non-blocking accept with pre-accept buffer ────
@@ -97,7 +97,7 @@ fn popAcceptBuffer() ?std.posix.fd_t {
     return fd;
 }
 
-pub fn tcp_accept(listener_ptr: i64) i64 {
+pub fn tcp_accept(listener_ptr: usize) usize {
     const t = rt.profile.begin();
     defer rt.profile.end(.accept, t);
 
@@ -143,7 +143,7 @@ pub fn tcp_accept(listener_ptr: i64) i64 {
     return rt.makeTagged(1, 0);
 }
 
-fn wrapClientFd(client_fd: std.posix.fd_t) i64 {
+fn wrapClientFd(client_fd: std.posix.fd_t) usize {
     const s = std.heap.page_allocator.create(io.VerveStream) catch {
         std.posix.close(client_fd);
         return rt.makeTagged(1, 0);
@@ -159,7 +159,7 @@ fn wrapClientFd(client_fd: std.posix.fd_t) i64 {
         .file_pos = 0,
         .closed = false,
     };
-    return rt.makeTagged(0, s.streamPtr());
+    return rt.makeTagged(0, @intCast(s.streamPtr()));
 }
 
 fn setNonBlocking(fd: std.posix.fd_t) void {
@@ -168,7 +168,7 @@ fn setNonBlocking(fd: std.posix.fd_t) void {
 }
 
 /// Get the local port of a listener socket. Useful after listen with port 0.
-pub fn tcp_port(stream_ptr: i64) i64 {
+pub fn tcp_port(stream_ptr: usize) i64 {
     const s = io.toStream(stream_ptr) orelse return 0;
     if (s.kind != .tcp_listener and s.kind != .tcp_client) return 0;
     var addr: std.posix.sockaddr.in = undefined;

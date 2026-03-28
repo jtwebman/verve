@@ -12,7 +12,7 @@ pub const Mailbox = struct {
     head: usize = 0,
     used: usize = 0, // bytes used in buffer
     count: usize = 0, // number of messages
-    reply_slot: ?*i64 = null, // for synchronous send
+    reply_slot: ?*usize = null, // for synchronous send
 
     /// Push a message (raw bytes) into the mailbox. Returns false if no room.
     pub fn push(self: *Mailbox, msg: [*]const u8, msg_len: usize) bool {
@@ -53,12 +53,12 @@ pub const Mailbox = struct {
 };
 
 pub const VerveProcess = struct {
-    id: i64,
+    id: usize,
     alive: bool,
-    process_type: i64,
+    process_type: usize,
     state_ptr: usize = 0, // Pointer to typed state struct (arena-allocated)
     mailbox: Mailbox,
-    watcher_pids: [rt.MAX_WATCHERS]i64,
+    watcher_pids: [rt.MAX_WATCHERS]usize,
     watcher_count: usize,
     arena: rt.Arena,
     // Fiber support for cooperative scheduling
@@ -67,13 +67,13 @@ pub const VerveProcess = struct {
     io_wait_fd: std.posix.fd_t = -1, // fd this process is waiting on (-1 = none)
 };
 
-/// Dispatch function receives raw message bytes: (msg_ptr, msg_len) -> result i64
-pub const DispatchFn = *const fn ([*]const u8, usize) i64;
+/// Dispatch function receives raw message bytes: (msg_ptr, msg_len) -> result usize
+pub const DispatchFn = *const fn ([*]const u8, usize) usize;
 
 /// Dynamic process table — heap-allocated, grows by doubling.
 pub var process_table: []VerveProcess = &.{};
-pub var process_count: i64 = 0;
-pub var current_process_id: i64 = 0;
+pub var process_count: usize = 0;
+pub var current_process_id: usize = 0;
 pub var dispatch_table: []DispatchFn = &.{};
 
 // ── Scheduler state ───────────────────────────────
@@ -109,17 +109,17 @@ pub fn ensureProcessCapacity(min_count: usize) void {
     dispatch_table = new_dispatch;
 }
 
-fn dispatch_noop(_: [*]const u8, _: usize) i64 {
+fn dispatch_noop(_: [*]const u8, _: usize) usize {
     return rt.makeTagged(1, 0);
 }
 
-pub fn pidx(pid: i64) usize {
-    return @intCast(@as(u64, @bitCast(pid - 1)));
+pub fn pidx(pid: usize) usize {
+    return pid - 1;
 }
 
 // ── Process operations ─────────────────────────────
 
-pub fn verve_spawn(process_type: i64) i64 {
+pub fn verve_spawn(process_type: usize) usize {
     const t = rt.profile.begin();
     defer rt.profile.end(.spawn, t);
 
@@ -136,12 +136,11 @@ pub fn verve_spawn(process_type: i64) i64 {
     }
     if (idx == process_table.len) {
         // No dead slot — use next available
-        const next: usize = @intCast(@as(u64, @bitCast(process_count)));
-        ensureProcessCapacity(next + 1); // grow if needed
-        idx = next;
+        ensureProcessCapacity(process_count + 1); // grow if needed
+        idx = process_count;
         process_count += 1;
     }
-    const pid: i64 = @intCast(idx + 1);
+    const pid: usize = idx + 1;
     process_table[idx] = .{
         .id = pid,
         .alive = true,
@@ -167,7 +166,7 @@ pub fn verve_state_init(ptr: usize) void {
     process_table[idx].state_ptr = ptr;
 }
 
-pub fn verve_watch(target_pid: i64) void {
+pub fn verve_watch(target_pid: usize) void {
     const idx = pidx(target_pid);
     const wc = process_table[idx].watcher_count;
     if (wc >= rt.MAX_WATCHERS) return;
@@ -175,7 +174,7 @@ pub fn verve_watch(target_pid: i64) void {
     process_table[idx].watcher_count = wc + 1;
 }
 
-pub fn verve_kill(target_pid: i64) void {
+pub fn verve_kill(target_pid: usize) void {
     const idx = pidx(target_pid);
     const proc = &process_table[idx];
     proc.alive = false;
@@ -196,7 +195,7 @@ pub fn verve_kill(target_pid: i64) void {
 /// Exit the current process — marks it dead and frees its arena.
 /// Called by a handler to self-terminate (spawn-per-message pattern).
 pub fn verve_exit_self() void {
-    if (current_process_id <= 0) return;
+    if (current_process_id == 0) return;
     const idx = pidx(current_process_id);
     if (idx >= process_table.len) return;
     const proc = &process_table[idx];
@@ -208,7 +207,7 @@ pub fn verve_exit_self() void {
 // ── Message passing ────────────────────────────────
 
 /// Drain ONE message from the mailbox. Returns true if a message was dispatched.
-fn drain_one(target_pid: i64) bool {
+fn drain_one(target_pid: usize) bool {
     const idx = pidx(target_pid);
     const proc = &process_table[idx];
     var pop_buf: [8192]u8 = undefined;
@@ -217,8 +216,7 @@ fn drain_one(target_pid: i64) bool {
     if (msg.len >= 1 and msg[0] == 0xFF) return true; // death notification — consumed but skip
     const saved = current_process_id;
     current_process_id = target_pid;
-    const pt: usize = @intCast(@as(u64, @bitCast(proc.process_type)));
-    const result = dispatch_table[pt](msg.ptr, msg.len);
+    const result = dispatch_table[proc.process_type](msg.ptr, msg.len);
     current_process_id = saved;
     if (proc.mailbox.reply_slot) |slot| {
         slot.* = result;
@@ -228,7 +226,7 @@ fn drain_one(target_pid: i64) bool {
 }
 
 /// Drain ALL messages (legacy sync path).
-pub fn verve_drain(target_pid: i64) void {
+pub fn verve_drain(target_pid: usize) void {
     const t = rt.profile.begin();
     defer rt.profile.end(.drain, t);
 
@@ -238,11 +236,11 @@ pub fn verve_drain(target_pid: i64) void {
 }
 
 /// Synchronous send: encode message, push to mailbox, drain, return result.
-pub fn verve_send(target_pid: i64, msg_ptr: [*]const u8, msg_len: usize) i64 {
+pub fn verve_send(target_pid: usize, msg_ptr: [*]const u8, msg_len: usize) usize {
     const idx = pidx(target_pid);
     const proc = &process_table[idx];
     if (!proc.alive) return rt.makeTagged(1, 0);
-    var result: i64 = 0;
+    var result: usize = 0;
     proc.mailbox.reply_slot = &result;
     if (!proc.mailbox.push(msg_ptr, msg_len)) {
         proc.mailbox.reply_slot = null;
@@ -252,13 +250,13 @@ pub fn verve_send(target_pid: i64, msg_ptr: [*]const u8, msg_len: usize) i64 {
     verve_drain(target_pid);
     proc.mailbox.reply_slot = null;
     if (result > 0x10000 and rt.getTag(result) == 1) return result;
-    return rt.makeTagged(0, result);
+    return rt.makeTagged(0, @intCast(result));
 }
 
 /// Fire-and-forget tell: push message to mailbox.
 /// When scheduler is running, message is deferred to scheduler.
 /// When scheduler is not running, drains immediately (legacy behavior).
-pub fn verve_tell(target_pid: i64, msg_ptr: [*]const u8, msg_len: usize) void {
+pub fn verve_tell(target_pid: usize, msg_ptr: [*]const u8, msg_len: usize) void {
     const idx = pidx(target_pid);
     if (idx >= process_table.len) return;
     const proc = &process_table[idx];
@@ -271,7 +269,7 @@ pub fn verve_tell(target_pid: i64, msg_ptr: [*]const u8, msg_len: usize) void {
 }
 
 /// Send with timeout (timeout not enforced in single-threaded runtime).
-pub fn verve_send_timeout(target_pid: i64, msg_ptr: [*]const u8, msg_len: usize, timeout_ms: i64) i64 {
+pub fn verve_send_timeout(target_pid: usize, msg_ptr: [*]const u8, msg_len: usize, timeout_ms: i64) usize {
     _ = timeout_ms;
     return verve_send(target_pid, msg_ptr, msg_len);
 }
@@ -321,7 +319,7 @@ pub fn verve_io_yield(fd: i64) void {
     if (epoll_fd >= 0) {
         var ev = std.os.linux.epoll_event{
             .events = std.os.linux.EPOLL.IN | std.os.linux.EPOLL.ONESHOT,
-            .data = .{ .u64 = @intCast(@as(u64, @bitCast(process_table[idx].id))) },
+            .data = .{ .u64 = @intCast(process_table[idx].id) },
         };
         std.posix.epoll_ctl(epoll_fd, std.os.linux.EPOLL.CTL_ADD, @intCast(fd), &ev) catch {
             // fd might already be registered — try MOD
@@ -334,14 +332,14 @@ pub fn verve_io_yield(fd: i64) void {
 }
 
 /// Return the current process's PID.
-pub fn verve_self() i64 {
+pub fn verve_self() usize {
     return current_process_id;
 }
 
 /// Fiber entry point for each process. Drains one message at a time,
 /// yielding back to the scheduler between messages.
 fn process_fiber_entry(pid_raw: usize) void {
-    const pid: i64 = @intCast(pid_raw);
+    const pid: usize = pid_raw;
     while (true) {
         const idx = pidx(pid);
         if (!process_table[idx].alive) break;
@@ -360,7 +358,7 @@ fn process_fiber_entry(pid_raw: usize) void {
         fiber.context_switch(&process_table[idx].proc_fiber.?.context, &scheduler_context);
     }
     // Mark fiber as done so it can be reinitialized on reuse
-    const idx = pidx(@intCast(pid_raw));
+    const idx = pidx(pid_raw);
     if (process_table[idx].proc_fiber) |*f| f.state = .done;
     fiber.context_switch(&process_table[idx].proc_fiber.?.context, &scheduler_context);
 }
@@ -371,12 +369,12 @@ fn ensure_fiber(proc: *VerveProcess) void {
     if (proc.proc_fiber) |*f| {
         if (f.state == .done or f.state == .fresh) {
             // Reinitialize the fiber's stack frame (reuse the stack memory)
-            fiber.fiber_reinit(f, &process_fiber_entry, @intCast(@as(u64, @bitCast(proc.id))));
+            fiber.fiber_reinit(f, &process_fiber_entry, proc.id);
         }
         return;
     }
     proc.proc_fiber = fiber.Fiber{};
-    fiber.fiber_init(&proc.proc_fiber.?, &process_fiber_entry, @intCast(@as(u64, @bitCast(proc.id)))) catch {
+    fiber.fiber_init(&proc.proc_fiber.?, &process_fiber_entry, proc.id) catch {
         proc.proc_fiber = null;
     };
 }
@@ -391,7 +389,7 @@ pub fn verve_scheduler_run() i64 {
         var any_ran = false;
 
         // Round-robin: give each runnable process one turn
-        const count: usize = @intCast(@as(u64, @bitCast(process_count)));
+        const count: usize = process_count;
         for (0..count) |i| {
             if (i >= process_table.len) break;
             const proc = &process_table[i];
@@ -433,7 +431,7 @@ pub fn verve_scheduler_run() i64 {
 
             // Wake processes whose fds are ready (including HUP/ERR — let handler detect close)
             for (events[0..n]) |ev| {
-                const pid: i64 = @intCast(ev.data.u64);
+                const pid: usize = @intCast(ev.data.u64);
                 const pidx_val = pidx(pid);
                 if (pidx_val < process_table.len and process_table[pidx_val].alive) {
                     process_table[pidx_val].yielded = true;
@@ -449,7 +447,7 @@ pub fn verve_scheduler_run() i64 {
 /// Register current process as waiting for I/O on a file descriptor.
 /// Process will be woken by the scheduler when the fd is readable.
 pub fn verve_io_wait(fd: i64) void {
-    if (current_process_id <= 0) return;
+    if (current_process_id == 0) return;
     const idx = pidx(current_process_id);
     process_table[idx].io_wait_fd = @intCast(fd);
 }

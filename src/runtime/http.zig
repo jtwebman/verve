@@ -78,7 +78,7 @@ pub const HttpRequest = struct {
     }
 };
 
-pub fn http_parse_request(data: []const u8) i64 {
+pub fn http_parse_request(data: []const u8) usize {
     const t = rt.profile.begin();
     defer rt.profile.end(.parse_http, t);
 
@@ -115,25 +115,25 @@ pub fn http_parse_request(data: []const u8) i64 {
         .headers_parsed = false,
         .src = src,
     };
-    return @intCast(@intFromPtr(req));
+    return @intFromPtr(req);
 }
 
-pub fn toHttpReq(ptr: i64) ?*HttpRequest {
+pub fn toHttpReq(ptr: usize) ?*HttpRequest {
     if (ptr == 0) return null;
-    return @as(*HttpRequest, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(ptr))))));
+    return @as(*HttpRequest, @ptrFromInt(ptr));
 }
 
-pub fn http_req_method(req_ptr: i64) []const u8 {
+pub fn http_req_method(req_ptr: usize) []const u8 {
     const req = toHttpReq(req_ptr) orelse return "";
     return req.src[req.method_start .. req.method_start + req.method_len];
 }
 
-pub fn http_req_path(req_ptr: i64) []const u8 {
+pub fn http_req_path(req_ptr: usize) []const u8 {
     const req = toHttpReq(req_ptr) orelse return "";
     return req.src[req.path_start .. req.path_start + req.path_len];
 }
 
-pub fn http_req_body(req_ptr: i64) []const u8 {
+pub fn http_req_body(req_ptr: usize) []const u8 {
     const req = toHttpReq(req_ptr) orelse return "";
     req.ensureHeadersParsed();
     if (req.body_len == 0) return "";
@@ -141,7 +141,7 @@ pub fn http_req_body(req_ptr: i64) []const u8 {
 }
 
 /// Find a header value by name (case-insensitive). Returns []const u8.
-pub fn http_req_header(req_ptr: i64, name: []const u8) []const u8 {
+pub fn http_req_header(req_ptr: usize, name: []const u8) []const u8 {
     const req = toHttpReq(req_ptr) orelse return "";
     req.ensureHeadersParsed();
     const headers = req.src[req.headers_start..req.headers_end];
@@ -185,7 +185,7 @@ pub fn http_req_header(req_ptr: i64, name: []const u8) []const u8 {
 /// Returns the raw request bytes, or "" on connection close / error.
 /// Non-blocking on subsequent calls: if no data is buffered or ready, returns ""
 /// immediately so the handler can yield back to the scheduler.
-pub fn http_read_request(stream_ptr: i64) []const u8 {
+pub fn http_read_request(stream_ptr: usize) []const u8 {
     const t = rt.profile.begin();
     defer rt.profile.end(.read, t);
 

@@ -102,7 +102,7 @@ fn json_find_key(src: []const u8, key: []const u8) ?struct { start: usize, end: 
 }
 
 /// Extract a JSON string value (removes quotes, handles escapes).
-fn json_extract_string(src: []const u8, start: usize, end: usize) struct { ptr: i64, len: i64 } {
+fn json_extract_string(src: []const u8, start: usize, end: usize) struct { ptr: usize, len: usize } {
     if (start >= end or src[start] != '"') return .{ .ptr = 0, .len = 0 };
     // Simple case: no escapes
     const inner_start = start + 1;
@@ -111,7 +111,7 @@ fn json_extract_string(src: []const u8, start: usize, end: usize) struct { ptr: 
     const inner = src[inner_start..inner_end];
     // Check for escapes
     if (std.mem.indexOfScalar(u8, inner, '\\') == null) {
-        return .{ .ptr = @intCast(@intFromPtr(inner.ptr)), .len = @intCast(inner.len) };
+        return .{ .ptr = @intFromPtr(inner.ptr), .len = inner.len };
     }
     // Has escapes — need to copy and unescape
     const buf = rt.arena_alloc(inner.len) orelse return .{ .ptr = 0, .len = 0 };
@@ -138,7 +138,7 @@ fn json_extract_string(src: []const u8, start: usize, end: usize) struct { ptr: 
             i += 1;
         }
     }
-    return .{ .ptr = @intCast(@intFromPtr(buf)), .len = @intCast(out) };
+    return .{ .ptr = @intFromPtr(buf), .len = out };
 }
 
 // ── JSON public API ────────────────────────────────
@@ -314,24 +314,24 @@ pub const JsonBuilder = struct {
         self.appendByte('"');
     }
 
-    pub fn result(self: *JsonBuilder) struct { ptr: i64, len: i64 } {
-        return .{ .ptr = @intCast(@intFromPtr(self.buf)), .len = @intCast(self.len) };
+    pub fn result(self: *JsonBuilder) struct { ptr: usize, len: usize } {
+        return .{ .ptr = @intFromPtr(self.buf), .len = self.len };
     }
 };
 
 /// Start building a JSON object. Returns a builder handle (pointer to JsonBuilder in arena).
-pub fn json_build_object() i64 {
+pub fn json_build_object() usize {
     const mem = rt.arena_alloc(@sizeOf(JsonBuilder)) orelse return 0;
     const b = @as(*JsonBuilder, @ptrCast(@alignCast(mem)));
     b.* = JsonBuilder.init();
     b.appendByte('{');
-    return @intCast(@intFromPtr(b));
+    return @intFromPtr(b);
 }
 
 /// Add a string field to a JSON builder.
-pub fn json_build_add_string(builder_ptr: i64, key: []const u8, val: []const u8) void {
+pub fn json_build_add_string(builder_ptr: usize, key: []const u8, val: []const u8) void {
     if (builder_ptr == 0) return;
-    const b = @as(*JsonBuilder, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(builder_ptr))))));
+    const b = @as(*JsonBuilder, @ptrFromInt(builder_ptr));
     if (b.len > 1) b.appendByte(',');
     b.appendQuotedString(key);
     b.appendByte(':');
@@ -339,9 +339,9 @@ pub fn json_build_add_string(builder_ptr: i64, key: []const u8, val: []const u8)
 }
 
 /// Add an int field to a JSON builder.
-pub fn json_build_add_int(builder_ptr: i64, key: []const u8, val: i64) void {
+pub fn json_build_add_int(builder_ptr: usize, key: []const u8, val: i64) void {
     if (builder_ptr == 0) return;
-    const b = @as(*JsonBuilder, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(builder_ptr))))));
+    const b = @as(*JsonBuilder, @ptrFromInt(builder_ptr));
     if (b.len > 1) b.appendByte(',');
     b.appendQuotedString(key);
     b.appendByte(':');
@@ -349,9 +349,9 @@ pub fn json_build_add_int(builder_ptr: i64, key: []const u8, val: i64) void {
 }
 
 /// Add a float field to a JSON builder.
-pub fn json_build_add_float(builder_ptr: i64, key: []const u8, val: i64) void {
+pub fn json_build_add_float(builder_ptr: usize, key: []const u8, val: i64) void {
     if (builder_ptr == 0) return;
-    const b = @as(*JsonBuilder, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(builder_ptr))))));
+    const b = @as(*JsonBuilder, @ptrFromInt(builder_ptr));
     const checked = @import("checked.zig");
     if (b.len > 1) b.appendByte(',');
     b.appendQuotedString(key);
@@ -360,9 +360,9 @@ pub fn json_build_add_float(builder_ptr: i64, key: []const u8, val: i64) void {
 }
 
 /// Add a bool field to a JSON builder.
-pub fn json_build_add_bool(builder_ptr: i64, key: []const u8, val: i64) void {
+pub fn json_build_add_bool(builder_ptr: usize, key: []const u8, val: i64) void {
     if (builder_ptr == 0) return;
-    const b = @as(*JsonBuilder, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(builder_ptr))))));
+    const b = @as(*JsonBuilder, @ptrFromInt(builder_ptr));
     if (b.len > 1) b.appendByte(',');
     b.appendQuotedString(key);
     b.appendByte(':');
@@ -370,9 +370,9 @@ pub fn json_build_add_bool(builder_ptr: i64, key: []const u8, val: i64) void {
 }
 
 /// Add a null field to a JSON builder.
-pub fn json_build_add_null(builder_ptr: i64, key: []const u8) void {
+pub fn json_build_add_null(builder_ptr: usize, key: []const u8) void {
     if (builder_ptr == 0) return;
-    const b = @as(*JsonBuilder, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(builder_ptr))))));
+    const b = @as(*JsonBuilder, @ptrFromInt(builder_ptr));
     if (b.len > 1) b.appendByte(',');
     b.appendQuotedString(key);
     b.appendByte(':');
@@ -380,9 +380,9 @@ pub fn json_build_add_null(builder_ptr: i64, key: []const u8) void {
 }
 
 /// Add a raw JSON value (sub-object, sub-array) to a JSON builder.
-pub fn json_build_add_raw(builder_ptr: i64, key: []const u8, val: []const u8) void {
+pub fn json_build_add_raw(builder_ptr: usize, key: []const u8, val: []const u8) void {
     if (builder_ptr == 0) return;
-    const b = @as(*JsonBuilder, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(builder_ptr))))));
+    const b = @as(*JsonBuilder, @ptrFromInt(builder_ptr));
     if (b.len > 1) b.appendByte(',');
     b.appendQuotedString(key);
     b.appendByte(':');
@@ -390,9 +390,9 @@ pub fn json_build_add_raw(builder_ptr: i64, key: []const u8, val: []const u8) vo
 }
 
 /// Finish building a JSON object. Returns the JSON string as []const u8.
-pub fn json_build_end(builder_ptr: i64) []const u8 {
+pub fn json_build_end(builder_ptr: usize) []const u8 {
     if (builder_ptr == 0) return "";
-    const b = @as(*JsonBuilder, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(builder_ptr))))));
+    const b = @as(*JsonBuilder, @ptrFromInt(builder_ptr));
     b.appendByte('}');
     const res = b.result();
     return rt.sliceFromPair(res.ptr, res.len);
