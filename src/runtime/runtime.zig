@@ -3,8 +3,12 @@ const std = @import("std");
 // ── Sub-modules ─────────────────────────────────────
 pub const string = @import("string.zig");
 pub const math = @import("math.zig");
+pub const checked = @import("checked.zig");
+pub const convert = @import("convert.zig");
 pub const json = @import("json.zig");
-pub const net = @import("net.zig");
+pub const io = @import("io.zig");
+pub const tcp = @import("tcp.zig");
+pub const http = @import("http.zig");
 pub const process = @import("process.zig");
 
 // ── Constants ──────────────────────────────────────
@@ -15,12 +19,6 @@ pub const MAX_INLINE_STRING = 4096; // strings > this use arena reference
 
 /// Message argument type tags for the binary protocol.
 pub const ArgType = enum(u8) { int = 0, float = 1, boolean = 2, string = 3, string_ref = 4 };
-
-// HTTP limits (sane defaults, engineers can recompile with different values)
-pub const HTTP_MAX_HEADER_SIZE = 8 * 1024; // 8KB per header section
-pub const HTTP_MAX_BODY_SIZE = 1024 * 1024; // 1MB request body
-pub const HTTP_MAX_URI_SIZE = 8 * 1024; // 8KB URI length
-pub const HTTP_MAX_METHOD_SIZE = 16; // longest standard method
 
 // ── Initialization ─────────────────────────────────
 
@@ -36,45 +34,6 @@ pub fn verve_runtime_init() void {
         .flags = 0,
     };
     std.posix.sigaction(std.posix.SIG.PIPE, &act, null);
-}
-
-// ── IO helpers ─────────────────────────────────────
-
-pub fn verve_write(fd: i64, s: []const u8) void {
-    _ = fd;
-    _ = std.posix.write(std.posix.STDOUT_FILENO, s) catch 0;
-}
-
-pub fn verve_write_int(fd: i64, val: i64) void {
-    _ = fd;
-    var buf: [32]u8 = undefined;
-    const s = std.fmt.bufPrint(&buf, "{d}", .{val}) catch return;
-    _ = std.posix.write(std.posix.STDOUT_FILENO, s) catch 0;
-}
-
-pub fn verve_write_float(fd: i64, val: i64) void {
-    _ = fd;
-    var buf: [64]u8 = undefined;
-    const f: f64 = @bitCast(val);
-    const s = std.fmt.bufPrint(&buf, "{d}", .{f}) catch return;
-    _ = std.posix.write(std.posix.STDOUT_FILENO, s) catch 0;
-}
-
-pub fn fileOpen(path: []const u8) i64 {
-    const data = std.fs.cwd().readFileAlloc(std.heap.page_allocator, path, 10 * 1024 * 1024) catch return makeTagged(1, 0);
-    const stream_mem = arena_alloc(3 * @sizeOf(i64)) orelse return makeTagged(1, 0);
-    const stream = @as([*]i64, @ptrCast(@alignCast(stream_mem)));
-    stream[0] = @intCast(@intFromPtr(data.ptr));
-    stream[1] = @intCast(data.len);
-    stream[2] = 0;
-    return makeTagged(0, @intCast(@intFromPtr(stream)));
-}
-
-pub fn streamReadAll(stream_ptr: i64) []const u8 {
-    const s = @as([*]i64, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(stream_ptr))))));
-    const ptr = @as([*]const u8, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(s[0]))))));
-    const len: usize = @intCast(@as(u64, @bitCast(s[1])));
-    return ptr[0..len];
 }
 
 /// Convert i64 pair (ptr, len) back to []const u8 — used at struct boundaries.

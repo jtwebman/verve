@@ -159,11 +159,11 @@ pub fn json_get_int(json: []const u8, key: []const u8) i64 {
 
 /// Get a float value from a JSON object by key (returned as bitcast i64).
 pub fn json_get_float(json: []const u8, key: []const u8) i64 {
-    const math = @import("math.zig");
-    const found = json_find_key(json, key) orelse return math.i64_from_f64(0.0);
+    const checked = @import("checked.zig");
+    const found = json_find_key(json, key) orelse return checked.i64_from_f64(0.0);
     const num_str = json[found.start..found.end];
-    const f = std.fmt.parseFloat(f64, num_str) catch return math.i64_from_f64(0.0);
-    return math.i64_from_f64(f);
+    const f = std.fmt.parseFloat(f64, num_str) catch return checked.i64_from_f64(0.0);
+    return checked.i64_from_f64(f);
 }
 
 /// Get a bool value from a JSON object by key.
@@ -187,10 +187,10 @@ pub fn json_to_int(json: []const u8) i64 {
 
 /// Parse a single JSON value string as float (returned as bitcast i64).
 pub fn json_to_float(json: []const u8) i64 {
-    const math = @import("math.zig");
+    const checked = @import("checked.zig");
     const trimmed = std.mem.trim(u8, json, " \t\n\r");
-    const f = std.fmt.parseFloat(f64, trimmed) catch return math.i64_from_f64(0.0);
-    return math.i64_from_f64(f);
+    const f = std.fmt.parseFloat(f64, trimmed) catch return checked.i64_from_f64(0.0);
+    return checked.i64_from_f64(f);
 }
 
 /// Parse a single JSON value string as bool.
@@ -352,11 +352,11 @@ pub fn json_build_add_int(builder_ptr: i64, key: []const u8, val: i64) void {
 pub fn json_build_add_float(builder_ptr: i64, key: []const u8, val: i64) void {
     if (builder_ptr == 0) return;
     const b = @as(*JsonBuilder, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(builder_ptr))))));
-    const math = @import("math.zig");
+    const checked = @import("checked.zig");
     if (b.len > 1) b.appendByte(',');
     b.appendQuotedString(key);
     b.appendByte(':');
-    b.appendFloat(math.f64_from_i64(val));
+    b.appendFloat(checked.f64_from_i64(val));
 }
 
 /// Add a bool field to a JSON builder.

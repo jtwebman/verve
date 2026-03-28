@@ -185,7 +185,7 @@ pub const ZigBackend = struct {
 
     /// Describes how to emit a builtin call.
     const BuiltinSpec = struct {
-        /// Runtime sub-module: "math", "string", "json", "net", "process", or null for core rt
+        /// Runtime sub-module: "math", "checked", "convert", "string", "json", "io", "tcp", "http", "process", or null for core rt
         module: ?[]const u8 = null,
         /// Runtime function name (null = same as builtin name, "!" = custom handler)
         rt_name: ?[]const u8 = null,
@@ -222,12 +222,12 @@ pub const ZigBackend = struct {
         .{ "math_min_f", S{ .module = "math", .min_args = 2, .returns = .float } },
         .{ "math_max_f", S{ .module = "math", .min_args = 2, .returns = .float } },
         // ── Convert ─────────────────────────────────
-        .{ "convert_to_float", S{ .module = "math", .min_args = 1, .returns = .float } },
-        .{ "convert_to_int_f", S{ .module = "math", .min_args = 1 } },
-        .{ "float_to_string", S{ .module = "math", .min_args = 1, .returns = .string } },
-        .{ "string_to_float", S{ .module = "math", .min_args = 1, .returns = .float } },
-        .{ "int_to_string", S{ .module = "math", .min_args = 1, .returns = .string } },
-        .{ "string_to_int", S{ .module = "math", .min_args = 1 } },
+        .{ "convert_to_float", S{ .module = "convert", .min_args = 1, .returns = .float } },
+        .{ "convert_to_int_f", S{ .module = "convert", .min_args = 1 } },
+        .{ "float_to_string", S{ .module = "convert", .min_args = 1, .returns = .string } },
+        .{ "string_to_float", S{ .module = "convert", .min_args = 1, .returns = .float } },
+        .{ "int_to_string", S{ .module = "convert", .min_args = 1, .returns = .string } },
+        .{ "string_to_int", S{ .module = "convert", .min_args = 1 } },
         // ── String ──────────────────────────────────
         .{ "string_concat", S{ .module = "string", .rt_name = "verve_string_concat", .min_args = 2, .returns = .string } },
         .{ "string_trim", S{ .module = "string", .min_args = 1, .returns = .string } },
@@ -245,26 +245,26 @@ pub const ZigBackend = struct {
         .{ "system_exit", S{ .min_args = 1 } },
         .{ "system_time_ms", S{} },
         // ── Stream ──────────────────────────────────
-        .{ "stream_read_line", S{ .module = "net", .min_args = 1, .returns = .string } },
-        .{ "stream_read_bytes", S{ .module = "net", .min_args = 2, .returns = .string } },
-        .{ "stream_read_all", S{ .module = "net", .rt_name = "streamReadAll", .min_args = 1, .returns = .string } },
-        .{ "stream_write", S{ .module = "net", .min_args = 2, .void_result = true } },
-        .{ "stream_write_line", S{ .module = "net", .min_args = 2, .void_result = true } },
-        .{ "stream_close", S{ .module = "net", .min_args = 1, .void_result = true } },
+        .{ "stream_read_line", S{ .module = "io", .min_args = 1, .returns = .string } },
+        .{ "stream_read_bytes", S{ .module = "io", .min_args = 2, .returns = .string } },
+        .{ "stream_read_all", S{ .module = "io", .rt_name = "streamReadAll", .min_args = 1, .returns = .string } },
+        .{ "stream_write", S{ .module = "io", .min_args = 2, .void_result = true } },
+        .{ "stream_write_line", S{ .module = "io", .min_args = 2, .void_result = true } },
+        .{ "stream_close", S{ .module = "io", .min_args = 1, .void_result = true } },
         // ── File ────────────────────────────────────
-        .{ "file_open", S{ .rt_name = "fileOpen", .min_args = 1 } },
+        .{ "file_open", S{ .module = "io", .rt_name = "fileOpen", .min_args = 1 } },
         // ── TCP ─────────────────────────────────────
-        .{ "tcp_open", S{ .module = "net", .min_args = 2 } },
-        .{ "tcp_listen", S{ .module = "net", .min_args = 2 } },
-        .{ "tcp_accept", S{ .module = "net", .min_args = 1 } },
-        .{ "tcp_port", S{ .module = "net", .min_args = 1 } },
+        .{ "tcp_open", S{ .module = "tcp", .min_args = 2 } },
+        .{ "tcp_listen", S{ .module = "tcp", .min_args = 2 } },
+        .{ "tcp_accept", S{ .module = "tcp", .min_args = 1 } },
+        .{ "tcp_port", S{ .module = "tcp", .min_args = 1 } },
         // ── HTTP ────────────────────────────────────
-        .{ "http_parse_request", S{ .module = "net", .min_args = 1 } },
-        .{ "http_req_method", S{ .module = "net", .min_args = 1, .returns = .string } },
-        .{ "http_req_path", S{ .module = "net", .min_args = 1, .returns = .string } },
-        .{ "http_req_body", S{ .module = "net", .min_args = 1, .returns = .string } },
-        .{ "http_req_header", S{ .module = "net", .min_args = 2, .returns = .string } },
-        .{ "http_build_response", S{ .module = "net", .min_args = 3, .returns = .string } },
+        .{ "http_parse_request", S{ .module = "http", .min_args = 1 } },
+        .{ "http_req_method", S{ .module = "http", .min_args = 1, .returns = .string } },
+        .{ "http_req_path", S{ .module = "http", .min_args = 1, .returns = .string } },
+        .{ "http_req_body", S{ .module = "http", .min_args = 1, .returns = .string } },
+        .{ "http_req_header", S{ .module = "http", .min_args = 2, .returns = .string } },
+        .{ "http_build_response", S{ .module = "http", .min_args = 3, .returns = .string } },
         // ── JSON ────────────────────────────────────
         .{ "json_get_string", S{ .module = "json", .min_args = 2, .returns = .string } },
         .{ "json_get_object", S{ .module = "json", .min_args = 2, .returns = .string } },
@@ -313,8 +313,12 @@ pub const ZigBackend = struct {
     const runtime_source = @embedFile("runtime/runtime.zig");
     const rt_string_source = @embedFile("runtime/string.zig");
     const rt_math_source = @embedFile("runtime/math.zig");
+    const rt_checked_source = @embedFile("runtime/checked.zig");
+    const rt_convert_source = @embedFile("runtime/convert.zig");
     const rt_json_source = @embedFile("runtime/json.zig");
-    const rt_net_source = @embedFile("runtime/net.zig");
+    const rt_io_source = @embedFile("runtime/io.zig");
+    const rt_tcp_source = @embedFile("runtime/tcp.zig");
+    const rt_http_source = @embedFile("runtime/http.zig");
     const rt_process_source = @embedFile("runtime/process.zig");
 
     pub fn emit(self: *ZigBackend, program: ir.Program) void {
@@ -566,12 +570,12 @@ pub const ZigBackend = struct {
             self.writeFmt("    _ = verve_{s}_{s}();\n", .{ module, fn_name });
             self.line("if (rt.assert_fail_count == 0) {");
             self.indent += 1;
-            self.writeFmt("rt.verve_write(1, \"PASS: {s}\\n\");\n", .{test_name});
+            self.writeFmt("rt.io.verve_write(1, \"PASS: {s}\\n\");\n", .{test_name});
             self.line("passed += 1;");
             self.indent -= 1;
             self.line("} else {");
             self.indent += 1;
-            self.writeFmt("rt.verve_write(1, \"FAIL: {s}\\n\");\n", .{test_name});
+            self.writeFmt("rt.io.verve_write(1, \"FAIL: {s}\\n\");\n", .{test_name});
             self.line("failed += 1;");
             self.indent -= 1;
             self.line("}");
@@ -581,7 +585,7 @@ pub const ZigBackend = struct {
         self.indent += 1;
         self.line("var buf: [128]u8 = undefined;");
         self.line("const s = std.fmt.bufPrint(&buf, \"\\n{d} passed, {d} failed\\n\", .{passed, failed}) catch \"?\";");
-        self.line("rt.verve_write(1, s);");
+        self.line("rt.io.verve_write(1, s);");
         self.indent -= 1;
         self.line("}");
         self.line("if (failed > 0) std.process.exit(1);");
@@ -813,19 +817,19 @@ pub const ZigBackend = struct {
                 self.lineFmt("{s} = {d};", .{ self.regName(cf.dest), cf.value });
             },
 
-            .add_i64 => |op| self.lineFmt("{s} = rt.math.verve_add_checked({s}, {s});", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
-            .sub_i64 => |op| self.lineFmt("{s} = rt.math.verve_sub_checked({s}, {s});", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
-            .mul_i64 => |op| self.lineFmt("{s} = rt.math.verve_mul_checked({s}, {s});", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
-            .div_i64 => |op| self.lineFmt("{s} = rt.math.verve_div_checked({s}, {s});", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
-            .mod_i64 => |op| self.lineFmt("{s} = rt.math.verve_mod_checked({s}, {s});", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
-            .neg_i64 => |op| self.lineFmt("{s} = rt.math.verve_neg_checked({s});", .{ self.regName(op.dest), self.regName(op.operand) }),
+            .add_i64 => |op| self.lineFmt("{s} = rt.checked.verve_add_checked({s}, {s});", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
+            .sub_i64 => |op| self.lineFmt("{s} = rt.checked.verve_sub_checked({s}, {s});", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
+            .mul_i64 => |op| self.lineFmt("{s} = rt.checked.verve_mul_checked({s}, {s});", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
+            .div_i64 => |op| self.lineFmt("{s} = rt.checked.verve_div_checked({s}, {s});", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
+            .mod_i64 => |op| self.lineFmt("{s} = rt.checked.verve_mod_checked({s}, {s});", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
+            .neg_i64 => |op| self.lineFmt("{s} = rt.checked.verve_neg_checked({s});", .{ self.regName(op.dest), self.regName(op.operand) }),
 
             .add_f64 => |op| self.lineFmt("{s} = {s} + {s};", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
             .sub_f64 => |op| self.lineFmt("{s} = {s} - {s};", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
             .mul_f64 => |op| self.lineFmt("{s} = {s} * {s};", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
             .div_f64 => |op| {
                 self.lineFmt("{s} = {s} / {s};", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) });
-                self.lineFmt("{s} = rt.math.float_check_f64({s});", .{ self.regName(op.dest), self.regName(op.dest) });
+                self.lineFmt("{s} = rt.checked.float_check_f64({s});", .{ self.regName(op.dest), self.regName(op.dest) });
             },
             .mod_f64 => |op| self.lineFmt("{s} = @mod({s}, {s});", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
             .neg_f64 => |op| self.lineFmt("{s} = -{s};", .{ self.regName(op.dest), self.regName(op.operand) }),
@@ -837,12 +841,12 @@ pub const ZigBackend = struct {
             .lte_f64 => |op| self.lineFmt("{s} = ({s} <= {s});", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
             .gte_f64 => |op| self.lineFmt("{s} = ({s} >= {s});", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
 
-            .eq_i64 => |op| self.lineFmt("{s} = (rt.math.verve_eq({s}, {s}) != 0);", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
-            .neq_i64 => |op| self.lineFmt("{s} = (rt.math.verve_neq({s}, {s}) != 0);", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
-            .lt_i64 => |op| self.lineFmt("{s} = (rt.math.verve_lt({s}, {s}) != 0);", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
-            .gt_i64 => |op| self.lineFmt("{s} = (rt.math.verve_gt({s}, {s}) != 0);", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
-            .lte_i64 => |op| self.lineFmt("{s} = (rt.math.verve_lte({s}, {s}) != 0);", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
-            .gte_i64 => |op| self.lineFmt("{s} = (rt.math.verve_gte({s}, {s}) != 0);", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
+            .eq_i64 => |op| self.lineFmt("{s} = (rt.checked.verve_eq({s}, {s}) != 0);", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
+            .neq_i64 => |op| self.lineFmt("{s} = (rt.checked.verve_neq({s}, {s}) != 0);", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
+            .lt_i64 => |op| self.lineFmt("{s} = (rt.checked.verve_lt({s}, {s}) != 0);", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
+            .gt_i64 => |op| self.lineFmt("{s} = (rt.checked.verve_gt({s}, {s}) != 0);", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
+            .lte_i64 => |op| self.lineFmt("{s} = (rt.checked.verve_lte({s}, {s}) != 0);", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
+            .gte_i64 => |op| self.lineFmt("{s} = (rt.checked.verve_gte({s}, {s}) != 0);", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
 
             .and_bool => |op| self.lineFmt("{s} = {s} and {s};", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
             .or_bool => |op| self.lineFmt("{s} = {s} or {s};", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
@@ -1098,17 +1102,17 @@ pub const ZigBackend = struct {
             const newline = std.mem.eql(u8, name, "println");
             for (args) |arg| {
                 switch (getRegType(reg_types, arg)) {
-                    .string => self.lineFmt("rt.verve_write(1, {s});", .{self.regName(arg)}),
-                    .float => self.lineFmt("{{ var _buf: [64]u8 = undefined; const _s = std.fmt.bufPrint(&_buf, \"{{d}}\", .{{{s}}}) catch \"?\"; rt.verve_write(1, _s); }}", .{self.regName(arg)}),
-                    .boolean => self.lineFmt("rt.verve_write(1, if ({s}) \"true\" else \"false\");", .{self.regName(arg)}),
-                    .int => self.lineFmt("{{ var _buf: [32]u8 = undefined; const _s = std.fmt.bufPrint(&_buf, \"{{d}}\", .{{{s}}}) catch \"?\"; rt.verve_write(1, _s); }}", .{self.regName(arg)}),
+                    .string => self.lineFmt("rt.io.verve_write(1, {s});", .{self.regName(arg)}),
+                    .float => self.lineFmt("{{ var _buf: [64]u8 = undefined; const _s = std.fmt.bufPrint(&_buf, \"{{d}}\", .{{{s}}}) catch \"?\"; rt.io.verve_write(1, _s); }}", .{self.regName(arg)}),
+                    .boolean => self.lineFmt("rt.io.verve_write(1, if ({s}) \"true\" else \"false\");", .{self.regName(arg)}),
+                    .int => self.lineFmt("{{ var _buf: [32]u8 = undefined; const _s = std.fmt.bufPrint(&_buf, \"{{d}}\", .{{{s}}}) catch \"?\"; rt.io.verve_write(1, _s); }}", .{self.regName(arg)}),
                 }
             }
-            if (newline) self.line("rt.verve_write(1, \"\\n\");");
+            if (newline) self.line("rt.io.verve_write(1, \"\\n\");");
             self.lineFmt("{s} = 0;", .{self.regName(dest)});
         } else if (std.mem.eql(u8, name, "println_float") or std.mem.eql(u8, name, "print_float")) {
-            if (args.len >= 1) self.lineFmt("rt.verve_write_float(1, {s});", .{self.regName(args[0])});
-            if (std.mem.eql(u8, name, "println_float")) self.line("rt.verve_write(1, \"\\n\");");
+            if (args.len >= 1) self.lineFmt("rt.io.verve_write_float(1, {s});", .{self.regName(args[0])});
+            if (std.mem.eql(u8, name, "println_float")) self.line("rt.io.verve_write(1, \"\\n\");");
             self.lineFmt("{s} = 0;", .{self.regName(dest)});
         } else if (std.mem.eql(u8, name, "string_is_digit")) {
             if (args.len >= 1) self.lineFmt("{{ const _b = {s}[0]; {s} = (_b >= '0' and _b <= '9'); }}", .{ self.regName(args[0]), self.regName(dest) });
@@ -1279,8 +1283,12 @@ pub const ZigBackend = struct {
             .{ "runtime.zig", runtime_source },
             .{ "string.zig", rt_string_source },
             .{ "math.zig", rt_math_source },
+            .{ "checked.zig", rt_checked_source },
+            .{ "convert.zig", rt_convert_source },
             .{ "json.zig", rt_json_source },
-            .{ "net.zig", rt_net_source },
+            .{ "io.zig", rt_io_source },
+            .{ "tcp.zig", rt_tcp_source },
+            .{ "http.zig", rt_http_source },
             .{ "process.zig", rt_process_source },
         };
         inline for (rt_files) |entry| {
