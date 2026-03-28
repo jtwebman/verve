@@ -18,7 +18,7 @@ These are things LANGUAGE-DESIGN.md and LANGUAGE.md claim that don't fully work 
 
 ### Type System Gaps
 - [ ] Result<T> type checking — `send` returns Result but checker doesn't verify the inner type
-- [ ] Compile-time generics (monomorphization) — `list<int>` parses but types aren't specialized
+- [x] Compile-time generics (monomorphization) — struct Pair<T> monomorphized to Pair_int, Pair_string etc.
 - [x] Enum types in compiler — real Zig enums, struct field boundaries, match support
 - [x] Tagged union types in compiler — :tag{expr} construction, makeTagged runtime, string-aware extraction
 - [ ] Optional types (T?) in compiler — parser supports, no runtime representation
