@@ -115,7 +115,19 @@ pub fn tcp_accept(listener_ptr: i64) i64 {
         return wrapClientFd(client_fd);
     }
 
-    // No connections queued — poll until one arrives, then batch accept
+    // No connections queued — wait for one
+    if (rt.process.scheduler_running and rt.process.current_process_id > 0) {
+        // Scheduler mode: yield to scheduler, resume when listener is readable
+        rt.process.verve_io_yield(@intCast(listener.fd));
+        // Resumed — accept batch
+        fillAcceptBuffer(listener.fd);
+        if (popAcceptBuffer()) |client_fd| {
+            return wrapClientFd(client_fd);
+        }
+        return rt.makeTagged(1, 0);
+    }
+
+    // Legacy mode: blocking poll
     var pfd = [1]std.posix.pollfd{.{
         .fd = listener.fd,
         .events = std.posix.POLL.IN,

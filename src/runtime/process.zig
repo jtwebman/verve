@@ -129,11 +129,7 @@ pub fn verve_spawn(process_type: i64) i64 {
     for (process_table, 0..) |*p, i| {
         if (!p.alive and p.id != 0) {
             p.arena.freeAll();
-            // Free old fiber if any
-            if (p.proc_fiber) |*f| {
-                fiber.fiber_free(f);
-                p.proc_fiber = null;
-            }
+            // Keep fiber stack for reuse (avoid expensive mmap/mprotect)
             idx = i;
             break;
         }
@@ -282,6 +278,13 @@ pub fn verve_send_timeout(target_pid: i64, msg_ptr: [*]const u8, msg_len: usize,
 
 // ── Cooperative scheduler ─────────────────────────
 
+var epoll_fd: i32 = -1;
+
+fn ensureEpoll() void {
+    if (epoll_fd >= 0) return;
+    epoll_fd = std.posix.epoll_create1(std.os.linux.EPOLL.CLOEXEC) catch -1;
+}
+
 /// Returns true if any process OTHER than the current one needs CPU time.
 fn any_other_runnable() bool {
     for (process_table) |*p| {
@@ -303,6 +306,31 @@ pub fn verve_yield() i64 {
     fiber.context_switch(&process_table[idx].proc_fiber.?.context, &scheduler_context);
     // Execution resumes here when scheduler switches back to us
     return 0;
+}
+
+/// Yield until a file descriptor is readable. Registers fd with epoll,
+/// suspends the process, and resumes when data arrives.
+pub fn verve_io_yield(fd: i64) void {
+    if (!scheduler_running) return;
+    const idx = pidx(current_process_id);
+    process_table[idx].io_wait_fd = @intCast(fd);
+    process_table[idx].yielded = false; // not CPU-runnable, waiting for I/O
+
+    // Register fd with epoll
+    ensureEpoll();
+    if (epoll_fd >= 0) {
+        var ev = std.os.linux.epoll_event{
+            .events = std.os.linux.EPOLL.IN | std.os.linux.EPOLL.ONESHOT,
+            .data = .{ .u64 = @intCast(@as(u64, @bitCast(process_table[idx].id))) },
+        };
+        std.posix.epoll_ctl(epoll_fd, std.os.linux.EPOLL.CTL_ADD, @intCast(fd), &ev) catch {
+            // fd might already be registered — try MOD
+            std.posix.epoll_ctl(epoll_fd, std.os.linux.EPOLL.CTL_MOD, @intCast(fd), &ev) catch {};
+        };
+    }
+
+    fiber.context_switch(&process_table[idx].proc_fiber.?.context, &scheduler_context);
+    // Resumed — fd is ready
 }
 
 /// Return the current process's PID.
@@ -331,11 +359,22 @@ fn process_fiber_entry(pid_raw: usize) void {
         // Return to scheduler (it will switch back if we have more work)
         fiber.context_switch(&process_table[idx].proc_fiber.?.context, &scheduler_context);
     }
+    // Mark fiber as done so it can be reinitialized on reuse
+    const idx = pidx(@intCast(pid_raw));
+    if (process_table[idx].proc_fiber) |*f| f.state = .done;
+    fiber.context_switch(&process_table[idx].proc_fiber.?.context, &scheduler_context);
 }
 
-/// Ensure a process has a fiber allocated.
+/// Ensure a process has a fiber ready to run.
+/// Reuses existing stack memory if available, only allocates on first use.
 fn ensure_fiber(proc: *VerveProcess) void {
-    if (proc.proc_fiber != null) return;
+    if (proc.proc_fiber) |*f| {
+        if (f.state == .done or f.state == .fresh) {
+            // Reinitialize the fiber's stack frame (reuse the stack memory)
+            fiber.fiber_reinit(f, &process_fiber_entry, @intCast(@as(u64, @bitCast(proc.id))));
+        }
+        return;
+    }
     proc.proc_fiber = fiber.Fiber{};
     fiber.fiber_init(&proc.proc_fiber.?, &process_fiber_entry, @intCast(@as(u64, @bitCast(proc.id)))) catch {
         proc.proc_fiber = null;
@@ -373,49 +412,32 @@ pub fn verve_scheduler_run() i64 {
         if (!any_ran) {
             // Nothing runnable — check if any process is alive
             var any_alive = false;
+            var any_io_wait = false;
             for (0..count) |i| {
                 if (i >= process_table.len) break;
                 if (process_table[i].alive) {
                     any_alive = true;
-                    break;
+                    if (process_table[i].io_wait_fd >= 0) any_io_wait = true;
                 }
             }
             if (!any_alive) break; // all processes dead, exit scheduler
+            if (!any_io_wait) break; // no I/O waiters, nothing to do
 
-            // Processes alive but idle — poll for I/O or break
-            var poll_fds: [128]std.posix.pollfd = undefined;
-            var poll_count: usize = 0;
-            for (0..count) |i| {
-                if (i >= process_table.len) break;
-                if (process_table[i].alive and process_table[i].io_wait_fd >= 0) {
-                    if (poll_count < poll_fds.len) {
-                        poll_fds[poll_count] = .{
-                            .fd = process_table[i].io_wait_fd,
-                            .events = std.posix.POLL.IN,
-                            .revents = 0,
-                        };
-                        poll_count += 1;
-                    }
-                }
-            }
+            // Block on epoll until I/O ready
+            ensureEpoll();
+            if (epoll_fd < 0) break;
 
-            if (poll_count == 0) break; // no I/O waiters, nothing to do
-
-            // Block until I/O ready
-            const n = std.posix.poll(poll_fds[0..poll_count], -1) catch break;
+            var events: [64]std.os.linux.epoll_event = undefined;
+            const n = std.posix.epoll_wait(epoll_fd, &events, -1);
             if (n == 0) continue;
 
-            // Wake processes whose fds are ready
-            for (0..count) |i| {
-                if (i >= process_table.len) break;
-                const proc = &process_table[i];
-                if (!proc.alive or proc.io_wait_fd < 0) continue;
-                for (poll_fds[0..poll_count]) |pfd| {
-                    if (pfd.fd == proc.io_wait_fd and pfd.revents & std.posix.POLL.IN != 0) {
-                        proc.yielded = true; // make it runnable
-                        proc.io_wait_fd = -1; // clear wait
-                        break;
-                    }
+            // Wake processes whose fds are ready (including HUP/ERR — let handler detect close)
+            for (events[0..n]) |ev| {
+                const pid: i64 = @intCast(ev.data.u64);
+                const pidx_val = pidx(pid);
+                if (pidx_val < process_table.len and process_table[pidx_val].alive) {
+                    process_table[pidx_val].yielded = true;
+                    process_table[pidx_val].io_wait_fd = -1;
                 }
             }
         }

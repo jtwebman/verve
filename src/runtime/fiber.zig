@@ -73,6 +73,33 @@ pub fn fiber_init(fiber: *Fiber, entry_fn: *const fn (usize) void, arg: usize) !
     fiber.context.rsp = sp;
 }
 
+/// Reinitialize a fiber that already has stack memory. Resets the stack frame
+/// without reallocating. Much cheaper than fiber_init (no mmap/mprotect).
+pub fn fiber_reinit(f: *Fiber, entry_fn: *const fn (usize) void, arg: usize) void {
+    if (f.stack_total == 0) return; // no stack allocated
+
+    f.state = .fresh;
+    const stack_top = @intFromPtr(f.stack_base) + f.stack_total;
+    var sp = stack_top;
+
+    sp -= @sizeOf(usize);
+    @as(*usize, @ptrFromInt(sp)).* = @intFromPtr(&fiber_trampoline);
+    sp -= @sizeOf(usize);
+    @as(*usize, @ptrFromInt(sp)).* = 0; // rbx
+    sp -= @sizeOf(usize);
+    @as(*usize, @ptrFromInt(sp)).* = 0; // rbp
+    sp -= @sizeOf(usize);
+    @as(*usize, @ptrFromInt(sp)).* = @intFromPtr(entry_fn); // r12
+    sp -= @sizeOf(usize);
+    @as(*usize, @ptrFromInt(sp)).* = arg; // r13
+    sp -= @sizeOf(usize);
+    @as(*usize, @ptrFromInt(sp)).* = 0; // r14
+    sp -= @sizeOf(usize);
+    @as(*usize, @ptrFromInt(sp)).* = 0; // r15
+
+    f.context.rsp = sp;
+}
+
 /// Free the fiber's stack memory.
 pub fn fiber_free(f: *Fiber) void {
     if (f.stack_total > 0) {

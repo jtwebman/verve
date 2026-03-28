@@ -195,15 +195,22 @@ pub fn http_read_request(stream_ptr: i64) []const u8 {
     // Fast path: check if stream buffer already has data (pipelined request)
     const has_buffered = s.read_pos < s.read_len;
 
-    // If no buffered data, do a non-blocking check on the socket
+    // If no buffered data, wait for data via scheduler or poll
     if (!has_buffered) {
-        var pfd = [1]std.posix.pollfd{.{
-            .fd = s.fd,
-            .events = std.posix.POLL.IN,
-            .revents = 0,
-        }};
-        const poll_n = std.posix.poll(&pfd, 0) catch return "";
-        if (poll_n == 0) return ""; // no data ready — yield to scheduler
+        if (rt.process.scheduler_running and rt.process.current_process_id > 0) {
+            // Scheduler mode: yield until data arrives on this socket
+            rt.process.verve_io_yield(@intCast(s.fd));
+            // Resumed — data should be ready now
+        } else {
+            // Legacy mode: non-blocking check
+            var pfd = [1]std.posix.pollfd{.{
+                .fd = s.fd,
+                .events = std.posix.POLL.IN,
+                .revents = 0,
+            }};
+            const poll_n = std.posix.poll(&pfd, 0) catch return "";
+            if (poll_n == 0) return ""; // no data ready
+        }
     }
 
     // Data is available — allocate and read the request
