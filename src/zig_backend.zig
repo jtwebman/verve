@@ -104,9 +104,8 @@ pub const ZigBackend = struct {
                     .string_slice => |ss| types[ss.dest] = .string,
                     .string_index => |si| types[si.dest] = .string,
                     .call_builtin => |c| {
-                        if (builtinReturnsString(c.name)) types[c.dest] = .string;
-                        if (builtinReturnsFloat(c.name)) types[c.dest] = .float;
-                        if (builtinReturnsBool(c.name)) types[c.dest] = .boolean;
+                        const rt = builtinReturnType(c.name);
+                        if (rt != .int) types[c.dest] = rt;
                     },
                     .call => |c| {
                         for (self.program.functions.items) |f| {
@@ -182,45 +181,127 @@ pub const ZigBackend = struct {
         return .int;
     }
 
-    fn builtinReturnsBool(name: []const u8) bool {
-        const bool_builtins = [_][]const u8{
-            "string_is_digit", "string_is_alpha",    "string_is_whitespace", "string_is_alnum",
-            "string_contains", "string_starts_with", "string_ends_with",
-        };
-        for (bool_builtins) |b| {
-            if (std.mem.eql(u8, name, b)) return true;
-        }
-        return false;
-    }
+    // ── Builtin registry ────────────────────────────────────
 
-    fn builtinReturnsFloat(name: []const u8) bool {
-        const float_builtins = [_][]const u8{
-            "convert_to_float", "string_to_float",
-            "math_abs_f",       "math_sqrt_f",
-            "math_pow_f",       "math_sin",
-            "math_cos",         "math_tan",
-            "math_log",         "math_log10",
-            "math_exp",         "math_min_f",
-            "math_max_f",
-        };
-        for (float_builtins) |b| {
-            if (std.mem.eql(u8, name, b)) return true;
-        }
-        return false;
-    }
+    /// Describes how to emit a builtin call.
+    const BuiltinSpec = struct {
+        /// Runtime function name (null = same as builtin name, "!" = custom handler)
+        rt_name: ?[]const u8 = null,
+        min_args: u8 = 0,
+        /// If true, emit `dest = 0;` after the call (void builtins)
+        void_result: bool = false,
+        /// Return type for register type tracking
+        returns: RegType = .int,
+    };
 
-    fn builtinReturnsString(name: []const u8) bool {
-        const string_builtins = [_][]const u8{
-            "string_concat",     "string_trim",     "string_replace",      "string_char_at",
-            "int_to_string",     "float_to_string", "env_get",             "stream_read_line",
-            "stream_read_bytes", "stream_read_all", "http_req_method",     "http_req_path",
-            "http_req_body",     "http_req_header", "http_build_response", "json_get_string",
-            "json_get_object",   "json_to_string",  "json_build_end",
-        };
-        for (string_builtins) |b| {
-            if (std.mem.eql(u8, name, b)) return true;
-        }
-        return false;
+    const S = BuiltinSpec;
+    const builtin_specs = std.StaticStringMap(BuiltinSpec).initComptime(.{
+        // ── Math (int) ──────────────────────────────
+        .{ "math_abs", S{ .min_args = 1 } },
+        .{ "math_min", S{ .min_args = 2 } },
+        .{ "math_max", S{ .min_args = 2 } },
+        .{ "math_clamp", S{ .min_args = 3 } },
+        .{ "math_pow", S{ .min_args = 2 } },
+        .{ "math_sqrt", S{ .min_args = 1 } },
+        .{ "math_log2", S{ .min_args = 1 } },
+        // ── Math (float) ────────────────────────────
+        .{ "math_abs_f", S{ .min_args = 1, .returns = .float } },
+        .{ "math_floor", S{ .min_args = 1 } },
+        .{ "math_ceil", S{ .min_args = 1 } },
+        .{ "math_round", S{ .min_args = 1 } },
+        .{ "math_sin", S{ .min_args = 1, .returns = .float } },
+        .{ "math_cos", S{ .min_args = 1, .returns = .float } },
+        .{ "math_tan", S{ .min_args = 1, .returns = .float } },
+        .{ "math_sqrt_f", S{ .min_args = 1, .returns = .float } },
+        .{ "math_pow_f", S{ .min_args = 2, .returns = .float } },
+        .{ "math_log", S{ .min_args = 1, .returns = .float } },
+        .{ "math_log10", S{ .min_args = 1, .returns = .float } },
+        .{ "math_exp", S{ .min_args = 1, .returns = .float } },
+        .{ "math_min_f", S{ .min_args = 2, .returns = .float } },
+        .{ "math_max_f", S{ .min_args = 2, .returns = .float } },
+        // ── Convert ─────────────────────────────────
+        .{ "convert_to_float", S{ .min_args = 1, .returns = .float } },
+        .{ "convert_to_int_f", S{ .min_args = 1 } },
+        .{ "float_to_string", S{ .min_args = 1, .returns = .string } },
+        .{ "string_to_float", S{ .min_args = 1, .returns = .float } },
+        .{ "int_to_string", S{ .min_args = 1, .returns = .string } },
+        .{ "string_to_int", S{ .min_args = 1 } },
+        // ── String ──────────────────────────────────
+        .{ "string_concat", S{ .rt_name = "verve_string_concat", .min_args = 2, .returns = .string } },
+        .{ "string_trim", S{ .min_args = 1, .returns = .string } },
+        .{ "string_replace", S{ .min_args = 3, .returns = .string } },
+        .{ "string_char_at", S{ .min_args = 2, .returns = .string } },
+        .{ "string_char_len", S{ .min_args = 1 } },
+        .{ "string_split", S{ .min_args = 2 } },
+        .{ "string_chars", S{ .min_args = 1 } },
+        // ── String predicates (return bool) ─────────
+        .{ "string_contains", S{ .rt_name = "!", .min_args = 2, .returns = .boolean } },
+        .{ "string_starts_with", S{ .rt_name = "!", .min_args = 2, .returns = .boolean } },
+        .{ "string_ends_with", S{ .rt_name = "!", .min_args = 2, .returns = .boolean } },
+        // ── Env / System ────────────────────────────
+        .{ "env_get", S{ .min_args = 1, .returns = .string } },
+        .{ "system_exit", S{ .min_args = 1 } },
+        .{ "system_time_ms", S{} },
+        // ── Stream ──────────────────────────────────
+        .{ "stream_read_line", S{ .min_args = 1, .returns = .string } },
+        .{ "stream_read_bytes", S{ .min_args = 2, .returns = .string } },
+        .{ "stream_read_all", S{ .rt_name = "streamReadAll", .min_args = 1, .returns = .string } },
+        .{ "stream_write", S{ .min_args = 2, .void_result = true } },
+        .{ "stream_write_line", S{ .min_args = 2, .void_result = true } },
+        .{ "stream_close", S{ .min_args = 1, .void_result = true } },
+        // ── File ────────────────────────────────────
+        .{ "file_open", S{ .rt_name = "fileOpen", .min_args = 1 } },
+        // ── TCP ─────────────────────────────────────
+        .{ "tcp_open", S{ .min_args = 2 } },
+        .{ "tcp_listen", S{ .min_args = 2 } },
+        .{ "tcp_accept", S{ .min_args = 1 } },
+        .{ "tcp_port", S{ .min_args = 1 } },
+        // ── HTTP ────────────────────────────────────
+        .{ "http_parse_request", S{ .min_args = 1 } },
+        .{ "http_req_method", S{ .min_args = 1, .returns = .string } },
+        .{ "http_req_path", S{ .min_args = 1, .returns = .string } },
+        .{ "http_req_body", S{ .min_args = 1, .returns = .string } },
+        .{ "http_req_header", S{ .min_args = 2, .returns = .string } },
+        .{ "http_build_response", S{ .min_args = 3, .returns = .string } },
+        // ── JSON ────────────────────────────────────
+        .{ "json_get_string", S{ .min_args = 2, .returns = .string } },
+        .{ "json_get_object", S{ .min_args = 2, .returns = .string } },
+        .{ "json_get_int", S{ .min_args = 2 } },
+        .{ "json_get_float", S{ .min_args = 2 } },
+        .{ "json_get_bool", S{ .min_args = 2 } },
+        .{ "json_get_array", S{ .min_args = 2 } },
+        .{ "json_get_array_len", S{ .min_args = 2 } },
+        .{ "json_to_int", S{ .min_args = 1 } },
+        .{ "json_to_float", S{ .min_args = 1 } },
+        .{ "json_to_bool", S{ .min_args = 1 } },
+        .{ "json_to_string", S{ .min_args = 1, .returns = .string } },
+        .{ "json_build_object", S{} },
+        .{ "json_build_end", S{ .min_args = 1, .returns = .string } },
+        .{ "json_build_add_string", S{ .min_args = 3, .void_result = true } },
+        .{ "json_build_add_int", S{ .min_args = 3, .void_result = true } },
+        .{ "json_build_add_float", S{ .min_args = 3, .void_result = true } },
+        // ── Tags / Process ──────────────────────────
+        .{ "make_tagged", S{ .rt_name = "makeTagged", .min_args = 2 } },
+        .{ "process_exit", S{ .rt_name = "!", .void_result = true } },
+        // ── Custom handlers (rt_name = "!") ─────────
+        .{ "println", S{ .rt_name = "!" } },
+        .{ "print", S{ .rt_name = "!" } },
+        .{ "println_float", S{ .rt_name = "!" } },
+        .{ "print_float", S{ .rt_name = "!" } },
+        .{ "string_is_digit", S{ .rt_name = "!", .returns = .boolean } },
+        .{ "string_is_alpha", S{ .rt_name = "!", .returns = .boolean } },
+        .{ "string_is_whitespace", S{ .rt_name = "!", .returns = .boolean } },
+        .{ "string_is_alnum", S{ .rt_name = "!", .returns = .boolean } },
+        .{ "set_has", S{ .rt_name = "!" } },
+        .{ "set_has_str", S{ .rt_name = "!" } },
+        .{ "string_len", S{ .rt_name = "!" } },
+        .{ "assert_check", S{ .rt_name = "!", .void_result = true } },
+        .{ "json_build_add_bool", S{ .rt_name = "!", .void_result = true } },
+    });
+
+    fn builtinReturnType(name: []const u8) RegType {
+        if (builtin_specs.get(name)) |spec| return spec.returns;
+        return .int;
     }
 
     // ── Emit program ─────────────────────────────────────────
@@ -956,194 +1037,90 @@ pub const ZigBackend = struct {
     }
 
     fn emitBuiltin(self: *ZigBackend, dest: ir.Reg, name: []const u8, args: []const ir.Reg, reg_types: []const RegType) void {
+        // Special prefix: json_parse_struct:StructName
+        if (std.mem.startsWith(u8, name, "json_parse_struct:")) {
+            const struct_name = name["json_parse_struct:".len..];
+            if (args.len >= 1) {
+                self.lineFmt("{s} = verve_json_parse_{s}({s});", .{ self.regName(dest), struct_name, self.regName(args[0]) });
+            }
+            return;
+        }
+
+        const spec = builtin_specs.get(name) orelse {
+            self.lineFmt("{s} = 0; // unknown builtin: {s}", .{ self.regName(dest), name });
+            return;
+        };
+
+        // Custom handlers (rt_name = "!")
+        if (spec.rt_name) |rn| {
+            if (std.mem.eql(u8, rn, "!")) {
+                self.emitCustomBuiltin(dest, name, args, reg_types);
+                return;
+            }
+        }
+
+        // Data-driven emission: dest = rt.fn_name(args...)
+        if (args.len >= spec.min_args) {
+            const rt_fn = spec.rt_name orelse name;
+            if (spec.void_result) {
+                // Void call: rt.fn(args...); dest = 0;
+                self.writeIndent();
+                self.writeFmt("rt.{s}(", .{rt_fn});
+                for (args[0..spec.min_args], 0..) |arg, i| {
+                    if (i > 0) self.write(", ");
+                    self.write(self.regName(arg));
+                }
+                self.write(");\n");
+            } else {
+                // Value call: dest = rt.fn(args...);
+                self.writeIndent();
+                self.writeFmt("{s} = rt.{s}(", .{ self.regName(dest), rt_fn });
+                for (args[0..spec.min_args], 0..) |arg, i| {
+                    if (i > 0) self.write(", ");
+                    self.write(self.regName(arg));
+                }
+                self.write(");\n");
+            }
+        }
+        if (spec.void_result) {
+            self.lineFmt("{s} = 0;", .{self.regName(dest)});
+        }
+    }
+
+    /// Handle builtins that need custom emission logic.
+    fn emitCustomBuiltin(self: *ZigBackend, dest: ir.Reg, name: []const u8, args: []const ir.Reg, reg_types: []const RegType) void {
         if (std.mem.eql(u8, name, "println") or std.mem.eql(u8, name, "print")) {
             const newline = std.mem.eql(u8, name, "println");
-            // Each arg is a single register. Check its type to decide how to print.
             for (args) |arg| {
-                const t = getRegType(reg_types, arg);
-                if (t == .string) {
-                    self.lineFmt("rt.verve_write(1, {s});", .{self.regName(arg)});
-                } else if (t == .float) {
-                    self.lineFmt("{{ var _buf: [64]u8 = undefined; const _s = std.fmt.bufPrint(&_buf, \"{{d}}\", .{{{s}}}) catch \"?\"; rt.verve_write(1, _s); }}", .{self.regName(arg)});
-                } else if (t == .boolean) {
-                    self.lineFmt("rt.verve_write(1, if ({s}) \"true\" else \"false\");", .{self.regName(arg)});
-                } else {
-                    self.lineFmt("{{ var _buf: [32]u8 = undefined; const _s = std.fmt.bufPrint(&_buf, \"{{d}}\", .{{{s}}}) catch \"?\"; rt.verve_write(1, _s); }}", .{self.regName(arg)});
+                switch (getRegType(reg_types, arg)) {
+                    .string => self.lineFmt("rt.verve_write(1, {s});", .{self.regName(arg)}),
+                    .float => self.lineFmt("{{ var _buf: [64]u8 = undefined; const _s = std.fmt.bufPrint(&_buf, \"{{d}}\", .{{{s}}}) catch \"?\"; rt.verve_write(1, _s); }}", .{self.regName(arg)}),
+                    .boolean => self.lineFmt("rt.verve_write(1, if ({s}) \"true\" else \"false\");", .{self.regName(arg)}),
+                    .int => self.lineFmt("{{ var _buf: [32]u8 = undefined; const _s = std.fmt.bufPrint(&_buf, \"{{d}}\", .{{{s}}}) catch \"?\"; rt.verve_write(1, _s); }}", .{self.regName(arg)}),
                 }
             }
-            if (newline) {
-                self.line("rt.verve_write(1, \"\\n\");");
-            }
+            if (newline) self.line("rt.verve_write(1, \"\\n\");");
             self.lineFmt("{s} = 0;", .{self.regName(dest)});
-        } else if (std.mem.eql(u8, name, "println_float")) {
-            if (args.len >= 1) {
-                self.lineFmt("rt.verve_write_float(1, {s});", .{self.regName(args[0])});
-                self.line("rt.verve_write(1, \"\\n\");");
-            }
-            self.lineFmt("{s} = 0;", .{self.regName(dest)});
-        } else if (std.mem.eql(u8, name, "print_float")) {
-            if (args.len >= 1) {
-                self.lineFmt("rt.verve_write_float(1, {s});", .{self.regName(args[0])});
-            }
+        } else if (std.mem.eql(u8, name, "println_float") or std.mem.eql(u8, name, "print_float")) {
+            if (args.len >= 1) self.lineFmt("rt.verve_write_float(1, {s});", .{self.regName(args[0])});
+            if (std.mem.eql(u8, name, "println_float")) self.line("rt.verve_write(1, \"\\n\");");
             self.lineFmt("{s} = 0;", .{self.regName(dest)});
         } else if (std.mem.eql(u8, name, "string_is_digit")) {
-            if (args.len >= 1) {
-                self.lineFmt("{{ const _b = {s}[0]; {s} = (_b >= '0' and _b <= '9'); }}", .{ self.regName(args[0]), self.regName(dest) });
-            }
+            if (args.len >= 1) self.lineFmt("{{ const _b = {s}[0]; {s} = (_b >= '0' and _b <= '9'); }}", .{ self.regName(args[0]), self.regName(dest) });
         } else if (std.mem.eql(u8, name, "string_is_alpha")) {
-            if (args.len >= 1) {
-                self.lineFmt("{{ const _b = {s}[0]; {s} = ((_b >= 'A' and _b <= 'Z') or (_b >= 'a' and _b <= 'z')); }}", .{ self.regName(args[0]), self.regName(dest) });
-            }
+            if (args.len >= 1) self.lineFmt("{{ const _b = {s}[0]; {s} = ((_b >= 'A' and _b <= 'Z') or (_b >= 'a' and _b <= 'z')); }}", .{ self.regName(args[0]), self.regName(dest) });
         } else if (std.mem.eql(u8, name, "string_is_whitespace")) {
-            if (args.len >= 1) {
-                self.lineFmt("{{ const _b = {s}[0]; {s} = (_b == ' ' or _b == '\\t' or _b == '\\n' or _b == '\\r'); }}", .{ self.regName(args[0]), self.regName(dest) });
-            }
+            if (args.len >= 1) self.lineFmt("{{ const _b = {s}[0]; {s} = (_b == ' ' or _b == '\\t' or _b == '\\n' or _b == '\\r'); }}", .{ self.regName(args[0]), self.regName(dest) });
         } else if (std.mem.eql(u8, name, "string_is_alnum")) {
-            if (args.len >= 1) {
-                self.lineFmt("{{ const _b = {s}[0]; {s} = ((_b >= '0' and _b <= '9') or (_b >= 'A' and _b <= 'Z') or (_b >= 'a' and _b <= 'z')); }}", .{ self.regName(args[0]), self.regName(dest) });
-            }
-        } else if (std.mem.eql(u8, name, "set_has") or std.mem.eql(u8, name, "set_has_str")) {
-            if (std.mem.eql(u8, name, "set_has_str") and args.len >= 2) {
-                self.lineFmt("{{ const list = @as(*const rt.List, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s})))))); var found: i64 = 0; var si: i64 = 0; while (si + 1 < list.len) : (si += 2) {{ const esl = rt.sliceFromPair(list.get(si), list.get(si + 1)); if (std.mem.eql(u8, esl, {s})) {{ found = 1; break; }} }} {s} = found; }}", .{ self.regName(args[0]), self.regName(args[1]), self.regName(dest) });
-            } else if (args.len >= 2) {
-                self.lineFmt("{{ const list = @as(*const rt.List, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s})))))); var found: i64 = 0; var si: i64 = 0; while (si < list.len) : (si += 1) {{ if (list.get(si) == {s}) {{ found = 1; break; }} }} {s} = found; }}", .{ self.regName(args[0]), self.regName(args[1]), self.regName(dest) });
-            }
-        } else if (std.mem.eql(u8, name, "file_open")) {
-            if (args.len >= 1) {
-                self.lineFmt("{s} = rt.fileOpen({s});", .{ self.regName(dest), self.regName(args[0]) });
-            }
-        } else if (std.mem.eql(u8, name, "stream_read_all")) {
-            if (args.len >= 1) {
-                self.lineFmt("{s} = rt.streamReadAll({s});", .{ self.regName(dest), self.regName(args[0]) });
-            }
-        } else if (std.mem.eql(u8, name, "stream_write")) {
-            if (args.len >= 2) {
-                self.lineFmt("rt.stream_write({s}, {s});", .{ self.regName(args[0]), self.regName(args[1]) });
-                self.lineFmt("{s} = 0;", .{self.regName(dest)});
-            }
-        } else if (std.mem.eql(u8, name, "stream_write_line")) {
-            if (args.len >= 2) {
-                self.lineFmt("rt.stream_write_line({s}, {s});", .{ self.regName(args[0]), self.regName(args[1]) });
-                self.lineFmt("{s} = 0;", .{self.regName(dest)});
-            }
-        } else if (std.mem.eql(u8, name, "stream_read_bytes")) {
-            if (args.len >= 2) {
-                self.lineFmt("{s} = rt.stream_read_bytes({s}, {s});", .{ self.regName(dest), self.regName(args[0]), self.regName(args[1]) });
-            }
-        } else if (std.mem.eql(u8, name, "stream_read_line")) {
-            if (args.len >= 1) {
-                self.lineFmt("{s} = rt.stream_read_line({s});", .{ self.regName(dest), self.regName(args[0]) });
-            }
-        } else if (std.mem.eql(u8, name, "stream_close")) {
-            if (args.len >= 1) {
-                self.lineFmt("rt.stream_close({s});", .{self.regName(args[0])});
-            }
-            self.lineFmt("{s} = 0;", .{self.regName(dest)});
-        } else if (std.mem.eql(u8, name, "math_abs")) {
-            if (args.len >= 1) self.lineFmt("{s} = rt.math_abs({s});", .{ self.regName(dest), self.regName(args[0]) });
-        } else if (std.mem.eql(u8, name, "math_min")) {
-            if (args.len >= 2) self.lineFmt("{s} = rt.math_min({s}, {s});", .{ self.regName(dest), self.regName(args[0]), self.regName(args[1]) });
-        } else if (std.mem.eql(u8, name, "math_max")) {
-            if (args.len >= 2) self.lineFmt("{s} = rt.math_max({s}, {s});", .{ self.regName(dest), self.regName(args[0]), self.regName(args[1]) });
-        } else if (std.mem.eql(u8, name, "math_clamp")) {
-            if (args.len >= 3) self.lineFmt("{s} = rt.math_clamp({s}, {s}, {s});", .{ self.regName(dest), self.regName(args[0]), self.regName(args[1]), self.regName(args[2]) });
-        } else if (std.mem.eql(u8, name, "math_pow")) {
-            if (args.len >= 2) self.lineFmt("{s} = rt.math_pow({s}, {s});", .{ self.regName(dest), self.regName(args[0]), self.regName(args[1]) });
-        } else if (std.mem.eql(u8, name, "math_sqrt")) {
-            if (args.len >= 1) self.lineFmt("{s} = rt.math_sqrt({s});", .{ self.regName(dest), self.regName(args[0]) });
-        } else if (std.mem.eql(u8, name, "math_log2")) {
-            if (args.len >= 1) self.lineFmt("{s} = rt.math_log2({s});", .{ self.regName(dest), self.regName(args[0]) });
-        } else if (std.mem.eql(u8, name, "math_abs_f")) {
-            if (args.len >= 1) self.lineFmt("{s} = rt.math_abs_f({s});", .{ self.regName(dest), self.regName(args[0]) });
-        } else if (std.mem.eql(u8, name, "math_floor")) {
-            if (args.len >= 1) self.lineFmt("{s} = rt.math_floor({s});", .{ self.regName(dest), self.regName(args[0]) });
-        } else if (std.mem.eql(u8, name, "math_ceil")) {
-            if (args.len >= 1) self.lineFmt("{s} = rt.math_ceil({s});", .{ self.regName(dest), self.regName(args[0]) });
-        } else if (std.mem.eql(u8, name, "math_round")) {
-            if (args.len >= 1) self.lineFmt("{s} = rt.math_round({s});", .{ self.regName(dest), self.regName(args[0]) });
-        } else if (std.mem.eql(u8, name, "math_sin")) {
-            if (args.len >= 1) self.lineFmt("{s} = rt.math_sin({s});", .{ self.regName(dest), self.regName(args[0]) });
-        } else if (std.mem.eql(u8, name, "math_cos")) {
-            if (args.len >= 1) self.lineFmt("{s} = rt.math_cos({s});", .{ self.regName(dest), self.regName(args[0]) });
-        } else if (std.mem.eql(u8, name, "math_tan")) {
-            if (args.len >= 1) self.lineFmt("{s} = rt.math_tan({s});", .{ self.regName(dest), self.regName(args[0]) });
-        } else if (std.mem.eql(u8, name, "math_sqrt_f")) {
-            if (args.len >= 1) self.lineFmt("{s} = rt.math_sqrt_f({s});", .{ self.regName(dest), self.regName(args[0]) });
-        } else if (std.mem.eql(u8, name, "math_pow_f")) {
-            if (args.len >= 2) self.lineFmt("{s} = rt.math_pow_f({s}, {s});", .{ self.regName(dest), self.regName(args[0]), self.regName(args[1]) });
-        } else if (std.mem.eql(u8, name, "math_log")) {
-            if (args.len >= 1) self.lineFmt("{s} = rt.math_log({s});", .{ self.regName(dest), self.regName(args[0]) });
-        } else if (std.mem.eql(u8, name, "math_log10")) {
-            if (args.len >= 1) self.lineFmt("{s} = rt.math_log10({s});", .{ self.regName(dest), self.regName(args[0]) });
-        } else if (std.mem.eql(u8, name, "math_exp")) {
-            if (args.len >= 1) self.lineFmt("{s} = rt.math_exp({s});", .{ self.regName(dest), self.regName(args[0]) });
-        } else if (std.mem.eql(u8, name, "math_min_f")) {
-            if (args.len >= 2) self.lineFmt("{s} = rt.math_min_f({s}, {s});", .{ self.regName(dest), self.regName(args[0]), self.regName(args[1]) });
-        } else if (std.mem.eql(u8, name, "math_max_f")) {
-            if (args.len >= 2) self.lineFmt("{s} = rt.math_max_f({s}, {s});", .{ self.regName(dest), self.regName(args[0]), self.regName(args[1]) });
-        } else if (std.mem.eql(u8, name, "convert_to_float")) {
-            if (args.len >= 1) self.lineFmt("{s} = rt.convert_to_float({s});", .{ self.regName(dest), self.regName(args[0]) });
-        } else if (std.mem.eql(u8, name, "convert_to_int_f")) {
-            if (args.len >= 1) self.lineFmt("{s} = rt.convert_to_int_f({s});", .{ self.regName(dest), self.regName(args[0]) });
-        } else if (std.mem.eql(u8, name, "float_to_string")) {
-            if (args.len >= 1) self.lineFmt("{s} = rt.float_to_string({s});", .{ self.regName(dest), self.regName(args[0]) });
-        } else if (std.mem.eql(u8, name, "string_to_float")) {
-            if (args.len >= 1) self.lineFmt("{s} = rt.string_to_float({s});", .{ self.regName(dest), self.regName(args[0]) });
-        } else if (std.mem.eql(u8, name, "env_get")) {
-            if (args.len >= 1) {
-                self.lineFmt("{s} = rt.env_get({s});", .{ self.regName(dest), self.regName(args[0]) });
-            }
-        } else if (std.mem.eql(u8, name, "system_exit")) {
-            if (args.len >= 1) self.lineFmt("rt.system_exit({s});", .{self.regName(args[0])});
-        } else if (std.mem.eql(u8, name, "system_time_ms")) {
-            self.lineFmt("{s} = rt.system_time_ms();", .{self.regName(dest)});
-        } else if (std.mem.eql(u8, name, "int_to_string")) {
-            if (args.len >= 1) self.lineFmt("{s} = rt.int_to_string({s});", .{ self.regName(dest), self.regName(args[0]) });
-        } else if (std.mem.eql(u8, name, "string_to_int")) {
-            if (args.len >= 1) self.lineFmt("{s} = rt.string_to_int({s});", .{ self.regName(dest), self.regName(args[0]) });
-        } else if (std.mem.eql(u8, name, "string_concat")) {
-            if (args.len >= 2) {
-                self.lineFmt("{s} = rt.verve_string_concat({s}, {s});", .{ self.regName(dest), self.regName(args[0]), self.regName(args[1]) });
-            }
-        } else if (std.mem.eql(u8, name, "string_len")) {
-            if (args.len >= 1) {
-                self.lineFmt("{s} = @intCast({s}.len);", .{ self.regName(dest), self.regName(args[0]) });
-            }
+            if (args.len >= 1) self.lineFmt("{{ const _b = {s}[0]; {s} = ((_b >= '0' and _b <= '9') or (_b >= 'A' and _b <= 'Z') or (_b >= 'a' and _b <= 'z')); }}", .{ self.regName(args[0]), self.regName(dest) });
         } else if (std.mem.eql(u8, name, "string_contains") or std.mem.eql(u8, name, "string_starts_with") or std.mem.eql(u8, name, "string_ends_with")) {
             if (args.len >= 2) self.lineFmt("{s} = (rt.{s}({s}, {s}) != 0);", .{ self.regName(dest), name, self.regName(args[0]), self.regName(args[1]) });
-        } else if (std.mem.eql(u8, name, "string_trim")) {
-            if (args.len >= 1) {
-                self.lineFmt("{s} = rt.string_trim({s});", .{ self.regName(dest), self.regName(args[0]) });
-            }
-        } else if (std.mem.eql(u8, name, "string_replace")) {
-            if (args.len >= 3) {
-                self.lineFmt("{s} = rt.string_replace({s}, {s}, {s});", .{ self.regName(dest), self.regName(args[0]), self.regName(args[1]), self.regName(args[2]) });
-            }
-        } else if (std.mem.eql(u8, name, "string_char_at")) {
-            if (args.len >= 2) self.lineFmt("{s} = rt.string_char_at({s}, {s});", .{ self.regName(dest), self.regName(args[0]), self.regName(args[1]) });
-        } else if (std.mem.eql(u8, name, "string_char_len")) {
-            if (args.len >= 1) self.lineFmt("{s} = rt.string_char_len({s});", .{ self.regName(dest), self.regName(args[0]) });
-        } else if (std.mem.eql(u8, name, "string_split")) {
-            if (args.len >= 2) self.lineFmt("{s} = rt.string_split({s}, {s});", .{ self.regName(dest), self.regName(args[0]), self.regName(args[1]) });
-        } else if (std.mem.eql(u8, name, "string_chars")) {
-            if (args.len >= 1) self.lineFmt("{s} = rt.string_chars({s});", .{ self.regName(dest), self.regName(args[0]) });
-        } else if (std.mem.eql(u8, name, "json_get_string") or std.mem.eql(u8, name, "json_get_object")) {
-            if (args.len >= 2) {
-                self.lineFmt("{s} = rt.{s}({s}, {s});", .{ self.regName(dest), name, self.regName(args[0]), self.regName(args[1]) });
-            }
-        } else if (std.mem.eql(u8, name, "json_get_int") or std.mem.eql(u8, name, "json_get_float") or
-            std.mem.eql(u8, name, "json_get_bool") or
-            std.mem.eql(u8, name, "json_get_array") or std.mem.eql(u8, name, "json_get_array_len"))
-        {
-            if (args.len >= 2) {
-                self.lineFmt("{s} = rt.{s}({s}, {s});", .{ self.regName(dest), name, self.regName(args[0]), self.regName(args[1]) });
-            }
-        } else if (std.mem.eql(u8, name, "json_to_int") or std.mem.eql(u8, name, "json_to_float") or
-            std.mem.eql(u8, name, "json_to_bool") or std.mem.eql(u8, name, "json_to_string"))
-        {
-            if (args.len >= 1) {
-                self.lineFmt("{s} = rt.{s}({s});", .{ self.regName(dest), name, self.regName(args[0]) });
-            }
+        } else if (std.mem.eql(u8, name, "set_has_str")) {
+            if (args.len >= 2) self.lineFmt("{{ const list = @as(*const rt.List, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s})))))); var found: i64 = 0; var si: i64 = 0; while (si + 1 < list.len) : (si += 2) {{ const esl = rt.sliceFromPair(list.get(si), list.get(si + 1)); if (std.mem.eql(u8, esl, {s})) {{ found = 1; break; }} }} {s} = found; }}", .{ self.regName(args[0]), self.regName(args[1]), self.regName(dest) });
+        } else if (std.mem.eql(u8, name, "set_has")) {
+            if (args.len >= 2) self.lineFmt("{{ const list = @as(*const rt.List, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s})))))); var found: i64 = 0; var si: i64 = 0; while (si < list.len) : (si += 1) {{ if (list.get(si) == {s}) {{ found = 1; break; }} }} {s} = found; }}", .{ self.regName(args[0]), self.regName(args[1]), self.regName(dest) });
+        } else if (std.mem.eql(u8, name, "string_len")) {
+            if (args.len >= 1) self.lineFmt("{s} = @intCast({s}.len);", .{ self.regName(dest), self.regName(args[0]) });
         } else if (std.mem.eql(u8, name, "assert_check")) {
             if (args.len >= 1) {
                 if (getRegType(reg_types, args[0]) == .boolean) {
@@ -1152,27 +1129,6 @@ pub const ZigBackend = struct {
                     self.lineFmt("rt.assert_check({s});", .{self.regName(args[0])});
                 }
             }
-            self.lineFmt("{s} = 0;", .{self.regName(dest)});
-        } else if (std.mem.eql(u8, name, "process_exit")) {
-            self.line("rt.verve_exit_self();");
-            self.lineFmt("{s} = 0;", .{self.regName(dest)});
-        } else if (std.mem.startsWith(u8, name, "json_parse_struct:")) {
-            const struct_name = name["json_parse_struct:".len..];
-            if (args.len >= 1) {
-                self.lineFmt("{s} = verve_json_parse_{s}({s});", .{ self.regName(dest), struct_name, self.regName(args[0]) });
-            }
-        } else if (std.mem.eql(u8, name, "json_build_object")) {
-            self.lineFmt("{s} = rt.json_build_object();", .{self.regName(dest)});
-        } else if (std.mem.eql(u8, name, "json_build_end")) {
-            if (args.len >= 1) self.lineFmt("{s} = rt.json_build_end({s});", .{ self.regName(dest), self.regName(args[0]) });
-        } else if (std.mem.eql(u8, name, "json_build_add_string")) {
-            if (args.len >= 3) self.lineFmt("rt.json_build_add_string({s}, {s}, {s});", .{ self.regName(args[0]), self.regName(args[1]), self.regName(args[2]) });
-            self.lineFmt("{s} = 0;", .{self.regName(dest)});
-        } else if (std.mem.eql(u8, name, "json_build_add_int")) {
-            if (args.len >= 3) self.lineFmt("rt.json_build_add_int({s}, {s}, {s});", .{ self.regName(args[0]), self.regName(args[1]), self.regName(args[2]) });
-            self.lineFmt("{s} = 0;", .{self.regName(dest)});
-        } else if (std.mem.eql(u8, name, "json_build_add_float")) {
-            if (args.len >= 3) self.lineFmt("rt.json_build_add_float({s}, {s}, {s});", .{ self.regName(args[0]), self.regName(args[1]), self.regName(args[2]) });
             self.lineFmt("{s} = 0;", .{self.regName(dest)});
         } else if (std.mem.eql(u8, name, "json_build_add_bool")) {
             if (args.len >= 3) {
@@ -1183,36 +1139,9 @@ pub const ZigBackend = struct {
                 }
             }
             self.lineFmt("{s} = 0;", .{self.regName(dest)});
-        } else if (std.mem.eql(u8, name, "http_parse_request")) {
-            if (args.len >= 1) self.lineFmt("{s} = rt.http_parse_request({s});", .{ self.regName(dest), self.regName(args[0]) });
-        } else if (std.mem.eql(u8, name, "http_req_method") or std.mem.eql(u8, name, "http_req_path") or std.mem.eql(u8, name, "http_req_body")) {
-            if (args.len >= 1) self.lineFmt("{s} = rt.{s}({s});", .{ self.regName(dest), name, self.regName(args[0]) });
-        } else if (std.mem.eql(u8, name, "http_req_header")) {
-            if (args.len >= 2) self.lineFmt("{s} = rt.http_req_header({s}, {s});", .{ self.regName(dest), self.regName(args[0]), self.regName(args[1]) });
-        } else if (std.mem.eql(u8, name, "http_build_response")) {
-            if (args.len >= 3) self.lineFmt("{s} = rt.http_build_response({s}, {s}, {s});", .{ self.regName(dest), self.regName(args[0]), self.regName(args[1]), self.regName(args[2]) });
-        } else if (std.mem.eql(u8, name, "tcp_open")) {
-            if (args.len >= 2) {
-                self.lineFmt("{s} = rt.tcp_open({s}, {s});", .{ self.regName(dest), self.regName(args[0]), self.regName(args[1]) });
-            }
-        } else if (std.mem.eql(u8, name, "tcp_listen")) {
-            if (args.len >= 2) {
-                self.lineFmt("{s} = rt.tcp_listen({s}, {s});", .{ self.regName(dest), self.regName(args[0]), self.regName(args[1]) });
-            }
-        } else if (std.mem.eql(u8, name, "tcp_accept")) {
-            if (args.len >= 1) {
-                self.lineFmt("{s} = rt.tcp_accept({s});", .{ self.regName(dest), self.regName(args[0]) });
-            }
-        } else if (std.mem.eql(u8, name, "tcp_port")) {
-            if (args.len >= 1) {
-                self.lineFmt("{s} = rt.tcp_port({s});", .{ self.regName(dest), self.regName(args[0]) });
-            }
-        } else if (std.mem.eql(u8, name, "make_tagged")) {
-            if (args.len >= 2) {
-                self.lineFmt("{s} = rt.makeTagged({s}, {s});", .{ self.regName(dest), self.regName(args[0]), self.regName(args[1]) });
-            }
-        } else {
-            self.lineFmt("{s} = 0; // unknown builtin: {s}", .{ self.regName(dest), name });
+        } else if (std.mem.eql(u8, name, "process_exit")) {
+            self.line("rt.verve_exit_self();");
+            self.lineFmt("{s} = 0;", .{self.regName(dest)});
         }
     }
 
