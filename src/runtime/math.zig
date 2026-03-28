@@ -4,6 +4,7 @@ const checked = @import("checked.zig");
 // ── Math (int) ───────────────────────────────────
 
 pub fn math_abs(x: i64) i64 {
+    if (x == std.math.minInt(i64)) return checked.POISON_OVERFLOW;
     return if (x < 0) -x else x;
 }
 

@@ -155,6 +155,7 @@ pub fn verve_state_init(ptr: usize) void {
 pub fn verve_watch(target_pid: i64) void {
     const idx = pidx(target_pid);
     const wc = process_table[idx].watcher_count;
+    if (wc >= rt.MAX_WATCHERS) return;
     process_table[idx].watcher_pids[wc] = current_process_id;
     process_table[idx].watcher_count = wc + 1;
 }

@@ -640,16 +640,16 @@ pub const Parser = struct {
         if (c == ':') return .{ .tag = try self.parseTag() };
 
         if (std.ascii.isDigit(c)) {
+            const num_start = self.pos;
             const val = try self.parseIntLiteral();
             if (self.pos < self.source.len and self.source[self.pos] == '.') {
                 self.pos += 1;
-                const frac_start = self.pos;
                 while (self.pos < self.source.len and std.ascii.isDigit(self.source[self.pos])) {
                     self.pos += 1;
                 }
-                const frac = std.fmt.parseInt(i64, self.source[frac_start..self.pos], 10) catch 0;
-                const digits = self.pos - frac_start;
-                const fval = @as(f64, @floatFromInt(val)) + @as(f64, @floatFromInt(frac)) / std.math.pow(f64, 10.0, @as(f64, @floatFromInt(digits)));
+                const fval = std.fmt.parseFloat(f64, self.source[num_start..self.pos]) catch {
+                    return self.fail("invalid float literal: '{s}'", .{self.source[num_start..self.pos]});
+                };
                 return .{ .float_literal = fval };
             }
             return .{ .int_literal = val };
