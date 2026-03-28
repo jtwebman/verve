@@ -331,7 +331,11 @@ pub fn http_build_response(status: i64, ct: []const u8, body: []const u8) []cons
     b.append(len_str);
     b.append("\r\n");
 
-    b.append("Connection: keep-alive\r\n");
+    if (rt.process.scheduler_running) {
+        b.append("Connection: keep-alive\r\n");
+    } else {
+        b.append("Connection: close\r\n");
+    }
 
     // Date header (RFC 7231 MUST) — Unix timestamp for simplicity
     var date_buf: [48]u8 = undefined;
