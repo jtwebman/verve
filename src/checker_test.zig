@@ -1644,3 +1644,39 @@ test "error: type alias incompatible assignment" {
         \\}
     , "cannot assign string to Money");
 }
+
+// ── Result<T> inner type checking ─────────────────────
+
+test "checker: Result type accepted on match" {
+    try expectNoErrors(
+        \\struct CounterState { count: int = 0; }
+        \\process Counter<CounterState> {
+        \\    receive Increment(state: CounterState) -> int {
+        \\        return state.count + 1;
+        \\    }
+        \\}
+        \\module App {
+        \\    fn main() -> int {
+        \\        c: int = spawn Counter();
+        \\        match c.Increment() {
+        \\            :ok{val} => return val;
+        \\            :error{e} => return 0;
+        \\        }
+        \\    }
+        \\}
+    );
+}
+
+test "checker: File.open returns Result" {
+    try expectNoErrors(
+        \\module App {
+        \\    fn main() -> int {
+        \\        result: Result<stream> = File.open("test.txt", "r");
+        \\        match result {
+        \\            :ok{f} => return 0;
+        \\            :error{e} => return 1;
+        \\        }
+        \\    }
+        \\}
+    );
+}

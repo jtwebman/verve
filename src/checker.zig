@@ -401,14 +401,42 @@ pub const Checker = struct {
                     }
                 }
 
+                // Infer the match subject type for pattern binding
+                const subject_type = self.inferExprType(m.subject);
+
                 // Require wildcard unless exhaustiveness is proven
                 var has_wildcard = false;
                 for (m.arms) |arm| {
                     if (arm.pattern == .wildcard) has_wildcard = true;
                     switch (arm.pattern) {
                         .tag => |t| {
+                            // If subject is Result<T>, bind :ok{val} as T, :error{e} as string
+                            const binding_type: ?ast.TypeExpr = blk: {
+                                if (subject_type) |st| {
+                                    if (st == .generic) {
+                                        const g = st.generic;
+                                        if (std.mem.eql(u8, g.name, "Result") and g.args.len > 0) {
+                                            if (std.mem.eql(u8, t.tag, "ok")) break :blk g.args[0];
+                                            if (std.mem.eql(u8, t.tag, "error")) break :blk .{ .simple = "string" };
+                                        }
+                                    }
+                                    // Union type: look up variant field type
+                                    if (st == .simple) {
+                                        if (self.type_decls.get(st.simple)) |td| {
+                                            if (td.value == .union_type) {
+                                                for (td.value.union_type) |variant| {
+                                                    if (std.mem.eql(u8, variant.tag, t.tag) and variant.fields.len > 0) {
+                                                        break :blk variant.fields[0].type_expr;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                break :blk null;
+                            };
                             for (t.bindings) |binding| {
-                                try self.current_scope.put(self.alloc, binding, null);
+                                try self.current_scope.put(self.alloc, binding, binding_type);
                             }
                         },
                         else => {},
@@ -973,8 +1001,26 @@ pub const Checker = struct {
                         return .{ .simple = "int" };
                     }
                 }
-                // Built-in module function calls (String.len, Map.has, etc.)
+                // Process sends: counter.Increment() → Result<T>
                 if (c.target.* == .field_access) {
+                    const fa = c.target.field_access;
+                    if (fa.target.* == .identifier) {
+                        if (self.process_var_types.get(fa.target.identifier)) |proc_name| {
+                            if (self.process_decls.get(proc_name)) |pdecl| {
+                                for (pdecl.receive_handlers) |h| {
+                                    if (std.mem.eql(u8, h.name, fa.field)) {
+                                        // Wrap handler return type in Result<T>
+                                        const inner = self.alloc.create(ast.TypeExpr) catch return null;
+                                        inner.* = h.return_type;
+                                        const args = self.alloc.alloc(ast.TypeExpr, 1) catch return null;
+                                        args[0] = inner.*;
+                                        return .{ .generic = .{ .name = "Result", .args = args } };
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    // Built-in module function calls (String.len, Map.has, etc.)
                     return self.inferBuiltinModuleCall(c.target.field_access);
                 }
                 return null;
@@ -1046,7 +1092,46 @@ pub const Checker = struct {
             return .{ .simple = "stream" };
         }
         if (std.mem.eql(u8, mod, "Stream")) return inferStreamFn(func);
+        if (std.mem.eql(u8, mod, "File")) return self.inferFileFn(func);
+        if (std.mem.eql(u8, mod, "Tcp")) return self.inferTcpFn(func);
+        if (std.mem.eql(u8, mod, "Http")) return self.inferHttpFn(func);
+        if (std.mem.eql(u8, mod, "Convert")) return inferConvertFn(func);
+        if (std.mem.eql(u8, mod, "Math")) return .{ .simple = "int" };
         return null;
+    }
+
+    fn inferFileFn(self: *Checker, func: []const u8) ?ast.TypeExpr {
+        if (std.mem.eql(u8, func, "open")) return self.makeResultType("stream");
+        return null;
+    }
+
+    fn inferTcpFn(self: *Checker, func: []const u8) ?ast.TypeExpr {
+        if (std.mem.eql(u8, func, "open") or std.mem.eql(u8, func, "listen") or std.mem.eql(u8, func, "accept"))
+            return self.makeResultType("stream");
+        if (std.mem.eql(u8, func, "port")) return .{ .simple = "int" };
+        return null;
+    }
+
+    fn inferHttpFn(_: *Checker, func: []const u8) ?ast.TypeExpr {
+        if (std.mem.eql(u8, func, "respond") or std.mem.eql(u8, func, "read_request"))
+            return .{ .simple = "string" };
+        if (std.mem.eql(u8, func, "req_method") or std.mem.eql(u8, func, "req_path") or
+            std.mem.eql(u8, func, "req_body") or std.mem.eql(u8, func, "req_header"))
+            return .{ .simple = "string" };
+        return null;
+    }
+
+    fn inferConvertFn(func: []const u8) ?ast.TypeExpr {
+        if (std.mem.eql(u8, func, "to_string") or std.mem.eql(u8, func, "float_to_string")) return .{ .simple = "string" };
+        if (std.mem.eql(u8, func, "to_int") or std.mem.eql(u8, func, "to_int_f")) return .{ .simple = "int" };
+        if (std.mem.eql(u8, func, "to_float") or std.mem.eql(u8, func, "string_to_float")) return .{ .simple = "float" };
+        return null;
+    }
+
+    fn makeResultType(self: *Checker, inner_name: []const u8) ast.TypeExpr {
+        const args = self.alloc.alloc(ast.TypeExpr, 1) catch return .{ .simple = "unknown" };
+        args[0] = .{ .simple = inner_name };
+        return .{ .generic = .{ .name = "Result", .args = args } };
     }
 
     fn inferStringFn(func: []const u8) ?ast.TypeExpr {
