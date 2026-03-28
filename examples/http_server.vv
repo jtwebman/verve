@@ -1,6 +1,9 @@
 /// HTTP/1.1 server — spawn a process per connection (Elixir-style).
 /// Each connection gets its own process with its own memory arena.
 /// Process dies after handling the request, arena freed automatically.
+///
+/// Note: Http.read_request() supports keep-alive for pipelined requests.
+/// Full keep-alive (waiting for next request) requires multi-threaded scheduler.
 
 struct HandlerState {
 	id: int = 0;
@@ -31,7 +34,6 @@ process ConnectionHandler<HandlerState> {
 			Stream.write(client_fd, response);
 		}
 		Stream.close(client_fd);
-		Process.exit();
 		return 0;
 	}
 }

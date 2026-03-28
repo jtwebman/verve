@@ -526,7 +526,7 @@ pub const Lower = struct {
                         if (std.mem.eql(u8, mn, "Http")) {
                             return std.mem.eql(u8, fn_name, "req_method") or std.mem.eql(u8, fn_name, "req_path") or
                                 std.mem.eql(u8, fn_name, "req_body") or std.mem.eql(u8, fn_name, "req_header") or
-                                std.mem.eql(u8, fn_name, "respond");
+                                std.mem.eql(u8, fn_name, "respond") or std.mem.eql(u8, fn_name, "read_request");
                         }
                     }
                 }

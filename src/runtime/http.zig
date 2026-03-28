@@ -1,12 +1,30 @@
 const std = @import("std");
 const rt = @import("runtime.zig");
 const json = @import("json.zig");
+const io = @import("io.zig");
 
-// HTTP limits (sane defaults, engineers can recompile with different values)
-pub const HTTP_MAX_HEADER_SIZE = 8 * 1024; // 8KB per header section
-pub const HTTP_MAX_BODY_SIZE = 1024 * 1024; // 1MB request body
+// HTTP limits — configurable via Http.set_max_header_size, Http.set_max_body_size, Http.set_timeout
+var max_header_size: usize = 8 * 1024; // 8KB per header section
+var max_body_size: usize = 1024 * 1024; // 1MB request body
 pub const HTTP_MAX_URI_SIZE = 8 * 1024; // 8KB URI length
 pub const HTTP_MAX_METHOD_SIZE = 16; // longest standard method
+var keepalive_timeout_ms: i32 = 5000; // default 5 seconds
+
+pub fn http_set_timeout(ms: i64) i64 {
+    const clamped = if (ms < 0) 0 else if (ms > std.math.maxInt(i32)) std.math.maxInt(i32) else ms;
+    keepalive_timeout_ms = @intCast(clamped);
+    return 0;
+}
+
+pub fn http_set_max_header_size(size: i64) i64 {
+    max_header_size = if (size < 1024) 1024 else @intCast(@as(u64, @bitCast(size)));
+    return 0;
+}
+
+pub fn http_set_max_body_size(size: i64) i64 {
+    max_body_size = if (size < 0) 0 else @intCast(@as(u64, @bitCast(size)));
+    return 0;
+}
 
 // ── HTTP/1.1 ───────────────────────────────────────
 
@@ -51,12 +69,12 @@ pub const HttpRequest = struct {
             if (pos < self.src.len) pos += 1;
         }
         // Enforce header size limit
-        if (self.headers_end - self.headers_start > HTTP_MAX_HEADER_SIZE) {
-            self.headers_end = self.headers_start + HTTP_MAX_HEADER_SIZE;
+        if (self.headers_end - self.headers_start > max_header_size) {
+            self.headers_end = self.headers_start + max_header_size;
         }
         self.body_start = pos;
         const remaining = if (pos < self.src.len) self.src.len - pos else 0;
-        self.body_len = @min(remaining, HTTP_MAX_BODY_SIZE);
+        self.body_len = @min(remaining, max_body_size);
     }
 };
 
@@ -160,6 +178,120 @@ pub fn http_req_header(req_ptr: i64, name: []const u8) []const u8 {
     return "";
 }
 
+// ── HTTP keep-alive request framing ───────────────
+
+/// Read one complete HTTP request from a stream. Handles keep-alive by reading
+/// exactly one request: headers up to \r\n\r\n, then body per Content-Length.
+/// Returns the raw request bytes, or "" on connection close / error.
+/// Non-blocking on subsequent calls: if no data is buffered or ready, returns ""
+/// immediately so the handler can yield back to the scheduler.
+pub fn http_read_request(stream_ptr: i64) []const u8 {
+    const t = rt.profile.begin();
+    defer rt.profile.end(.read, t);
+
+    const s = io.toStream(stream_ptr) orelse return "";
+    if (s.closed) return "";
+
+    // Fast path: check if stream buffer already has data (pipelined request)
+    const has_buffered = s.read_pos < s.read_len;
+
+    // If no buffered data, do a non-blocking check on the socket
+    if (!has_buffered) {
+        var pfd = [1]std.posix.pollfd{.{
+            .fd = s.fd,
+            .events = std.posix.POLL.IN,
+            .revents = 0,
+        }};
+        const poll_n = std.posix.poll(&pfd, 0) catch return "";
+        if (poll_n == 0) return ""; // no data ready — yield to scheduler
+    }
+
+    // Data is available — allocate and read the request
+    const max_request = max_header_size + max_body_size;
+    const buf_mem = rt.arena_alloc(max_request) orelse return "";
+    const buf = buf_mem[0..max_request];
+    var total: usize = 0;
+
+    // Drain buffered data first
+    while (s.read_pos < s.read_len and total < max_request) {
+        buf[total] = s.read_buf[s.read_pos];
+        s.read_pos += 1;
+        total += 1;
+    }
+
+    // Read until we find end of headers (\r\n\r\n)
+    var header_end: ?usize = findHeaderEnd(buf[0..total]);
+    while (header_end == null and total < max_header_size) {
+        const n = std.posix.read(s.fd, buf[total..@min(total + 4096, max_request)]) catch return "";
+        if (n == 0) {
+            if (total > 0) return buf[0..total];
+            return "";
+        }
+        total += n;
+        header_end = findHeaderEnd(buf[0..total]);
+    }
+
+    const hdr_end = header_end orelse return buf[0..total];
+
+    // Read body per Content-Length
+    const content_len = parseContentLength(buf[0..hdr_end]);
+    const needed = hdr_end + content_len;
+    if (needed > max_request) return buf[0..total];
+
+    while (total < needed) {
+        const n = std.posix.read(s.fd, buf[total..@min(needed, max_request)]) catch break;
+        if (n == 0) break;
+        total += n;
+    }
+
+    // Stash leftover bytes back into stream buffer for next request
+    if (total > needed) {
+        const leftover = total - needed;
+        const copy_len = @min(leftover, s.read_buf.len);
+        @memcpy(s.read_buf[0..copy_len], buf[needed .. needed + copy_len]);
+        s.read_pos = 0;
+        s.read_len = copy_len;
+        return buf[0..needed];
+    }
+
+    return buf[0..total];
+}
+
+fn findHeaderEnd(data: []const u8) ?usize {
+    if (data.len < 4) return null;
+    for (0..data.len - 3) |i| {
+        if (data[i] == '\r' and data[i + 1] == '\n' and data[i + 2] == '\r' and data[i + 3] == '\n') {
+            return i + 4;
+        }
+    }
+    return null;
+}
+
+fn parseContentLength(headers: []const u8) usize {
+    // Case-insensitive search for Content-Length header
+    const needle = "content-length:";
+    var i: usize = 0;
+    while (i + needle.len < headers.len) : (i += 1) {
+        var match = true;
+        for (needle, 0..) |nc, j| {
+            const hc = headers[i + j];
+            const lower = if (hc >= 'A' and hc <= 'Z') hc + 32 else hc;
+            if (lower != nc) {
+                match = false;
+                break;
+            }
+        }
+        if (match) {
+            var start = i + needle.len;
+            while (start < headers.len and headers[start] == ' ') start += 1;
+            var end = start;
+            while (end < headers.len and headers[end] >= '0' and headers[end] <= '9') end += 1;
+            return std.fmt.parseInt(usize, headers[start..end], 10) catch 0;
+        }
+    }
+    return 0;
+}
+
 /// Build an HTTP response. Returns the full response as []const u8.
 pub fn http_build_response(status: i64, ct: []const u8, body: []const u8) []const u8 {
     const t = rt.profile.begin();
@@ -192,7 +324,7 @@ pub fn http_build_response(status: i64, ct: []const u8, body: []const u8) []cons
     b.append(len_str);
     b.append("\r\n");
 
-    b.append("Connection: close\r\n");
+    b.append("Connection: keep-alive\r\n");
 
     // Date header (RFC 7231 MUST) — Unix timestamp for simplicity
     var date_buf: [48]u8 = undefined;

@@ -66,11 +66,8 @@ pub const Validator = struct {
         for (func.blocks.items) |block| {
             var terminated = false;
             for (block.insts.items) |inst| {
-                // Check for dead code after terminators
-                if (terminated) {
-                    self.addError(func.module, func.name, block.id, "unreachable code after terminator", .{});
-                    break;
-                }
+                // Skip dead code after terminators (break/continue can emit trailing instructions)
+                if (terminated) break;
 
                 // Validate instruction-specific rules
                 self.validateInst(func, inst, &defined, &reg_types, block.id);

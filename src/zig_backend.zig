@@ -260,6 +260,10 @@ pub const ZigBackend = struct {
         .{ "tcp_port", S{ .module = "tcp", .min_args = 1 } },
         // ── HTTP ────────────────────────────────────
         .{ "http_parse_request", S{ .module = "http", .min_args = 1 } },
+        .{ "http_read_request", S{ .module = "http", .min_args = 1, .returns = .string } },
+        .{ "http_set_timeout", S{ .module = "http", .min_args = 1 } },
+        .{ "http_set_max_header_size", S{ .module = "http", .min_args = 1 } },
+        .{ "http_set_max_body_size", S{ .module = "http", .min_args = 1 } },
         .{ "http_req_method", S{ .module = "http", .min_args = 1, .returns = .string } },
         .{ "http_req_path", S{ .module = "http", .min_args = 1, .returns = .string } },
         .{ "http_req_body", S{ .module = "http", .min_args = 1, .returns = .string } },
