@@ -158,7 +158,7 @@ pub const ZigBackend = struct {
                     // Allocate typed state struct, set pointer on the process
                     self.writeIndent();
                     self.writeFmt("{{ const _st = std.heap.page_allocator.create(VerveStruct_{s}) catch unreachable; _st.* = .{{}}; ", .{st});
-                    self.writeFmt("rt.process_table[@intCast(@as(u64, @bitCast({s})) - 1)].state_ptr = @intFromPtr(_st); }}\n", .{pid_reg});
+                    self.writeFmt("rt.process.process_table[@intCast(@as(u64, @bitCast({s})) - 1)].state_ptr = @intFromPtr(_st); }}\n", .{pid_reg});
                 }
                 break;
             }
@@ -185,6 +185,8 @@ pub const ZigBackend = struct {
 
     /// Describes how to emit a builtin call.
     const BuiltinSpec = struct {
+        /// Runtime sub-module: "math", "string", "json", "net", "process", or null for core rt
+        module: ?[]const u8 = null,
         /// Runtime function name (null = same as builtin name, "!" = custom handler)
         rt_name: ?[]const u8 = null,
         min_args: u8 = 0,
@@ -197,106 +199,108 @@ pub const ZigBackend = struct {
     const S = BuiltinSpec;
     const builtin_specs = std.StaticStringMap(BuiltinSpec).initComptime(.{
         // ── Math (int) ──────────────────────────────
-        .{ "math_abs", S{ .min_args = 1 } },
-        .{ "math_min", S{ .min_args = 2 } },
-        .{ "math_max", S{ .min_args = 2 } },
-        .{ "math_clamp", S{ .min_args = 3 } },
-        .{ "math_pow", S{ .min_args = 2 } },
-        .{ "math_sqrt", S{ .min_args = 1 } },
-        .{ "math_log2", S{ .min_args = 1 } },
+        .{ "math_abs", S{ .module = "math", .min_args = 1 } },
+        .{ "math_min", S{ .module = "math", .min_args = 2 } },
+        .{ "math_max", S{ .module = "math", .min_args = 2 } },
+        .{ "math_clamp", S{ .module = "math", .min_args = 3 } },
+        .{ "math_pow", S{ .module = "math", .min_args = 2 } },
+        .{ "math_sqrt", S{ .module = "math", .min_args = 1 } },
+        .{ "math_log2", S{ .module = "math", .min_args = 1 } },
         // ── Math (float) ────────────────────────────
-        .{ "math_abs_f", S{ .min_args = 1, .returns = .float } },
-        .{ "math_floor", S{ .min_args = 1 } },
-        .{ "math_ceil", S{ .min_args = 1 } },
-        .{ "math_round", S{ .min_args = 1 } },
-        .{ "math_sin", S{ .min_args = 1, .returns = .float } },
-        .{ "math_cos", S{ .min_args = 1, .returns = .float } },
-        .{ "math_tan", S{ .min_args = 1, .returns = .float } },
-        .{ "math_sqrt_f", S{ .min_args = 1, .returns = .float } },
-        .{ "math_pow_f", S{ .min_args = 2, .returns = .float } },
-        .{ "math_log", S{ .min_args = 1, .returns = .float } },
-        .{ "math_log10", S{ .min_args = 1, .returns = .float } },
-        .{ "math_exp", S{ .min_args = 1, .returns = .float } },
-        .{ "math_min_f", S{ .min_args = 2, .returns = .float } },
-        .{ "math_max_f", S{ .min_args = 2, .returns = .float } },
+        .{ "math_abs_f", S{ .module = "math", .min_args = 1, .returns = .float } },
+        .{ "math_floor", S{ .module = "math", .min_args = 1 } },
+        .{ "math_ceil", S{ .module = "math", .min_args = 1 } },
+        .{ "math_round", S{ .module = "math", .min_args = 1 } },
+        .{ "math_sin", S{ .module = "math", .min_args = 1, .returns = .float } },
+        .{ "math_cos", S{ .module = "math", .min_args = 1, .returns = .float } },
+        .{ "math_tan", S{ .module = "math", .min_args = 1, .returns = .float } },
+        .{ "math_sqrt_f", S{ .module = "math", .min_args = 1, .returns = .float } },
+        .{ "math_pow_f", S{ .module = "math", .min_args = 2, .returns = .float } },
+        .{ "math_log", S{ .module = "math", .min_args = 1, .returns = .float } },
+        .{ "math_log10", S{ .module = "math", .min_args = 1, .returns = .float } },
+        .{ "math_exp", S{ .module = "math", .min_args = 1, .returns = .float } },
+        .{ "math_min_f", S{ .module = "math", .min_args = 2, .returns = .float } },
+        .{ "math_max_f", S{ .module = "math", .min_args = 2, .returns = .float } },
         // ── Convert ─────────────────────────────────
-        .{ "convert_to_float", S{ .min_args = 1, .returns = .float } },
-        .{ "convert_to_int_f", S{ .min_args = 1 } },
-        .{ "float_to_string", S{ .min_args = 1, .returns = .string } },
-        .{ "string_to_float", S{ .min_args = 1, .returns = .float } },
-        .{ "int_to_string", S{ .min_args = 1, .returns = .string } },
-        .{ "string_to_int", S{ .min_args = 1 } },
+        .{ "convert_to_float", S{ .module = "math", .min_args = 1, .returns = .float } },
+        .{ "convert_to_int_f", S{ .module = "math", .min_args = 1 } },
+        .{ "float_to_string", S{ .module = "math", .min_args = 1, .returns = .string } },
+        .{ "string_to_float", S{ .module = "math", .min_args = 1, .returns = .float } },
+        .{ "int_to_string", S{ .module = "math", .min_args = 1, .returns = .string } },
+        .{ "string_to_int", S{ .module = "math", .min_args = 1 } },
         // ── String ──────────────────────────────────
-        .{ "string_concat", S{ .rt_name = "verve_string_concat", .min_args = 2, .returns = .string } },
-        .{ "string_trim", S{ .min_args = 1, .returns = .string } },
-        .{ "string_replace", S{ .min_args = 3, .returns = .string } },
-        .{ "string_char_at", S{ .min_args = 2, .returns = .string } },
-        .{ "string_char_len", S{ .min_args = 1 } },
-        .{ "string_split", S{ .min_args = 2 } },
-        .{ "string_chars", S{ .min_args = 1 } },
+        .{ "string_concat", S{ .module = "string", .rt_name = "verve_string_concat", .min_args = 2, .returns = .string } },
+        .{ "string_trim", S{ .module = "string", .min_args = 1, .returns = .string } },
+        .{ "string_replace", S{ .module = "string", .min_args = 3, .returns = .string } },
+        .{ "string_char_at", S{ .module = "string", .min_args = 2, .returns = .string } },
+        .{ "string_char_len", S{ .module = "string", .min_args = 1 } },
+        .{ "string_split", S{ .module = "string", .min_args = 2 } },
+        .{ "string_chars", S{ .module = "string", .min_args = 1 } },
         // ── String predicates (return bool) ─────────
-        .{ "string_contains", S{ .rt_name = "!", .min_args = 2, .returns = .boolean } },
-        .{ "string_starts_with", S{ .rt_name = "!", .min_args = 2, .returns = .boolean } },
-        .{ "string_ends_with", S{ .rt_name = "!", .min_args = 2, .returns = .boolean } },
+        .{ "string_contains", S{ .module = "string", .rt_name = "!", .min_args = 2, .returns = .boolean } },
+        .{ "string_starts_with", S{ .module = "string", .rt_name = "!", .min_args = 2, .returns = .boolean } },
+        .{ "string_ends_with", S{ .module = "string", .rt_name = "!", .min_args = 2, .returns = .boolean } },
         // ── Env / System ────────────────────────────
         .{ "env_get", S{ .min_args = 1, .returns = .string } },
         .{ "system_exit", S{ .min_args = 1 } },
         .{ "system_time_ms", S{} },
         // ── Stream ──────────────────────────────────
-        .{ "stream_read_line", S{ .min_args = 1, .returns = .string } },
-        .{ "stream_read_bytes", S{ .min_args = 2, .returns = .string } },
-        .{ "stream_read_all", S{ .rt_name = "streamReadAll", .min_args = 1, .returns = .string } },
-        .{ "stream_write", S{ .min_args = 2, .void_result = true } },
-        .{ "stream_write_line", S{ .min_args = 2, .void_result = true } },
-        .{ "stream_close", S{ .min_args = 1, .void_result = true } },
+        .{ "stream_read_line", S{ .module = "net", .min_args = 1, .returns = .string } },
+        .{ "stream_read_bytes", S{ .module = "net", .min_args = 2, .returns = .string } },
+        .{ "stream_read_all", S{ .module = "net", .rt_name = "streamReadAll", .min_args = 1, .returns = .string } },
+        .{ "stream_write", S{ .module = "net", .min_args = 2, .void_result = true } },
+        .{ "stream_write_line", S{ .module = "net", .min_args = 2, .void_result = true } },
+        .{ "stream_close", S{ .module = "net", .min_args = 1, .void_result = true } },
         // ── File ────────────────────────────────────
         .{ "file_open", S{ .rt_name = "fileOpen", .min_args = 1 } },
         // ── TCP ─────────────────────────────────────
-        .{ "tcp_open", S{ .min_args = 2 } },
-        .{ "tcp_listen", S{ .min_args = 2 } },
-        .{ "tcp_accept", S{ .min_args = 1 } },
-        .{ "tcp_port", S{ .min_args = 1 } },
+        .{ "tcp_open", S{ .module = "net", .min_args = 2 } },
+        .{ "tcp_listen", S{ .module = "net", .min_args = 2 } },
+        .{ "tcp_accept", S{ .module = "net", .min_args = 1 } },
+        .{ "tcp_port", S{ .module = "net", .min_args = 1 } },
         // ── HTTP ────────────────────────────────────
-        .{ "http_parse_request", S{ .min_args = 1 } },
-        .{ "http_req_method", S{ .min_args = 1, .returns = .string } },
-        .{ "http_req_path", S{ .min_args = 1, .returns = .string } },
-        .{ "http_req_body", S{ .min_args = 1, .returns = .string } },
-        .{ "http_req_header", S{ .min_args = 2, .returns = .string } },
-        .{ "http_build_response", S{ .min_args = 3, .returns = .string } },
+        .{ "http_parse_request", S{ .module = "net", .min_args = 1 } },
+        .{ "http_req_method", S{ .module = "net", .min_args = 1, .returns = .string } },
+        .{ "http_req_path", S{ .module = "net", .min_args = 1, .returns = .string } },
+        .{ "http_req_body", S{ .module = "net", .min_args = 1, .returns = .string } },
+        .{ "http_req_header", S{ .module = "net", .min_args = 2, .returns = .string } },
+        .{ "http_build_response", S{ .module = "net", .min_args = 3, .returns = .string } },
         // ── JSON ────────────────────────────────────
-        .{ "json_get_string", S{ .min_args = 2, .returns = .string } },
-        .{ "json_get_object", S{ .min_args = 2, .returns = .string } },
-        .{ "json_get_int", S{ .min_args = 2 } },
-        .{ "json_get_float", S{ .min_args = 2 } },
-        .{ "json_get_bool", S{ .min_args = 2 } },
-        .{ "json_get_array", S{ .min_args = 2 } },
-        .{ "json_get_array_len", S{ .min_args = 2 } },
-        .{ "json_to_int", S{ .min_args = 1 } },
-        .{ "json_to_float", S{ .min_args = 1 } },
-        .{ "json_to_bool", S{ .min_args = 1 } },
-        .{ "json_to_string", S{ .min_args = 1, .returns = .string } },
-        .{ "json_build_object", S{} },
-        .{ "json_build_end", S{ .min_args = 1, .returns = .string } },
-        .{ "json_build_add_string", S{ .min_args = 3, .void_result = true } },
-        .{ "json_build_add_int", S{ .min_args = 3, .void_result = true } },
-        .{ "json_build_add_float", S{ .min_args = 3, .void_result = true } },
+        .{ "json_get_string", S{ .module = "json", .min_args = 2, .returns = .string } },
+        .{ "json_get_object", S{ .module = "json", .min_args = 2, .returns = .string } },
+        .{ "json_get_int", S{ .module = "json", .min_args = 2 } },
+        .{ "json_get_float", S{ .module = "json", .min_args = 2 } },
+        .{ "json_get_bool", S{ .module = "json", .min_args = 2 } },
+        .{ "json_get_array", S{ .module = "json", .min_args = 2 } },
+        .{ "json_get_array_len", S{ .module = "json", .min_args = 2 } },
+        .{ "json_to_int", S{ .module = "json", .min_args = 1 } },
+        .{ "json_to_float", S{ .module = "json", .min_args = 1 } },
+        .{ "json_to_bool", S{ .module = "json", .min_args = 1 } },
+        .{ "json_to_string", S{ .module = "json", .min_args = 1, .returns = .string } },
+        .{ "json_build_object", S{
+            .module = "json",
+        } },
+        .{ "json_build_end", S{ .module = "json", .min_args = 1, .returns = .string } },
+        .{ "json_build_add_string", S{ .module = "json", .min_args = 3, .void_result = true } },
+        .{ "json_build_add_int", S{ .module = "json", .min_args = 3, .void_result = true } },
+        .{ "json_build_add_float", S{ .module = "json", .min_args = 3, .void_result = true } },
         // ── Tags / Process ──────────────────────────
         .{ "make_tagged", S{ .rt_name = "makeTagged", .min_args = 2 } },
-        .{ "process_exit", S{ .rt_name = "!", .void_result = true } },
+        .{ "process_exit", S{ .module = "process", .rt_name = "!", .void_result = true } },
         // ── Custom handlers (rt_name = "!") ─────────
         .{ "println", S{ .rt_name = "!" } },
         .{ "print", S{ .rt_name = "!" } },
         .{ "println_float", S{ .rt_name = "!" } },
         .{ "print_float", S{ .rt_name = "!" } },
-        .{ "string_is_digit", S{ .rt_name = "!", .returns = .boolean } },
-        .{ "string_is_alpha", S{ .rt_name = "!", .returns = .boolean } },
-        .{ "string_is_whitespace", S{ .rt_name = "!", .returns = .boolean } },
-        .{ "string_is_alnum", S{ .rt_name = "!", .returns = .boolean } },
+        .{ "string_is_digit", S{ .module = "string", .rt_name = "!", .returns = .boolean } },
+        .{ "string_is_alpha", S{ .module = "string", .rt_name = "!", .returns = .boolean } },
+        .{ "string_is_whitespace", S{ .module = "string", .rt_name = "!", .returns = .boolean } },
+        .{ "string_is_alnum", S{ .module = "string", .rt_name = "!", .returns = .boolean } },
         .{ "set_has", S{ .rt_name = "!" } },
         .{ "set_has_str", S{ .rt_name = "!" } },
-        .{ "string_len", S{ .rt_name = "!" } },
+        .{ "string_len", S{ .module = "string", .rt_name = "!" } },
         .{ "assert_check", S{ .rt_name = "!", .void_result = true } },
-        .{ "json_build_add_bool", S{ .rt_name = "!", .void_result = true } },
+        .{ "json_build_add_bool", S{ .module = "json", .rt_name = "!", .void_result = true } },
     });
 
     fn builtinReturnType(name: []const u8) RegType {
@@ -306,13 +310,18 @@ pub const ZigBackend = struct {
 
     // ── Emit program ─────────────────────────────────────────
 
-    const runtime_source = @embedFile("verve_runtime.zig");
+    const runtime_source = @embedFile("runtime/runtime.zig");
+    const rt_string_source = @embedFile("runtime/string.zig");
+    const rt_math_source = @embedFile("runtime/math.zig");
+    const rt_json_source = @embedFile("runtime/json.zig");
+    const rt_net_source = @embedFile("runtime/net.zig");
+    const rt_process_source = @embedFile("runtime/process.zig");
 
     pub fn emit(self: *ZigBackend, program: ir.Program) void {
         self.program = program;
         // Import runtime
         self.line("const std = @import(\"std\");");
-        self.line("const rt = @import(\"verve_runtime.zig\");");
+        self.line("const rt = @import(\"runtime/runtime.zig\");");
         self.line("");
         // Emit Zig struct definitions for Json.parse typed parsing
         for (program.struct_decls.items) |sd| {
@@ -413,9 +422,9 @@ pub const ZigBackend = struct {
 
             self.line("fn verve_init_dispatch() void {");
             self.indent += 1;
-            self.lineFmt("rt.ensureProcessCapacity({d});", .{program.process_decls.items.len});
+            self.lineFmt("rt.process.ensureProcessCapacity({d});", .{program.process_decls.items.len});
             for (program.process_decls.items, 0..) |_, pdi| {
-                self.writeFmt("    rt.dispatch_table[{d}] = &verve_dispatch_{d};\n", .{ pdi, pdi });
+                self.writeFmt("    rt.process.dispatch_table[{d}] = &verve_dispatch_{d};\n", .{ pdi, pdi });
             }
             self.indent -= 1;
             self.line("}");
@@ -459,7 +468,7 @@ pub const ZigBackend = struct {
     pub fn emitTestRunner(self: *ZigBackend, program: ir.Program) void {
         self.program = program;
         self.line("const std = @import(\"std\");");
-        self.line("const rt = @import(\"verve_runtime.zig\");");
+        self.line("const rt = @import(\"runtime/runtime.zig\");");
         self.line("");
 
         // Emit struct definitions
@@ -525,9 +534,9 @@ pub const ZigBackend = struct {
             }
             self.line("fn verve_init_dispatch() void {");
             self.indent += 1;
-            self.lineFmt("rt.ensureProcessCapacity({d});", .{program.process_decls.items.len});
+            self.lineFmt("rt.process.ensureProcessCapacity({d});", .{program.process_decls.items.len});
             for (program.process_decls.items, 0..) |_, pdi| {
-                self.writeFmt("    rt.dispatch_table[{d}] = &verve_dispatch_{d};\n", .{ pdi, pdi });
+                self.writeFmt("    rt.process.dispatch_table[{d}] = &verve_dispatch_{d};\n", .{ pdi, pdi });
             }
             self.indent -= 1;
             self.line("}");
@@ -749,10 +758,10 @@ pub const ZigBackend = struct {
         self.line("verve_init_dispatch();");
         for (self.program.process_decls.items, 0..) |pd, pdi| {
             if (std.mem.eql(u8, pd.name, func.module)) {
-                self.lineFmt("const pid = rt.verve_spawn({d});", .{pdi});
-                self.line("rt.current_process_id = pid;");
+                self.lineFmt("const pid = rt.process.verve_spawn({d});", .{pdi});
+                self.line("rt.process.current_process_id = pid;");
                 if (pd.state_type) |st| {
-                    self.lineFmt("{{ const _st = std.heap.page_allocator.create(VerveStruct_{s}) catch unreachable; _st.* = .{{}}; rt.process_table[@intCast(@as(u64, @bitCast(pid)) - 1)].state_ptr = @intFromPtr(_st); }}", .{st});
+                    self.lineFmt("{{ const _st = std.heap.page_allocator.create(VerveStruct_{s}) catch unreachable; _st.* = .{{}}; rt.process.process_table[@intCast(@as(u64, @bitCast(pid)) - 1)].state_ptr = @intFromPtr(_st); }}", .{st});
                 }
                 break;
             }
@@ -804,19 +813,19 @@ pub const ZigBackend = struct {
                 self.lineFmt("{s} = {d};", .{ self.regName(cf.dest), cf.value });
             },
 
-            .add_i64 => |op| self.lineFmt("{s} = rt.verve_add_checked({s}, {s});", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
-            .sub_i64 => |op| self.lineFmt("{s} = rt.verve_sub_checked({s}, {s});", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
-            .mul_i64 => |op| self.lineFmt("{s} = rt.verve_mul_checked({s}, {s});", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
-            .div_i64 => |op| self.lineFmt("{s} = rt.verve_div_checked({s}, {s});", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
-            .mod_i64 => |op| self.lineFmt("{s} = rt.verve_mod_checked({s}, {s});", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
-            .neg_i64 => |op| self.lineFmt("{s} = rt.verve_neg_checked({s});", .{ self.regName(op.dest), self.regName(op.operand) }),
+            .add_i64 => |op| self.lineFmt("{s} = rt.math.verve_add_checked({s}, {s});", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
+            .sub_i64 => |op| self.lineFmt("{s} = rt.math.verve_sub_checked({s}, {s});", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
+            .mul_i64 => |op| self.lineFmt("{s} = rt.math.verve_mul_checked({s}, {s});", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
+            .div_i64 => |op| self.lineFmt("{s} = rt.math.verve_div_checked({s}, {s});", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
+            .mod_i64 => |op| self.lineFmt("{s} = rt.math.verve_mod_checked({s}, {s});", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
+            .neg_i64 => |op| self.lineFmt("{s} = rt.math.verve_neg_checked({s});", .{ self.regName(op.dest), self.regName(op.operand) }),
 
             .add_f64 => |op| self.lineFmt("{s} = {s} + {s};", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
             .sub_f64 => |op| self.lineFmt("{s} = {s} - {s};", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
             .mul_f64 => |op| self.lineFmt("{s} = {s} * {s};", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
             .div_f64 => |op| {
                 self.lineFmt("{s} = {s} / {s};", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) });
-                self.lineFmt("{s} = rt.float_check_f64({s});", .{ self.regName(op.dest), self.regName(op.dest) });
+                self.lineFmt("{s} = rt.math.float_check_f64({s});", .{ self.regName(op.dest), self.regName(op.dest) });
             },
             .mod_f64 => |op| self.lineFmt("{s} = @mod({s}, {s});", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
             .neg_f64 => |op| self.lineFmt("{s} = -{s};", .{ self.regName(op.dest), self.regName(op.operand) }),
@@ -828,12 +837,12 @@ pub const ZigBackend = struct {
             .lte_f64 => |op| self.lineFmt("{s} = ({s} <= {s});", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
             .gte_f64 => |op| self.lineFmt("{s} = ({s} >= {s});", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
 
-            .eq_i64 => |op| self.lineFmt("{s} = (rt.verve_eq({s}, {s}) != 0);", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
-            .neq_i64 => |op| self.lineFmt("{s} = (rt.verve_neq({s}, {s}) != 0);", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
-            .lt_i64 => |op| self.lineFmt("{s} = (rt.verve_lt({s}, {s}) != 0);", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
-            .gt_i64 => |op| self.lineFmt("{s} = (rt.verve_gt({s}, {s}) != 0);", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
-            .lte_i64 => |op| self.lineFmt("{s} = (rt.verve_lte({s}, {s}) != 0);", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
-            .gte_i64 => |op| self.lineFmt("{s} = (rt.verve_gte({s}, {s}) != 0);", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
+            .eq_i64 => |op| self.lineFmt("{s} = (rt.math.verve_eq({s}, {s}) != 0);", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
+            .neq_i64 => |op| self.lineFmt("{s} = (rt.math.verve_neq({s}, {s}) != 0);", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
+            .lt_i64 => |op| self.lineFmt("{s} = (rt.math.verve_lt({s}, {s}) != 0);", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
+            .gt_i64 => |op| self.lineFmt("{s} = (rt.math.verve_gt({s}, {s}) != 0);", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
+            .lte_i64 => |op| self.lineFmt("{s} = (rt.math.verve_lte({s}, {s}) != 0);", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
+            .gte_i64 => |op| self.lineFmt("{s} = (rt.math.verve_gte({s}, {s}) != 0);", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
 
             .and_bool => |op| self.lineFmt("{s} = {s} and {s};", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
             .or_bool => |op| self.lineFmt("{s} = {s} or {s};", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
@@ -958,7 +967,7 @@ pub const ZigBackend = struct {
             },
 
             .process_spawn => |ps| {
-                self.lineFmt("{s} = rt.verve_spawn({d});", .{ self.regName(ps.dest), ps.process_type });
+                self.lineFmt("{s} = rt.process.verve_spawn({d});", .{ self.regName(ps.dest), ps.process_type });
                 // Allocate typed state struct if this process type has state
                 if (ps.process_type < self.program.process_decls.items.len) {
                     const pd = self.program.process_decls.items[ps.process_type];
@@ -980,9 +989,9 @@ pub const ZigBackend = struct {
                 if (ps.args.len > 0) {
                     self.line("var _mpos: usize = 2;");
                     for (ps.args) |arg| self.emitMsgEncode(arg, reg_types);
-                    self.lineFmt("{s} = rt.verve_send({s}, &_msg_buf, _mpos);", .{ self.regName(ps.dest), self.regName(ps.target) });
+                    self.lineFmt("{s} = rt.process.verve_send({s}, &_msg_buf, _mpos);", .{ self.regName(ps.dest), self.regName(ps.target) });
                 } else {
-                    self.lineFmt("{s} = rt.verve_send({s}, &_msg_buf, 2);", .{ self.regName(ps.dest), self.regName(ps.target) });
+                    self.lineFmt("{s} = rt.process.verve_send({s}, &_msg_buf, 2);", .{ self.regName(ps.dest), self.regName(ps.target) });
                 }
                 self.indent -= 1;
                 self.line("}");
@@ -997,22 +1006,22 @@ pub const ZigBackend = struct {
                 if (pt.args.len > 0) {
                     self.line("var _mpos: usize = 2;");
                     for (pt.args) |arg| self.emitMsgEncode(arg, reg_types);
-                    self.lineFmt("rt.verve_tell({s}, &_msg_buf, _mpos);", .{self.regName(pt.target)});
+                    self.lineFmt("rt.process.verve_tell({s}, &_msg_buf, _mpos);", .{self.regName(pt.target)});
                 } else {
-                    self.lineFmt("rt.verve_tell({s}, &_msg_buf, 2);", .{self.regName(pt.target)});
+                    self.lineFmt("rt.process.verve_tell({s}, &_msg_buf, 2);", .{self.regName(pt.target)});
                 }
                 self.indent -= 1;
                 self.line("}");
             },
             .process_state_get => |sg| {
                 // Direct typed field access on process state struct
-                self.lineFmt("{s} = @as(*const VerveStruct_{s}, @ptrFromInt(rt.verve_state_ptr())).{s};", .{ self.regName(sg.dest), sg.struct_name, sg.field_name });
+                self.lineFmt("{s} = @as(*const VerveStruct_{s}, @ptrFromInt(rt.process.verve_state_ptr())).{s};", .{ self.regName(sg.dest), sg.struct_name, sg.field_name });
             },
             .process_state_set => |ss| {
-                self.lineFmt("@as(*VerveStruct_{s}, @ptrFromInt(rt.verve_state_ptr())).{s} = {s};", .{ ss.struct_name, ss.field_name, self.regName(ss.src) });
+                self.lineFmt("@as(*VerveStruct_{s}, @ptrFromInt(rt.process.verve_state_ptr())).{s} = {s};", .{ ss.struct_name, ss.field_name, self.regName(ss.src) });
             },
             .process_watch => |pw| {
-                self.lineFmt("rt.verve_watch({s});", .{self.regName(pw.target)});
+                self.lineFmt("rt.process.verve_watch({s});", .{self.regName(pw.target)});
             },
             .process_send_timeout => |ps| {
                 self.writeIndent();
@@ -1024,9 +1033,9 @@ pub const ZigBackend = struct {
                 if (ps.args.len > 0) {
                     self.line("var _mpos: usize = 2;");
                     for (ps.args) |arg| self.emitMsgEncode(arg, reg_types);
-                    self.lineFmt("{s} = rt.verve_send_timeout({s}, &_msg_buf, _mpos, {s});", .{ self.regName(ps.dest), self.regName(ps.target), self.regName(ps.timeout_ms) });
+                    self.lineFmt("{s} = rt.process.verve_send_timeout({s}, &_msg_buf, _mpos, {s});", .{ self.regName(ps.dest), self.regName(ps.target), self.regName(ps.timeout_ms) });
                 } else {
-                    self.lineFmt("{s} = rt.verve_send_timeout({s}, &_msg_buf, 2, {s});", .{ self.regName(ps.dest), self.regName(ps.target), self.regName(ps.timeout_ms) });
+                    self.lineFmt("{s} = rt.process.verve_send_timeout({s}, &_msg_buf, 2, {s});", .{ self.regName(ps.dest), self.regName(ps.target), self.regName(ps.timeout_ms) });
                 }
                 self.indent -= 1;
                 self.line("}");
@@ -1059,28 +1068,24 @@ pub const ZigBackend = struct {
             }
         }
 
-        // Data-driven emission: dest = rt.fn_name(args...)
+        // Data-driven emission: dest = rt[.module].fn_name(args...)
         if (args.len >= spec.min_args) {
             const rt_fn = spec.rt_name orelse name;
-            if (spec.void_result) {
-                // Void call: rt.fn(args...); dest = 0;
-                self.writeIndent();
-                self.writeFmt("rt.{s}(", .{rt_fn});
-                for (args[0..spec.min_args], 0..) |arg, i| {
-                    if (i > 0) self.write(", ");
-                    self.write(self.regName(arg));
-                }
-                self.write(");\n");
-            } else {
-                // Value call: dest = rt.fn(args...);
-                self.writeIndent();
-                self.writeFmt("{s} = rt.{s}(", .{ self.regName(dest), rt_fn });
-                for (args[0..spec.min_args], 0..) |arg, i| {
-                    if (i > 0) self.write(", ");
-                    self.write(self.regName(arg));
-                }
-                self.write(");\n");
+            self.writeIndent();
+            if (!spec.void_result) {
+                self.writeFmt("{s} = ", .{self.regName(dest)});
             }
+            // Emit rt.module.fn() or rt.fn() depending on module
+            if (spec.module) |mod| {
+                self.writeFmt("rt.{s}.{s}(", .{ mod, rt_fn });
+            } else {
+                self.writeFmt("rt.{s}(", .{rt_fn});
+            }
+            for (args[0..spec.min_args], 0..) |arg, i| {
+                if (i > 0) self.write(", ");
+                self.write(self.regName(arg));
+            }
+            self.write(");\n");
         }
         if (spec.void_result) {
             self.lineFmt("{s} = 0;", .{self.regName(dest)});
@@ -1114,7 +1119,7 @@ pub const ZigBackend = struct {
         } else if (std.mem.eql(u8, name, "string_is_alnum")) {
             if (args.len >= 1) self.lineFmt("{{ const _b = {s}[0]; {s} = ((_b >= '0' and _b <= '9') or (_b >= 'A' and _b <= 'Z') or (_b >= 'a' and _b <= 'z')); }}", .{ self.regName(args[0]), self.regName(dest) });
         } else if (std.mem.eql(u8, name, "string_contains") or std.mem.eql(u8, name, "string_starts_with") or std.mem.eql(u8, name, "string_ends_with")) {
-            if (args.len >= 2) self.lineFmt("{s} = (rt.{s}({s}, {s}) != 0);", .{ self.regName(dest), name, self.regName(args[0]), self.regName(args[1]) });
+            if (args.len >= 2) self.lineFmt("{s} = (rt.string.{s}({s}, {s}) != 0);", .{ self.regName(dest), name, self.regName(args[0]), self.regName(args[1]) });
         } else if (std.mem.eql(u8, name, "set_has_str")) {
             if (args.len >= 2) self.lineFmt("{{ const list = @as(*const rt.List, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast({s})))))); var found: i64 = 0; var si: i64 = 0; while (si + 1 < list.len) : (si += 2) {{ const esl = rt.sliceFromPair(list.get(si), list.get(si + 1)); if (std.mem.eql(u8, esl, {s})) {{ found = 1; break; }} }} {s} = found; }}", .{ self.regName(args[0]), self.regName(args[1]), self.regName(dest) });
         } else if (std.mem.eql(u8, name, "set_has")) {
@@ -1133,14 +1138,14 @@ pub const ZigBackend = struct {
         } else if (std.mem.eql(u8, name, "json_build_add_bool")) {
             if (args.len >= 3) {
                 if (getRegType(reg_types, args[2]) == .boolean) {
-                    self.lineFmt("rt.json_build_add_bool({s}, {s}, if ({s}) @as(i64, 1) else @as(i64, 0));", .{ self.regName(args[0]), self.regName(args[1]), self.regName(args[2]) });
+                    self.lineFmt("rt.json.json_build_add_bool({s}, {s}, if ({s}) @as(i64, 1) else @as(i64, 0));", .{ self.regName(args[0]), self.regName(args[1]), self.regName(args[2]) });
                 } else {
-                    self.lineFmt("rt.json_build_add_bool({s}, {s}, {s});", .{ self.regName(args[0]), self.regName(args[1]), self.regName(args[2]) });
+                    self.lineFmt("rt.json.json_build_add_bool({s}, {s}, {s});", .{ self.regName(args[0]), self.regName(args[1]), self.regName(args[2]) });
                 }
             }
             self.lineFmt("{s} = 0;", .{self.regName(dest)});
         } else if (std.mem.eql(u8, name, "process_exit")) {
-            self.line("rt.verve_exit_self();");
+            self.line("rt.process.verve_exit_self();");
             self.lineFmt("{s} = 0;", .{self.regName(dest)});
         }
     }
@@ -1267,10 +1272,23 @@ pub const ZigBackend = struct {
         try src_file.writeAll(zig_source);
         src_file.close();
 
-        const rt_path = try std.fmt.allocPrint(self.alloc, "{s}/verve_runtime.zig", .{build_dir});
-        const rt_file = try std.fs.cwd().createFile(rt_path, .{});
-        try rt_file.writeAll(runtime_source);
-        rt_file.close();
+        // Write runtime modules into runtime/ subdirectory
+        const rt_dir = try std.fmt.allocPrint(self.alloc, "{s}/runtime", .{build_dir});
+        std.fs.cwd().makePath(rt_dir) catch {};
+        const rt_files = .{
+            .{ "runtime.zig", runtime_source },
+            .{ "string.zig", rt_string_source },
+            .{ "math.zig", rt_math_source },
+            .{ "json.zig", rt_json_source },
+            .{ "net.zig", rt_net_source },
+            .{ "process.zig", rt_process_source },
+        };
+        inline for (rt_files) |entry| {
+            const rt_path = try std.fmt.allocPrint(self.alloc, "{s}/{s}", .{ rt_dir, entry[0] });
+            const rt_file = try std.fs.cwd().createFile(rt_path, .{});
+            try rt_file.writeAll(entry[1]);
+            rt_file.close();
+        }
 
         const emit_flag = try std.fmt.allocPrint(self.alloc, "-femit-bin={s}", .{output_path});
         const cache_dir = try std.fmt.allocPrint(self.alloc, "{s}_cache", .{output_path});

@@ -12,3 +12,5 @@ examples/verve_runtime.zig
 
 # Temp build artifacts
 /tmp/verve_*
+examples/*_cache/
+examples/*_build/
