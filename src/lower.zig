@@ -466,31 +466,7 @@ pub const Lower = struct {
                 const val_reg = self.lowerExpr(a.value);
                 self.appendInst(.{ .list_append = .{ .list = list_reg, .value = val_reg } });
             },
-            .tell_stmt => |t| {
-                const target_reg = self.lowerExpr(t.target);
-                var arg_regs = std.ArrayListUnmanaged(ir.Reg){};
-                for (t.args) |arg| {
-                    arg_regs.append(self.alloc, self.lowerExpr(arg)) catch {};
-                }
-                if (t.target == .identifier) {
-                    if (self.process_vars.get(t.target.identifier)) |proc_type| {
-                        if (self.process_decls.get(proc_type)) |pdecl| {
-                            for (pdecl.receive_handlers, 0..) |h, hi| {
-                                if (std.mem.eql(u8, h.name, t.handler)) {
-                                    const tell_dest = func.newReg();
-                                    self.appendInst(.{ .process_tell = .{
-                                        .dest = tell_dest,
-                                        .target = target_reg,
-                                        .handler_index = @intCast(hi),
-                                        .args = arg_regs.toOwnedSlice(self.alloc) catch &.{},
-                                    } });
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                }
-            },
+            .tell_stmt => {},
             .watch_stmt => |w| {
                 const target_reg = self.lowerExpr(w.target);
                 self.appendInst(.{ .process_watch = .{ .target = target_reg } });
@@ -889,6 +865,93 @@ pub const Lower = struct {
         };
     }
 
+    /// Lower Process.send / Process.send_timeout / Process.tell calls.
+    /// First arg is a handler reference (field_access: pid.Handler), rest are handler args.
+    fn lowerProcessCall(self: *Lower, call_name: []const u8, call_args: []const ast.Expr, dest: ir.Reg) ir.Reg {
+        const func = self.current_fn orelse return dest;
+        if (call_args.len == 0) return dest;
+
+        // First arg must be a handler reference: counter.Inc
+        const handler_ref = call_args[0];
+        if (handler_ref != .field_access) return dest;
+        const fa = handler_ref.field_access;
+
+        // Resolve the pid register and handler index
+        const target_reg = self.lowerExpr(fa.target.*);
+        const handler_name = fa.field;
+
+        // Look up process type from pid variable
+        var handler_index: ?u32 = null;
+        if (fa.target.* == .identifier) {
+            if (self.process_vars.get(fa.target.identifier)) |proc_type| {
+                if (self.process_decls.get(proc_type)) |pdecl| {
+                    for (pdecl.receive_handlers, 0..) |h, hi| {
+                        if (std.mem.eql(u8, h.name, handler_name)) {
+                            handler_index = @intCast(hi);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        const hi = handler_index orelse return dest;
+
+        // Lower handler arguments (everything after the handler reference)
+        var arg_regs = std.ArrayListUnmanaged(ir.Reg){};
+        const handler_args = call_args[1..];
+
+        if (std.mem.eql(u8, call_name, "send_timeout")) {
+            // Last arg is timeout_ms, rest are handler args
+            if (handler_args.len > 0) {
+                for (handler_args[0 .. handler_args.len - 1]) |arg| {
+                    arg_regs.append(self.alloc, self.lowerExpr(arg)) catch {};
+                }
+                const timeout_reg = self.lowerExpr(handler_args[handler_args.len - 1]);
+                self.appendInst(.{ .process_send_timeout = .{
+                    .dest = dest,
+                    .target = target_reg,
+                    .handler_index = hi,
+                    .args = arg_regs.toOwnedSlice(self.alloc) catch &.{},
+                    .timeout_ms = timeout_reg,
+                } });
+            } else {
+                // No args, no timeout — just send with 0 timeout
+                const timeout_reg = func.newReg();
+                self.appendInst(.{ .const_int = .{ .dest = timeout_reg, .value = 0 } });
+                self.appendInst(.{ .process_send_timeout = .{
+                    .dest = dest,
+                    .target = target_reg,
+                    .handler_index = hi,
+                    .args = &.{},
+                    .timeout_ms = timeout_reg,
+                } });
+            }
+        } else {
+            // send or tell — lower all handler args
+            for (handler_args) |arg| {
+                arg_regs.append(self.alloc, self.lowerExpr(arg)) catch {};
+            }
+            const args = arg_regs.toOwnedSlice(self.alloc) catch &.{};
+
+            if (std.mem.eql(u8, call_name, "tell")) {
+                self.appendInst(.{ .process_tell = .{
+                    .dest = dest,
+                    .target = target_reg,
+                    .handler_index = hi,
+                    .args = args,
+                } });
+            } else {
+                self.appendInst(.{ .process_send = .{
+                    .dest = dest,
+                    .target = target_reg,
+                    .handler_index = hi,
+                    .args = args,
+                } });
+            }
+        }
+        return dest;
+    }
+
     fn lowerExpr(self: *Lower, expr: ast.Expr) ir.Reg {
         const func = self.current_fn orelse return 0;
 
@@ -1077,36 +1140,29 @@ pub const Lower = struct {
                 return dest;
             },
             .call => |c| {
+                const dest = func.newReg();
+
+                // Process.send / Process.send_timeout / Process.tell — handle before generic arg lowering
+                if (c.target.* == .field_access) {
+                    const fa = c.target.field_access;
+                    if (fa.target.* == .identifier and std.mem.eql(u8, fa.target.identifier, "Process")) {
+                        if (std.mem.eql(u8, fa.field, "send") or std.mem.eql(u8, fa.field, "send_timeout") or std.mem.eql(u8, fa.field, "tell")) {
+                            return self.lowerProcessCall(fa.field, c.args, dest);
+                        }
+                    }
+                }
+
                 var arg_regs = std.ArrayListUnmanaged(ir.Reg){};
                 for (c.args) |arg| {
                     arg_regs.append(self.alloc, self.lowerExpr(arg)) catch {};
                 }
                 const args = arg_regs.toOwnedSlice(self.alloc) catch &.{};
-                const dest = func.newReg();
 
                 if (c.target.* == .field_access) {
                     const fa = c.target.field_access;
                     if (fa.target.* == .identifier) {
                         const mod_name = fa.target.identifier;
                         const fn_name = fa.field;
-
-                        // Process send
-                        if (self.process_vars.get(mod_name)) |proc_type| {
-                            if (self.process_decls.get(proc_type)) |pdecl| {
-                                for (pdecl.receive_handlers, 0..) |h, hi| {
-                                    if (std.mem.eql(u8, h.name, fn_name)) {
-                                        const target_reg = self.lowerExpr(fa.target.*);
-                                        self.appendInst(.{ .process_send = .{
-                                            .dest = dest,
-                                            .target = target_reg,
-                                            .handler_index = @intCast(hi),
-                                            .args = args,
-                                        } });
-                                        return dest;
-                                    }
-                                }
-                            }
-                        }
 
                         // User-defined modules take priority
                         var is_user_module = false;
@@ -1414,32 +1470,9 @@ pub const Lower = struct {
                 self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = "make_tagged", .args = args } });
                 return dest;
             },
-            .tell_expr => |t| {
-                // tell as expression — same as tell_stmt but returns the dest reg
-                const target_reg = self.lowerExpr(t.target);
-                var arg_regs = std.ArrayListUnmanaged(ir.Reg){};
-                for (t.args) |arg| {
-                    arg_regs.append(self.alloc, self.lowerExpr(arg)) catch {};
-                }
+            .tell_expr => {
+                // Deprecated: use Process.tell() instead
                 const tell_dest = func.newReg();
-                if (t.target == .identifier) {
-                    if (self.process_vars.get(t.target.identifier)) |proc_type| {
-                        if (self.process_decls.get(proc_type)) |pdecl| {
-                            for (pdecl.receive_handlers, 0..) |h, hi| {
-                                if (std.mem.eql(u8, h.name, t.handler)) {
-                                    self.appendInst(.{ .process_tell = .{
-                                        .dest = tell_dest,
-                                        .target = target_reg,
-                                        .handler_index = @intCast(hi),
-                                        .args = arg_regs.toOwnedSlice(self.alloc) catch &.{},
-                                    } });
-                                    return tell_dest;
-                                }
-                            }
-                        }
-                    }
-                }
-                // Fallback: return 0
                 self.appendInst(.{ .const_int = .{ .dest = tell_dest, .value = 0 } });
                 return tell_dest;
             },

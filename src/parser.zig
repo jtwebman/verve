@@ -159,13 +159,13 @@ pub const Parser = struct {
     // ── Identifiers & Literals ────────────────────────────────
 
     const reserved_words = [_][]const u8{
-        "fn",     "module",    "process", "struct",
-        "type",   "receive",   "guard",   "match",
-        "while",  "return",    "send",    "tell",
-        "spawn",  "watch",     "connect", "append",
-        "use",    "invariant", "enum",    "union",
-        "import", "export",    "break",   "continue",
-        "if",     "else",      "assert",  "test",
+        "fn",      "module",   "process", "struct",
+        "type",    "receive",  "guard",   "match",
+        "while",   "return",   "spawn",   "watch",
+        "connect", "append",   "use",     "invariant",
+        "enum",    "union",    "import",  "export",
+        "break",   "continue", "if",      "else",
+        "assert",  "test",
     };
 
     fn isReserved(word: []const u8) bool {
@@ -696,29 +696,6 @@ pub const Parser = struct {
                     },
                 } };
             }
-            if (self.matchKeyword("tell")) {
-                // tell process.Handler(args) as expression — returns Result<void>
-                const tell_start = self.pos;
-                const target_expr = try self.parseExpr();
-                if (target_expr == .call) {
-                    if (target_expr.call.target.* == .field_access) {
-                        const tell_ptr = try self.alloc.create(ast.TellStmt);
-                        tell_ptr.* = .{
-                            .target = target_expr.call.target.field_access.target.*,
-                            .handler = target_expr.call.target.field_access.field,
-                            .args = target_expr.call.args,
-                            .span = .{ .start = tell_start, .end = self.pos },
-                        };
-                        return .{ .tell_expr = tell_ptr };
-                    }
-                }
-                return target_expr;
-            }
-            if (self.matchKeyword("send")) {
-                // send process.Handler(args, timeout) — parse the expression after send
-                const expr = try self.parsePrimary();
-                return expr; // the call already parsed, send is just a marker
-            }
 
             const ident = try self.parseIdentifier();
             var expr: ast.Expr = .{ .identifier = ident };
@@ -848,10 +825,6 @@ pub const Parser = struct {
 
         if (self.peekKeyword("match")) {
             return try self.parseMatchStmt();
-        }
-
-        if (self.matchKeyword("tell")) {
-            return try self.parseTellStmt();
         }
 
         if (self.matchKeyword("receive")) {

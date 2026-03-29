@@ -50,10 +50,10 @@ process Acceptor<AcceptState> {
 		state.listener = listener_fd;
 		i: int = 0;
 		while i < 1000000 {
-			match Tcp.accept(listener_fd) {
+			match Process.send(Tcp.accept, listener_fd) {
 				:ok{client_fd} => {
 					handler: int = spawn ConnectionHandler();
-					tell handler.Handle(client_fd, i);
+					Process.tell(handler.Handle, client_fd, i);
 				}
 				:error{e} => {
 					i = i;
@@ -70,11 +70,11 @@ process Acceptor<AcceptState> {
 /// Entry point — start listener, spawn acceptor, run scheduler.
 module Main {
 	fn main() -> int {
-		match Tcp.listen("127.0.0.1", 8080) {
+		match Process.send(Tcp.listen, "127.0.0.1", 8080) {
 			:ok{listener} => {
 				Stdio.println("HTTP server on http://127.0.0.1:8080 (keep-alive, cooperative scheduler)");
 				acceptor: int = spawn Acceptor();
-				tell acceptor.Start(listener);
+				Process.tell(acceptor.Start, listener);
 				Process.run();
 			}
 			:error{e} => Stdio.println("Listen failed");

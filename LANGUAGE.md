@@ -137,11 +137,22 @@ export process Counter<CounterState> {
 ### Process communication
 ```
 counter: int = spawn Counter();
-match counter.Increment(5) {
+
+// Synchronous send — blocks until handler returns
+match Process.send(counter.Increment, 5) {
     :ok{val} => Stdio.println("Count: ", val);
     :error{reason} => Stdio.println("Error: ", reason);
 }
-tell counter.Increment(1);   // fire-and-forget
+
+// Send with timeout (milliseconds) — returns :error{"timeout"} if exceeded
+match Process.send_timeout(counter.Increment, 5, 3000) {
+    :ok{val} => Stdio.println("Count: ", val);
+    :error{reason} => Stdio.println("Error: ", reason);
+}
+
+// Fire-and-forget — returns Result<void> for mailbox overflow detection
+Process.tell(counter.Increment, 1);
+
 watch counter;               // get ProcessDied notification
 ```
 

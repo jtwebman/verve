@@ -24,23 +24,23 @@ module Main {
 		Stdio.println("=== Verve Process Test ===");
 		counter: int = spawn Counter();
 		Stdio.println("Spawned counter process");
-		match counter.Increment() {
+		match Process.send(counter.Increment) {
 			:ok{val} => Stdio.println("After increment: ", val);
 			:error{reason} => Stdio.println("Error: ", reason);
 		}
-		match counter.Increment() {
+		match Process.send(counter.Increment) {
 			:ok{val} => Stdio.println("After increment: ", val);
 			:error{reason} => Stdio.println("Error: ", reason);
 		}
-		match counter.Increment() {
+		match Process.send(counter.Increment) {
 			:ok{val} => Stdio.println("After increment: ", val);
 			:error{reason} => Stdio.println("Error: ", reason);
 		}
-		match counter.Add(10) {
+		match Process.send(counter.Add, 10) {
 			:ok{val} => Stdio.println("After add 10: ", val);
 			:error{reason} => Stdio.println("Error: ", reason);
 		}
-		match counter.GetCount() {
+		match Process.send(counter.GetCount) {
 			:ok{val} => Stdio.println("Final count: ", val);
 			:error{reason} => Stdio.println("Error: ", reason);
 		}

@@ -1237,6 +1237,12 @@ pub const Checker = struct {
         if (std.mem.eql(u8, mod, "Http")) return self.inferHttpFn(func);
         if (std.mem.eql(u8, mod, "Convert")) return inferConvertFn(func);
         if (std.mem.eql(u8, mod, "Math")) return .{ .simple = "int" };
+        if (std.mem.eql(u8, mod, "Process")) {
+            if (std.mem.eql(u8, func, "send") or std.mem.eql(u8, func, "send_timeout"))
+                return self.makeResultType("int"); // Result<T> — simplified to Result<int> for now
+            if (std.mem.eql(u8, func, "tell"))
+                return self.makeResultType("void");
+        }
         return null;
     }
 

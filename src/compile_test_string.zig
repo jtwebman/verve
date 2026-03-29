@@ -70,7 +70,7 @@ test "compile: many tagged results dont crash (arena allocation)" {
         \\        c: int = spawn Counter();
         \\        i: int = 0;
         \\        while i < 1000 {
-        \\            match c.Inc() {
+        \\            match Process.send(c.Inc) {
         \\                :ok{v} => {
         \\                    i = i + 1;
         \\                }
@@ -79,7 +79,7 @@ test "compile: many tagged results dont crash (arena allocation)" {
         \\                }
         \\            }
         \\        }
-        \\        match c.Inc() {
+        \\        match Process.send(c.Inc) {
         \\            :ok{v} => Stdio.println(v);
         \\            :error{e} => Stdio.println("err");
         \\        }

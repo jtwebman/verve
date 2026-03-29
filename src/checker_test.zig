@@ -458,7 +458,7 @@ test "valid: Result match with ok and error is exhaustive" {
         \\module Main {
         \\    fn main() -> int {
         \\        c: int = spawn Counter();
-        \\        match c.Get() {
+        \\        match Process.send(c.Get) {
         \\            :ok{val} => return val;
         \\            :error{reason} => return 1;
         \\        }
@@ -666,42 +666,6 @@ test "valid: division by non-zero" {
         \\    }
         \\}
     );
-}
-
-// ── send/tell checks ──────────────────────────────────────
-
-test "error: send on module (calling module function with process syntax)" {
-    // Module functions should be called directly, not via send/tell pattern
-    // This is caught when tell is used with a module name
-    try expectError(
-        \\module Logger {
-        \\    fn log(msg: string) -> void {
-        \\        return;
-        \\    }
-        \\}
-        \\module Main {
-        \\    fn main() -> int {
-        \\        tell Logger.log("hello");
-        \\        return 0;
-        \\    }
-        \\}
-    , "cannot use 'tell' with module");
-}
-
-test "error: tell on module" {
-    try expectError(
-        \\module Logger {
-        \\    fn log(msg: string) -> void {
-        \\        return;
-        \\    }
-        \\}
-        \\module Main {
-        \\    fn main() -> int {
-        \\        tell Logger.log("hello");
-        \\        return 0;
-        \\    }
-        \\}
-    , "cannot use 'tell' with module 'Logger'");
 }
 
 // ── Divergence detection ──────────────────────────────────
@@ -1004,27 +968,6 @@ test "error: fn returning int assigned to string var" {
     , "cannot assign int to string");
 }
 
-// ── Tell arg checking ─────────────────────────────────────
-
-test "error: wrong arg count to tell" {
-    try expectError(
-        \\struct WorkerState { value: int = 0; }
-        \\process Worker<WorkerState> {
-        \\    receive SetValue(state: WorkerState, v: int) -> int {
-        \\        state.value = v;
-        \\        return state.value;
-        \\    }
-        \\}
-        \\module Main {
-        \\    fn main() -> int {
-        \\        w: int = spawn Worker();
-        \\        tell w.SetValue(1, 2);
-        \\        return 0;
-        \\    }
-        \\}
-    , "expects 1 argument(s), got 2");
-}
-
 test "valid: correct tell" {
     try expectNoErrors(
         \\struct WorkerState { value: int = 0; }
@@ -1037,7 +980,7 @@ test "valid: correct tell" {
         \\module Main {
         \\    fn main() -> int {
         \\        w: int = spawn Worker();
-        \\        tell w.SetValue(42);
+        \\        Process.tell(w.SetValue, 42);
         \\        return 0;
         \\    }
         \\}
@@ -1659,7 +1602,7 @@ test "checker: Result type accepted on match" {
         \\module App {
         \\    fn main() -> int {
         \\        c: int = spawn Counter();
-        \\        match c.Increment() {
+        \\        match Process.send(c.Increment) {
         \\            :ok{val} => return val;
         \\            :error{e} => return 0;
         \\        }
@@ -1921,20 +1864,6 @@ test "error location: variable without type declaration" {
         \\    }
         \\}
     , "must be declared with a type");
-}
-
-test "error location: tell on module" {
-    try expectErrorWithLocation(
-        \\module Helper {
-        \\    fn work() -> int { return 0; }
-        \\}
-        \\module App {
-        \\    fn main() -> int {
-        \\        tell Helper.work();
-        \\        return 0;
-        \\    }
-        \\}
-    , "tell is for processes only");
 }
 
 test "error location: exported process missing doc comment" {
@@ -2226,23 +2155,6 @@ test "error location: handler must have state as first parameter" {
     , "must have 'state:");
 }
 
-test "error: argument type mismatch in tell" {
-    try expectError(
-        \\struct CS { v: int = 0; }
-        \\process Counter<CS> {
-        \\    /// inc
-        \\    receive Inc(state: CS, amount: int) -> int { return state.v; }
-        \\}
-        \\module App {
-        \\    fn main() -> int {
-        \\        pid: int = spawn Counter();
-        \\        tell pid.Inc("wrong");
-        \\        return 0;
-        \\    }
-        \\}
-    , "argument type mismatch");
-}
-
 test "error: float literal as guard condition" {
     try expectError(
         \\module App {
@@ -2264,23 +2176,6 @@ test "error: generic type requires type parameters" {
         \\    }
         \\}
     , "requires type parameters");
-}
-
-test "error: tell wrong argument count zero" {
-    try expectError(
-        \\struct CS { v: int = 0; }
-        \\process Counter<CS> {
-        \\    /// inc
-        \\    receive Inc(state: CS, amount: int) -> int { return state.v; }
-        \\}
-        \\module App {
-        \\    fn main() -> int {
-        \\        pid: int = spawn Counter();
-        \\        tell pid.Inc();
-        \\        return 0;
-        \\    }
-        \\}
-    , "expects 1 argument(s), got 0");
 }
 
 test "error: while condition must be boolean string" {

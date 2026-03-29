@@ -59,7 +59,7 @@ The benchmark apps need real concurrency to show Verve's advantage.
 
 ### Process Improvements
 - [x] Mailbox overflow policy — configurable [mailbox: N] per process, error on full, tell returns Result<void>
-- [ ] Send timeout language syntax — `match counter.Inc() timeout 5000 { ... }`
+- [x] Send timeout language syntax — `Process.send_timeout(counter.Inc, 5, 5000)`, explicit Process.send/tell/send_timeout API
 - [ ] Process worker pool — `ProcessPool.create(Handler, size)`, fetch/release
 - [x] `tell` handlers with `-> void` return type (no meaningless return 0)
 - [ ] Per-process memory budgets from `memory` declaration
