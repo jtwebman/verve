@@ -31,8 +31,8 @@ const phase_names = [Phase.count][]const u8{
     "build_resp",
 };
 
-var totals: [Phase.count]u64 = .{0} ** Phase.count;
-var counts: [Phase.count]u64 = .{0} ** Phase.count;
+var totals: [Phase.count]std.atomic.Value(u64) = .{std.atomic.Value(u64).init(0)} ** Phase.count;
+var counts: [Phase.count]std.atomic.Value(u64) = .{std.atomic.Value(u64).init(0)} ** Phase.count;
 var enabled: bool = false;
 
 pub fn init() void {
@@ -51,8 +51,8 @@ pub inline fn begin() ?std.time.Timer {
 pub inline fn end(phase: Phase, timer_opt: ?std.time.Timer) void {
     var t = timer_opt orelse return;
     const elapsed = t.read();
-    totals[@intFromEnum(phase)] += elapsed;
-    counts[@intFromEnum(phase)] += 1;
+    _ = totals[@intFromEnum(phase)].fetchAdd(elapsed, .monotonic);
+    _ = counts[@intFromEnum(phase)].fetchAdd(1, .monotonic);
 }
 
 fn w(s: []const u8) void {
@@ -72,13 +72,15 @@ pub fn dump() void {
     w("───────────── ────────── ────────── ──────────\n");
     var grand_total: u64 = 0;
     for (0..Phase.count) |i| {
-        if (counts[i] == 0) continue;
-        const total_us = totals[i] / 1000;
+        const cnt = counts[i].load(.monotonic);
+        const tot = totals[i].load(.monotonic);
+        if (cnt == 0) continue;
+        const total_us = tot / 1000;
         const total_ms = total_us / 1000;
         const frac_ms = (total_us % 1000) / 10;
-        const avg_us = total_us / counts[i];
-        grand_total += totals[i];
-        wFmt("{s:<14} {d:>7}.{d:0>2}ms {d:>10} {d:>8}us\n", .{ phase_names[i], total_ms, frac_ms, counts[i], avg_us });
+        const avg_us = total_us / cnt;
+        grand_total += tot;
+        wFmt("{s:<14} {d:>7}.{d:0>2}ms {d:>10} {d:>8}us\n", .{ phase_names[i], total_ms, frac_ms, cnt, avg_us });
     }
     const gt_us = grand_total / 1000;
     const gt_ms = gt_us / 1000;

@@ -151,12 +151,12 @@ pub fn system_time_ms() i64 {
 
 // ── Testing ────────────────────────────────────────
 
-pub var assert_fail_count: i64 = 0;
+pub var assert_fail_count: std.atomic.Value(i64) = std.atomic.Value(i64).init(0);
 
 /// Check an assertion. If false, increment fail count and print failure.
 pub fn assert_check(cond: i64) void {
     if (cond == 0) {
-        assert_fail_count += 1;
+        _ = assert_fail_count.fetchAdd(1, .monotonic);
         _ = std.posix.write(std.posix.STDERR_FILENO, "ASSERT FAILED\n") catch 0;
     }
 }

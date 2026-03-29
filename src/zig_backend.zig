@@ -718,9 +718,9 @@ pub const ZigBackend = struct {
         for (program.test_names.items, 0..) |test_name, ti| {
             const module = program.test_modules.items[ti];
             const fn_name = program.test_fn_names.items[ti];
-            self.line("rt.assert_fail_count = 0;");
+            self.line("rt.assert_fail_count.store(0, .monotonic);");
             self.writeFmt("    _ = verve_{s}_{s}();\n", .{ module, fn_name });
-            self.line("if (rt.assert_fail_count == 0) {");
+            self.line("if (rt.assert_fail_count.load(.monotonic) == 0) {");
             self.indent += 1;
             self.writeFmt("rt.io.verve_write(1, \"PASS: {s}\\n\");\n", .{test_name});
             self.line("passed += 1;");

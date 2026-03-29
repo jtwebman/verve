@@ -72,9 +72,12 @@ const ACCEPT_BUF_SIZE = 64;
 var accept_buf: [ACCEPT_BUF_SIZE]std.posix.fd_t = undefined;
 var accept_head: usize = 0;
 var accept_count: usize = 0;
+var accept_mutex: std.Thread.Mutex = .{};
 
 /// Drain all pending connections from the listener into the accept buffer.
 fn fillAcceptBuffer(listener_fd: std.posix.fd_t) void {
+    accept_mutex.lock();
+    defer accept_mutex.unlock();
     while (accept_count < ACCEPT_BUF_SIZE) {
         const client_fd = std.posix.accept(listener_fd, null, null, std.posix.SOCK.CLOEXEC) catch |err| {
             switch (err) {
@@ -90,6 +93,8 @@ fn fillAcceptBuffer(listener_fd: std.posix.fd_t) void {
 
 /// Pop one pre-accepted fd from the buffer. Returns null if empty.
 fn popAcceptBuffer() ?std.posix.fd_t {
+    accept_mutex.lock();
+    defer accept_mutex.unlock();
     if (accept_count == 0) return null;
     const fd = accept_buf[accept_head];
     accept_head = (accept_head + 1) % ACCEPT_BUF_SIZE;
@@ -116,7 +121,7 @@ pub fn tcp_accept(listener_ptr: usize) usize {
     }
 
     // No connections queued — wait for one
-    if (rt.process.scheduler_running and rt.process.current_process_id > 0) {
+    if (rt.process.scheduler_running.load(.acquire) and rt.process.current_process_id > 0) {
         // Scheduler mode: yield to scheduler, resume when listener is readable
         rt.process.verve_io_yield(@intCast(listener.fd));
         // Resumed — accept batch

@@ -13,9 +13,12 @@ pub const Mailbox = struct {
     used: usize = 0, // bytes used in buffer
     count: usize = 0, // number of messages
     reply_slot: ?*usize = null, // for synchronous send
+    mutex: std.Thread.Mutex = .{}, // thread-safe push/pop
 
     /// Push a message (raw bytes) into the mailbox. Returns false if no room.
     pub fn push(self: *Mailbox, msg: [*]const u8, msg_len: usize) bool {
+        self.mutex.lock();
+        defer self.mutex.unlock();
         const total = msg_len + 2; // 2-byte length prefix
         if (self.used + total > rt.MAILBOX_BUF_SIZE) return false;
         const write_pos = (self.head + self.used) % rt.MAILBOX_BUF_SIZE;
@@ -35,6 +38,8 @@ pub const Mailbox = struct {
     /// Pop a message from the mailbox. Returns slice pointing into a provided buffer.
     /// Caller provides a scratch buffer to copy the message into (for wrap-around safety).
     pub fn pop(self: *Mailbox, out_buf: []u8) ?[]const u8 {
+        self.mutex.lock();
+        defer self.mutex.unlock();
         if (self.count == 0) return null;
         // Read length prefix
         const lo: u16 = self.buf[self.head % rt.MAILBOX_BUF_SIZE];
@@ -72,15 +77,17 @@ pub const VerveProcess = struct {
 pub const DispatchFn = *const fn ([*]const u8, usize) usize;
 
 /// Dynamic process table — heap-allocated, grows by doubling.
+/// Protected by table_lock: write lock for spawn/kill/resize, read lock for access.
 pub var process_table: []VerveProcess = &.{};
 pub var process_count: usize = 0;
-pub var current_process_id: usize = 0;
+pub threadlocal var current_process_id: usize = 0;
 pub var dispatch_table: []DispatchFn = &.{};
+pub var table_lock: std.Thread.RwLock = .{};
 
 // ── Scheduler state ───────────────────────────────
 
 var scheduler_context: fiber.Context = .{};
-pub var scheduler_running: bool = false;
+pub var scheduler_running: std.atomic.Value(bool) = std.atomic.Value(bool).init(false);
 
 pub fn ensureProcessCapacity(min_count: usize) void {
     if (min_count <= process_table.len) return;
@@ -123,6 +130,9 @@ pub fn pidx(pid: usize) usize {
 pub fn verve_spawn(process_type: usize) usize {
     const t = rt.profile.begin();
     defer rt.profile.end(.spawn, t);
+
+    table_lock.lock();
+    defer table_lock.unlock();
 
     ensureProcessCapacity(1); // ensure table exists
     // Find a slot: prefer recycling dead processes, then use new slot
@@ -176,6 +186,8 @@ pub fn verve_watch(target_pid: usize) void {
 }
 
 pub fn verve_kill(target_pid: usize) void {
+    table_lock.lock();
+    defer table_lock.unlock();
     const idx = pidx(target_pid);
     const proc = &process_table[idx];
     proc.alive = false;
@@ -208,20 +220,41 @@ pub fn verve_exit_self() void {
 // ── Message passing ────────────────────────────────
 
 /// Drain ONE message from the mailbox. Returns true if a message was dispatched.
+/// Caller must NOT hold table_lock — dispatch calls user code that may spawn.
 fn drain_one(target_pid: usize) bool {
+    // Read table under shared lock to get dispatch fn and pop message
+    table_lock.lockShared();
     const idx = pidx(target_pid);
     const proc = &process_table[idx];
     var pop_buf: [8192]u8 = undefined;
-    const msg = proc.mailbox.pop(&pop_buf) orelse return false;
-    if (!proc.alive) return false;
-    if (msg.len >= 1 and msg[0] == 0xFF) return true; // death notification — consumed but skip
+    const msg = proc.mailbox.pop(&pop_buf) orelse {
+        table_lock.unlockShared();
+        return false;
+    };
+    if (!proc.alive) {
+        table_lock.unlockShared();
+        return false;
+    }
+    if (msg.len >= 1 and msg[0] == 0xFF) {
+        table_lock.unlockShared();
+        return true; // death notification — consumed but skip
+    }
+    const dispatch_fn = dispatch_table[proc.process_type];
+    const reply_slot = proc.mailbox.reply_slot;
+    table_lock.unlockShared();
+
+    // Dispatch outside lock — user code may call spawn (needs write lock)
     const saved = current_process_id;
     current_process_id = target_pid;
-    const result = dispatch_table[proc.process_type](msg.ptr, msg.len);
+    const result = dispatch_fn(msg.ptr, msg.len);
     current_process_id = saved;
-    if (proc.mailbox.reply_slot) |slot| {
+
+    // Write reply under shared lock
+    if (reply_slot) |slot| {
+        table_lock.lockShared();
+        process_table[idx].mailbox.reply_slot = null;
+        table_lock.unlockShared();
         slot.* = result;
-        proc.mailbox.reply_slot = null;
     }
     return true;
 }
@@ -266,7 +299,7 @@ pub fn verve_tell(target_pid: usize, msg_ptr: [*]const u8, msg_len: usize) usize
     if (!proc.alive) return rt.makeTaggedStr(1, "process_dead");
     if (proc.mailbox.count >= proc.max_messages) return rt.makeTaggedStr(1, "mailbox_full");
     if (!proc.mailbox.push(msg_ptr, msg_len)) return rt.makeTaggedStr(1, "mailbox_full");
-    if (!scheduler_running) {
+    if (!scheduler_running.load(.acquire)) {
         verve_drain(target_pid);
     }
     // When scheduler_running, message stays in mailbox — scheduler will drain it
@@ -308,7 +341,7 @@ fn any_other_runnable() bool {
 /// Yield the current process. Pauses execution and returns to the scheduler.
 /// If no other process needs CPU, this is a no-op (avoids wasted context switch).
 pub fn verve_yield() i64 {
-    if (!scheduler_running) return 0;
+    if (!scheduler_running.load(.acquire)) return 0;
     if (!any_other_runnable()) return 0; // no-op: we're the only one with work
 
     const idx = pidx(current_process_id);
@@ -321,7 +354,7 @@ pub fn verve_yield() i64 {
 /// Yield until a file descriptor is readable. Registers fd with epoll,
 /// suspends the process, and resumes when data arrives.
 pub fn verve_io_yield(fd: i64) void {
-    if (!scheduler_running) return;
+    if (!scheduler_running.load(.acquire)) return;
     const idx = pidx(current_process_id);
     process_table[idx].io_wait_fd = @intCast(fd);
     process_table[idx].yielded = false; // not CPU-runnable, waiting for I/O
@@ -394,8 +427,8 @@ fn ensure_fiber(proc: *VerveProcess) void {
 /// Run the cooperative scheduler until no processes are alive or runnable.
 /// Called from main after spawning initial processes.
 pub fn verve_scheduler_run() i64 {
-    scheduler_running = true;
-    defer scheduler_running = false;
+    scheduler_running.store(true, .release);
+    defer scheduler_running.store(false, .release);
 
     while (true) {
         var any_ran = false;
