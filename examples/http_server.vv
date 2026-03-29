@@ -9,7 +9,7 @@ struct HandlerState {
 /// Handles HTTP requests on a single connection with keep-alive.
 process ConnectionHandler<HandlerState> {
 	/// Read requests in a loop, yielding between each to let other processes run.
-	receive Handle(state: HandlerState, client_fd: int, request_num: int) -> int {
+	receive Handle(state: HandlerState, client_fd: stream, request_num: int) -> int {
 		while true {
 			data: string = Http.read_request(client_fd);
 			if String.len(data) == 0 {
@@ -40,17 +40,17 @@ process ConnectionHandler<HandlerState> {
 }
 
 struct AcceptState {
-	listener: int = 0;
+	listener: stream = 0;
 }
 
 /// Accept loop as a process — yields to scheduler between accepts.
 process Acceptor<AcceptState> {
 	/// Accept connections and spawn handlers.
-	receive Start(state: AcceptState, listener_fd: int) -> int {
+	receive Start(state: AcceptState, listener_fd: stream) -> int {
 		state.listener = listener_fd;
 		i: int = 0;
 		while i < 1000000 {
-			match Process.send(Tcp.accept, listener_fd) {
+			match Tcp.accept(listener_fd) {
 				:ok{client_fd} => {
 					handler: int = spawn ConnectionHandler();
 					Process.tell(handler.Handle, client_fd, i);
@@ -70,7 +70,7 @@ process Acceptor<AcceptState> {
 /// Entry point — start listener, spawn acceptor, run scheduler.
 module Main {
 	fn main() -> int {
-		match Process.send(Tcp.listen, "127.0.0.1", 8080) {
+		match Tcp.listen("127.0.0.1", 8080) {
 			:ok{listener} => {
 				Stdio.println("HTTP server on http://127.0.0.1:8080 (keep-alive, cooperative scheduler)");
 				acceptor: int = spawn Acceptor();

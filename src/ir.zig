@@ -9,6 +9,7 @@ pub const Type = enum {
     f64,
     bool,
     string,
+    ptr, // opaque pointer — streams, struct refs, tagged values (platform-sized)
     void,
 };
 

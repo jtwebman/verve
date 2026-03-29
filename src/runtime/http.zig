@@ -197,7 +197,7 @@ pub fn http_read_request(stream_ptr: usize) []const u8 {
 
     // If no buffered data, wait for data via scheduler or poll
     if (!has_buffered) {
-        if (rt.process.scheduler_running and rt.process.current_process_id > 0) {
+        if (rt.process.scheduler_running.load(.acquire) and rt.process.current_process_id > 0) {
             // Scheduler mode: yield until data arrives on this socket
             rt.process.verve_io_yield(@intCast(s.fd));
             // Resumed — data should be ready now
@@ -331,7 +331,7 @@ pub fn http_build_response(status: i64, ct: []const u8, body: []const u8) []cons
     b.append(len_str);
     b.append("\r\n");
 
-    if (rt.process.scheduler_running) {
+    if (rt.process.scheduler_running.load(.acquire)) {
         b.append("Connection: keep-alive\r\n");
     } else {
         b.append("Connection: close\r\n");

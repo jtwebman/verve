@@ -86,18 +86,15 @@ pub const ZigBackend = struct {
             .f64 => .float,
             .bool => .boolean,
             .string => .string,
+            .ptr => .pointer,
             .void => .int,
         };
     }
 
-    /// Map IR param type to RegType — treats void (struct/union) params as pointers.
-    /// Needs function context to distinguish enum (int) from struct (pointer).
+    /// Map IR param type to RegType — treats void (struct/union) and stream params as pointers.
     fn regTypeFromIrParam(t: ir.Type) RegType {
+        if (t == .ptr) return .pointer;
         if (t != .void) return regTypeFromIr(t);
-        // void IR type = struct, union, or enum. Without the source type name
-        // we can't distinguish here. Return .pointer as default since structs
-        // and unions are pointer-backed. Enums are handled separately where
-        // the source type name is available.
         return .pointer;
     }
 
@@ -264,6 +261,7 @@ pub const ZigBackend = struct {
                         if (std.mem.eql(u8, f.type_name, "string")) return .string;
                         if (std.mem.eql(u8, f.type_name, "float")) return .float;
                         if (std.mem.eql(u8, f.type_name, "bool")) return .boolean;
+                        if (std.mem.eql(u8, f.type_name, "stream")) return .pointer;
                         return .int;
                     }
                 }
@@ -460,6 +458,8 @@ pub const ZigBackend = struct {
                     self.writeFmt("{s}: bool = false,\n", .{f.name});
                 } else if (std.mem.eql(u8, f.type_name, "string")) {
                     self.writeFmt("{s}: []const u8 = \"\",\n", .{f.name});
+                } else if (std.mem.eql(u8, f.type_name, "stream")) {
+                    self.writeFmt("{s}: usize = 0,\n", .{f.name});
                 } else if (self.isEnumType(f.type_name)) {
                     self.writeFmt("{s}: VerveEnum_{s} = @enumFromInt(0),\n", .{ f.name, f.type_name });
                 } else {
@@ -630,7 +630,7 @@ pub const ZigBackend = struct {
             self.indent += 1;
             for (sd.fields) |f| {
                 self.writeIndent();
-                if (std.mem.eql(u8, f.type_name, "int")) self.writeFmt("{s}: i64 = 0,\n", .{f.name}) else if (std.mem.eql(u8, f.type_name, "float")) self.writeFmt("{s}: f64 = 0.0,\n", .{f.name}) else if (std.mem.eql(u8, f.type_name, "bool")) self.writeFmt("{s}: bool = false,\n", .{f.name}) else if (std.mem.eql(u8, f.type_name, "string")) self.writeFmt("{s}: []const u8 = \"\",\n", .{f.name}) else if (self.isEnumType(f.type_name)) self.writeFmt("{s}: VerveEnum_{s} = @enumFromInt(0),\n", .{ f.name, f.type_name }) else self.writeFmt("{s}: i64 = 0,\n", .{f.name});
+                if (std.mem.eql(u8, f.type_name, "int")) self.writeFmt("{s}: i64 = 0,\n", .{f.name}) else if (std.mem.eql(u8, f.type_name, "float")) self.writeFmt("{s}: f64 = 0.0,\n", .{f.name}) else if (std.mem.eql(u8, f.type_name, "bool")) self.writeFmt("{s}: bool = false,\n", .{f.name}) else if (std.mem.eql(u8, f.type_name, "string")) self.writeFmt("{s}: []const u8 = \"\",\n", .{f.name}) else if (std.mem.eql(u8, f.type_name, "stream")) self.writeFmt("{s}: usize = 0,\n", .{f.name}) else if (self.isEnumType(f.type_name)) self.writeFmt("{s}: VerveEnum_{s} = @enumFromInt(0),\n", .{ f.name, f.type_name }) else self.writeFmt("{s}: i64 = 0,\n", .{f.name});
             }
             self.indent -= 1;
             self.line("};");
@@ -776,8 +776,8 @@ pub const ZigBackend = struct {
                     self.writeFmt("param_{s}: f64", .{param.name});
                 } else if (param.type_ == .bool) {
                     self.writeFmt("param_{s}: bool", .{param.name});
-                } else if (param.type_ == .void) {
-                    // void IR type = struct/union/opaque pointer param
+                } else if (param.type_ == .void or param.type_ == .ptr) {
+                    // void/ptr IR type = struct/union/opaque pointer or stream handle
                     self.writeFmt("param_{s}: usize", .{param.name});
                 } else {
                     self.writeFmt("param_{s}: i64", .{param.name});
@@ -1521,6 +1521,10 @@ pub const ZigBackend = struct {
             // Read 1 byte
             self.lineFmt("const _p_{s}: bool = (_msg_ptr[_pos] != 0);", .{param.name});
             self.line("_pos += 1;");
+        } else if (param.type_ == .void or param.type_ == .ptr) {
+            // Read 8 bytes as usize (opaque pointer — stream handle, struct ref, etc.)
+            self.lineFmt("const _p_{s}: usize = @intCast(@as(u64, @bitCast([8]u8{{ _msg_ptr[_pos], _msg_ptr[_pos+1], _msg_ptr[_pos+2], _msg_ptr[_pos+3], _msg_ptr[_pos+4], _msg_ptr[_pos+5], _msg_ptr[_pos+6], _msg_ptr[_pos+7] }})));", .{param.name});
+            self.line("_pos += 8;");
         } else {
             // Read 8 bytes as i64 (little-endian)
             self.lineFmt("const _p_{s}: i64 = @bitCast([8]u8{{ _msg_ptr[_pos], _msg_ptr[_pos+1], _msg_ptr[_pos+2], _msg_ptr[_pos+3], _msg_ptr[_pos+4], _msg_ptr[_pos+5], _msg_ptr[_pos+6], _msg_ptr[_pos+7] }});", .{param.name});

@@ -1528,8 +1528,11 @@ pub const Lower = struct {
                 if (std.mem.eql(u8, name, "float")) return .f64;
                 if (std.mem.eql(u8, name, "bool")) return .bool;
                 if (std.mem.eql(u8, name, "string")) return .string;
+                if (std.mem.eql(u8, name, "stream")) return .ptr;
                 // Enums are integer-backed
                 if (self.enum_decls.contains(name)) return .i64;
+                // Structs/unions are pointer-backed
+                if (self.struct_decls.get(name) != null) return .ptr;
                 return .void;
             },
             else => return .void,
