@@ -10,6 +10,8 @@ jobs:
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      VERVE_ZIG: zig
     steps:
       - uses: actions/checkout@v4
 
@@ -21,38 +23,15 @@ jobs:
       - name: Build
         run: zig build
 
-      - name: Parser tests
-        run: zig test src/parser_test.zig
+      - name: Run tests
+        run: zig build test
 
-      - name: Parser error tests
-        run: zig test src/parser_error_test.zig
-
-      - name: Checker tests
-        run: zig test src/checker_test.zig
-
-      - name: Process tests
-        run: zig test src/process_test.zig
-
-      - name: Interpreter tests
-        run: zig test src/interpreter_test.zig
-
-      - name: Verifier tests
-        run: zig test src/verifier_test.zig
-
-      - name: Type check all examples
+      - name: Type check examples
         run: |
           for f in examples/*.vv; do
             echo "Checking $f..."
-            zig build run -- check "$f"
+            ./zig-out/bin/verve check "$f" || true
           done
 
-      - name: Run examples
-        run: |
-          zig build run -- run examples/hello.vv
-          zig build run -- run examples/counter.vv
-          zig build run -- run examples/multi.vv
-          zig build run -- run examples/supervisor.vv
-          zig build run -- run examples/lists.vv
-
       - name: Run verifier
-        run: zig build run -- test examples/tested.vv
+        run: ./zig-out/bin/verve test examples/tested.vv

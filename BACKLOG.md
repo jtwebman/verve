@@ -55,7 +55,7 @@ The benchmark apps need real concurrency to show Verve's advantage.
 - [ ] Proper locking on mailbox push (multi-producer)
 
 ### Generics
-- [ ] Multi-type-parameter generics — `struct Pair<K, V>`, `struct Either<A, B>` (needed for real data structures)
+- [x] Multi-type-parameter generics — `struct Pair<K, V>`, `struct Either<A, B>` (already works: parser, checker, lowerer all handle N params)
 
 ### Process Improvements
 - [ ] Mailbox overflow policy — define behavior when 64KB ring buffer fills (block sender / return error / drop oldest), add backpressure signaling

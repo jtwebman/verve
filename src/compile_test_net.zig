@@ -5,7 +5,9 @@ const ZigBackend = @import("zig_backend.zig").ZigBackend;
 const testing = std.testing;
 const alloc = std.heap.page_allocator;
 
-const zig_path = "/home/jt/.local/zig/zig";
+fn getZigPath() []const u8 {
+    return std.posix.getenv("VERVE_ZIG") orelse "/home/jt/.local/zig/zig";
+}
 
 /// Compile Verve source to native binary, run it, return exit code.
 fn compileAndRun(source: []const u8) !u8 {
@@ -16,7 +18,7 @@ fn compileAndRun(source: []const u8) !u8 {
     var backend = ZigBackend.init(alloc);
     backend.emit(program);
     const path = "/tmp/verve_ct_net";
-    try backend.build(path, zig_path);
+    try backend.build(path, getZigPath());
     defer std.fs.cwd().deleteFile(path) catch {};
     var child = std.process.Child.init(&.{path}, alloc);
     const term = try child.spawnAndWait();
@@ -35,7 +37,7 @@ fn compileAndCapture(source: []const u8) !struct { exit: u8, stdout: []const u8 
     var backend = ZigBackend.init(alloc);
     backend.emit(program);
     const path = "/tmp/verve_ct_net_cap";
-    try backend.build(path, zig_path);
+    try backend.build(path, getZigPath());
     defer std.fs.cwd().deleteFile(path) catch {};
     var child = std.process.Child.init(&.{path}, alloc);
     child.stdout_behavior = .Pipe;
