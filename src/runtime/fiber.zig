@@ -5,7 +5,7 @@ const std = @import("std");
 // callee-saved registers and swaps the stack pointer.
 // x86-64 Linux only (cross-platform is Priority 5).
 
-pub const FIBER_STACK_SIZE = 64 * 1024; // 64KB per process stack
+pub const FIBER_STACK_SIZE = 16 * 1024; // 16KB per process stack (was 64KB)
 
 /// Saved execution context — just the stack pointer.
 /// Callee-saved registers (rbx, rbp, r12-r15) are pushed onto the fiber's stack

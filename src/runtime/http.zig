@@ -213,40 +213,49 @@ pub fn http_read_request(stream_ptr: usize) []const u8 {
         }
     }
 
-    // Data is available — allocate and read the request
-    const max_request = max_header_size + max_body_size;
-    const buf_mem = rt.arena_alloc(max_request) orelse return "";
-    const buf = buf_mem[0..max_request];
+    // Data is available — allocate a small initial buffer for headers
+    const initial_size: usize = 8192; // 8KB for headers — grow if body needed
+    var buf_ptr: [*]u8 = rt.arena_alloc(initial_size) orelse return "";
+    var buf_cap: usize = initial_size;
     var total: usize = 0;
 
     // Drain buffered data first
-    while (s.read_pos < s.read_len and total < max_request) {
-        buf[total] = s.read_buf[s.read_pos];
+    while (s.read_pos < s.read_len and total < buf_cap) {
+        buf_ptr[total] = s.read_buf[s.read_pos];
         s.read_pos += 1;
         total += 1;
     }
 
     // Read until we find end of headers (\r\n\r\n)
-    var header_end: ?usize = findHeaderEnd(buf[0..total]);
+    var header_end: ?usize = findHeaderEnd(buf_ptr[0..total]);
     while (header_end == null and total < max_header_size) {
-        const n = std.posix.read(s.fd, buf[total..@min(total + 4096, max_request)]) catch return "";
+        const n = std.posix.read(s.fd, buf_ptr[total..@min(total + 4096, buf_cap)]) catch return "";
         if (n == 0) {
-            if (total > 0) return buf[0..total];
+            if (total > 0) return buf_ptr[0..total];
             return "";
         }
         total += n;
-        header_end = findHeaderEnd(buf[0..total]);
+        header_end = findHeaderEnd(buf_ptr[0..total]);
     }
 
-    const hdr_end = header_end orelse return buf[0..total];
+    const hdr_end = header_end orelse return buf_ptr[0..total];
 
-    // Read body per Content-Length
-    const content_len = parseContentLength(buf[0..hdr_end]);
+    // Read body per Content-Length — grow buffer if needed
+    const content_len = parseContentLength(buf_ptr[0..hdr_end]);
     const needed = hdr_end + content_len;
-    if (needed > max_request) return buf[0..total];
+    const max_request = max_header_size + max_body_size;
+    if (needed > max_request) return buf_ptr[0..total];
+
+    // Grow buffer if body requires more space
+    if (needed > buf_cap) {
+        const new_buf = rt.arena_alloc(needed) orelse return buf_ptr[0..total];
+        @memcpy(new_buf[0..total], buf_ptr[0..total]);
+        buf_ptr = new_buf;
+        buf_cap = needed;
+    }
 
     while (total < needed) {
-        const n = std.posix.read(s.fd, buf[total..@min(needed, max_request)]) catch break;
+        const n = std.posix.read(s.fd, buf_ptr[total..@min(needed, buf_cap)]) catch break;
         if (n == 0) break;
         total += n;
     }
@@ -255,13 +264,13 @@ pub fn http_read_request(stream_ptr: usize) []const u8 {
     if (total > needed) {
         const leftover = total - needed;
         const copy_len = @min(leftover, s.read_buf.len);
-        @memcpy(s.read_buf[0..copy_len], buf[needed .. needed + copy_len]);
+        @memcpy(s.read_buf[0..copy_len], buf_ptr[needed .. needed + copy_len]);
         s.read_pos = 0;
         s.read_len = copy_len;
-        return buf[0..needed];
+        return buf_ptr[0..needed];
     }
 
-    return buf[0..total];
+    return buf_ptr[0..total];
 }
 
 fn findHeaderEnd(data: []const u8) ?usize {
@@ -331,11 +340,8 @@ pub fn http_build_response(status: i64, ct: []const u8, body: []const u8) []cons
     b.append(len_str);
     b.append("\r\n");
 
-    if (rt.process.scheduler_running.load(.acquire)) {
-        b.append("Connection: keep-alive\r\n");
-    } else {
-        b.append("Connection: close\r\n");
-    }
+    // HTTP/1.1 defaults to keep-alive
+    b.append("Connection: keep-alive\r\n");
 
     // Date header (RFC 7231 MUST) — Unix timestamp for simplicity
     var date_buf: [48]u8 = undefined;

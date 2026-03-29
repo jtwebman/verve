@@ -14,7 +14,7 @@ pub const fiber = @import("fiber.zig");
 pub const profile = @import("profile.zig");
 
 // ── Constants ──────────────────────────────────────
-pub const MAILBOX_BUF_SIZE = 64 * 1024; // 64KB byte ring buffer per process
+pub const MAILBOX_BUF_SIZE = 4 * 1024; // 4KB byte ring buffer per process (was 64KB — too large for short-lived processes)
 pub const MAX_PROCESSES = 256; // initial capacity, grows dynamically
 pub const MAX_WATCHERS = 64;
 pub const MAX_INLINE_STRING = 4096; // strings > this use arena reference
