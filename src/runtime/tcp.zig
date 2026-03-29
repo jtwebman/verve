@@ -37,6 +37,8 @@ pub fn tcp_listen(host: []const u8, port: i64) usize {
 
     // SO_REUSEADDR to avoid "address already in use"
     std.posix.setsockopt(fd, std.posix.SOL.SOCKET, std.posix.SO.REUSEADDR, &std.mem.toBytes(@as(c_int, 1))) catch {};
+    // SO_REUSEPORT for multi-threaded accept — kernel load-balances across threads
+    std.posix.setsockopt(fd, std.posix.SOL.SOCKET, std.posix.SO.REUSEPORT, &std.mem.toBytes(@as(c_int, 1))) catch {};
 
     std.posix.bind(fd, &addr.any, addr.getOsSockLen()) catch {
         std.posix.close(fd);
