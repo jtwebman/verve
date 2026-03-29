@@ -707,3 +707,136 @@ test "compile: match tell returns Result" {
     try testing.expectEqual(@as(u8, 0), r.exit);
     try testing.expectEqualStrings("sent\n1\n", r.stdout);
 }
+
+// ── Scheduler tests ─────────────────────────────────────
+
+test "compile: scheduler runs with single thread" {
+    const r = try compileAndCapture(
+        \\struct CS { count: int = 0; }
+        \\process Counter<CS> {
+        \\    receive Inc(state: CS) -> void {
+        \\        state.count = state.count + 1;
+        \\    }
+        \\    receive GetCount(state: CS) -> int {
+        \\        return state.count;
+        \\    }
+        \\}
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        c: int = spawn Counter();
+        \\        Process.tell(c.Inc);
+        \\        Process.tell(c.Inc);
+        \\        Process.tell(c.Inc);
+        \\        match Process.send(c.GetCount) {
+        \\            :ok{val} => Stdio.println(val);
+        \\            :error{e} => Stdio.println("err");
+        \\        }
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("3\n", r.stdout);
+}
+
+test "compile: multiple processes communicate" {
+    const r = try compileAndCapture(
+        \\struct AS { total: int = 0; }
+        \\process Adder<AS> {
+        \\    receive Add(state: AS, n: int) -> void {
+        \\        state.total = state.total + n;
+        \\    }
+        \\    receive GetTotal(state: AS) -> int {
+        \\        return state.total;
+        \\    }
+        \\}
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        a1: int = spawn Adder();
+        \\        a2: int = spawn Adder();
+        \\        Process.tell(a1.Add, 10);
+        \\        Process.tell(a2.Add, 20);
+        \\        Process.tell(a1.Add, 5);
+        \\        match Process.send(a1.GetTotal) {
+        \\            :ok{val} => Stdio.println(val);
+        \\            :error{e} => Stdio.println("err");
+        \\        }
+        \\        match Process.send(a2.GetTotal) {
+        \\            :ok{val} => Stdio.println(val);
+        \\            :error{e} => Stdio.println("err");
+        \\        }
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("15\n20\n", r.stdout);
+}
+
+test "compile: process with tight loop yields (reduction counting)" {
+    const r = try compileAndCapture(
+        \\struct WS { result: int = 0; }
+        \\process Worker<WS> {
+        \\    receive Compute(state: WS, n: int) -> int {
+        \\        i: int = 0;
+        \\        while i < n {
+        \\            i = i + 1;
+        \\        }
+        \\        state.result = i;
+        \\        return i;
+        \\    }
+        \\}
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        w: int = spawn Worker();
+        \\        match Process.send(w.Compute, 10000) {
+        \\            :ok{val} => Stdio.println(val);
+        \\            :error{e} => Stdio.println("err");
+        \\        }
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("10000\n", r.stdout);
+}
+
+test "compile: thread_id returns a value" {
+    const r = try compileAndCapture(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        tid: int = Process.thread_id();
+        \\        Stdio.println(tid);
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("0\n", r.stdout);
+}
+
+test "compile: mailbox full returns error string" {
+    const r = try compileAndCapture(
+        \\struct CS { count: int = 0; }
+        \\process Counter<CS> [mailbox: 1] {
+        \\    receive Inc(state: CS) -> void {
+        \\        state.count = state.count + 1;
+        \\    }
+        \\    receive GetCount(state: CS) -> int {
+        \\        return state.count;
+        \\    }
+        \\}
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        c: int = spawn Counter();
+        \\        match Process.send(c.GetCount) {
+        \\            :ok{val} => Stdio.println(val);
+        \\            :error{e} => Stdio.println(e);
+        \\        }
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("0\n", r.stdout);
+}

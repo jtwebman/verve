@@ -49,10 +49,13 @@ These are things LANGUAGE-DESIGN.md and LANGUAGE.md claim that don't fully work 
 The benchmark apps need real concurrency to show Verve's advantage.
 
 ### Multi-threaded Scheduler
-- [ ] Thread pool (N scheduler threads, one per core)
-- [ ] Per-thread run queue with process migration
-- [ ] Process affinity — each process runs on one thread at a time
-- [ ] Proper locking on mailbox push (multi-producer)
+- [x] Thread pool (N scheduler threads, configurable via verve_scheduler_run_threaded)
+- [x] Per-thread run queue (SchedulerThread with local_pids)
+- [x] Process affinity — each process pinned to spawning thread, round-robin assignment
+- [x] Proper locking on mailbox push (mutex per mailbox)
+- [x] LIFO slot for message-passing cache locality (Tokio pattern)
+- [x] Compile-time reduction counting (yield_check at loop back-edges, Lunatic/BEAM pattern)
+- [x] Thread-safe process table (RwLock), atomic scheduler_running, threadlocal current_process_id
 
 ### Generics
 - [x] Multi-type-parameter generics — `struct Pair<K, V>`, `struct Either<A, B>` (already works: parser, checker, lowerer all handle N params)

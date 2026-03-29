@@ -71,6 +71,8 @@ pub const VerveProcess = struct {
     proc_fiber: ?fiber.Fiber = null, // null = legacy sync mode
     yielded: bool = false, // true if process called yield and has more work
     io_wait_fd: std.posix.fd_t = -1, // fd this process is waiting on (-1 = none)
+    owner_thread: usize = 0, // which scheduler thread owns this process
+    reductions: u32 = 4000, // reduction counter for cooperative preemption
 };
 
 /// Dispatch function receives raw message bytes: (msg_ptr, msg_len) -> result usize
@@ -86,8 +88,44 @@ pub var table_lock: std.Thread.RwLock = .{};
 
 // ── Scheduler state ───────────────────────────────
 
-var scheduler_context: fiber.Context = .{};
 pub var scheduler_running: std.atomic.Value(bool) = std.atomic.Value(bool).init(false);
+
+pub const SchedulerThread = struct {
+    id: usize,
+    scheduler_context: fiber.Context = .{},
+    epoll_fd: i32 = -1,
+    local_pids: std.ArrayListUnmanaged(usize) = .{},
+    next_pid: ?usize = null, // LIFO slot: hot process to run next
+    alloc: std.mem.Allocator,
+
+    pub fn init(id: usize, alloc: std.mem.Allocator) SchedulerThread {
+        return .{ .id = id, .alloc = alloc };
+    }
+
+    pub fn ensureEpoll(self: *SchedulerThread) void {
+        if (self.epoll_fd >= 0) return;
+        self.epoll_fd = std.posix.epoll_create1(std.os.linux.EPOLL.CLOEXEC) catch -1;
+    }
+
+    pub fn addProcess(self: *SchedulerThread, pid: usize) void {
+        self.local_pids.append(self.alloc, pid) catch {};
+    }
+
+    pub fn removeProcess(self: *SchedulerThread, pid: usize) void {
+        for (self.local_pids.items, 0..) |p, i| {
+            if (p == pid) {
+                _ = self.local_pids.swapRemove(i);
+                return;
+            }
+        }
+    }
+};
+
+const MAX_THREADS = 64;
+pub var scheduler_threads: [MAX_THREADS]?*SchedulerThread = .{null} ** MAX_THREADS;
+pub var thread_count: usize = 0;
+pub threadlocal var current_thread: ?*SchedulerThread = null;
+var next_thread_idx: usize = 0; // round-robin assignment
 
 pub fn ensureProcessCapacity(min_count: usize) void {
     if (min_count <= process_table.len) return;
@@ -162,6 +200,19 @@ pub fn verve_spawn(process_type: usize) usize {
         .watcher_count = 0,
         .arena = .{},
     };
+
+    // Assign to scheduler thread (round-robin if multiple threads, else current)
+    if (current_thread) |ct| {
+        process_table[idx].owner_thread = ct.id;
+        ct.addProcess(pid);
+    } else if (thread_count > 0) {
+        const tid = next_thread_idx % thread_count;
+        next_thread_idx += 1;
+        process_table[idx].owner_thread = tid;
+        if (scheduler_threads[tid]) |st| {
+            st.addProcess(pid);
+        }
+    }
     return pid;
 }
 
@@ -301,8 +352,14 @@ pub fn verve_tell(target_pid: usize, msg_ptr: [*]const u8, msg_len: usize) usize
     if (!proc.mailbox.push(msg_ptr, msg_len)) return rt.makeTaggedStr(1, "mailbox_full");
     if (!scheduler_running.load(.acquire)) {
         verve_drain(target_pid);
+    } else {
+        // Set LIFO slot if target is on same thread (cache-hot optimization)
+        if (current_thread) |ct| {
+            if (proc.owner_thread == ct.id) {
+                ct.next_pid = target_pid;
+            }
+        }
     }
-    // When scheduler_running, message stays in mailbox — scheduler will drain it
     return rt.makeTagged(0, 0);
 }
 
@@ -321,16 +378,12 @@ pub fn verve_send_timeout(target_pid: usize, msg_ptr: [*]const u8, msg_len: usiz
 
 // ── Cooperative scheduler ─────────────────────────
 
-var epoll_fd: i32 = -1;
-
-fn ensureEpoll() void {
-    if (epoll_fd >= 0) return;
-    epoll_fd = std.posix.epoll_create1(std.os.linux.EPOLL.CLOEXEC) catch -1;
-}
-
-/// Returns true if any process OTHER than the current one needs CPU time.
-fn any_other_runnable() bool {
-    for (process_table) |*p| {
+/// Returns true if any process on this thread (other than current) needs CPU time.
+fn any_other_runnable_on_thread(thread: *SchedulerThread) bool {
+    for (thread.local_pids.items) |pid| {
+        const i = pidx(pid);
+        if (i >= process_table.len) continue;
+        const p = &process_table[i];
         if (!p.alive) continue;
         if (p.id == current_process_id) continue;
         if (p.yielded or p.mailbox.count > 0) return true;
@@ -342,12 +395,12 @@ fn any_other_runnable() bool {
 /// If no other process needs CPU, this is a no-op (avoids wasted context switch).
 pub fn verve_yield() i64 {
     if (!scheduler_running.load(.acquire)) return 0;
-    if (!any_other_runnable()) return 0; // no-op: we're the only one with work
+    const thread = current_thread orelse return 0;
+    if (!any_other_runnable_on_thread(thread)) return 0;
 
     const idx = pidx(current_process_id);
     process_table[idx].yielded = true;
-    fiber.context_switch(&process_table[idx].proc_fiber.?.context, &scheduler_context);
-    // Execution resumes here when scheduler switches back to us
+    fiber.context_switch(&process_table[idx].proc_fiber.?.context, &thread.scheduler_context);
     return 0;
 }
 
@@ -355,30 +408,49 @@ pub fn verve_yield() i64 {
 /// suspends the process, and resumes when data arrives.
 pub fn verve_io_yield(fd: i64) void {
     if (!scheduler_running.load(.acquire)) return;
+    const thread = current_thread orelse return;
     const idx = pidx(current_process_id);
     process_table[idx].io_wait_fd = @intCast(fd);
-    process_table[idx].yielded = false; // not CPU-runnable, waiting for I/O
+    process_table[idx].yielded = false;
 
-    // Register fd with epoll
-    ensureEpoll();
-    if (epoll_fd >= 0) {
+    thread.ensureEpoll();
+    if (thread.epoll_fd >= 0) {
         var ev = std.os.linux.epoll_event{
             .events = std.os.linux.EPOLL.IN | std.os.linux.EPOLL.ONESHOT,
             .data = .{ .u64 = @intCast(process_table[idx].id) },
         };
-        std.posix.epoll_ctl(epoll_fd, std.os.linux.EPOLL.CTL_ADD, @intCast(fd), &ev) catch {
-            // fd might already be registered — try MOD
-            std.posix.epoll_ctl(epoll_fd, std.os.linux.EPOLL.CTL_MOD, @intCast(fd), &ev) catch {};
+        std.posix.epoll_ctl(thread.epoll_fd, std.os.linux.EPOLL.CTL_ADD, @intCast(fd), &ev) catch {
+            std.posix.epoll_ctl(thread.epoll_fd, std.os.linux.EPOLL.CTL_MOD, @intCast(fd), &ev) catch {};
         };
     }
 
-    fiber.context_switch(&process_table[idx].proc_fiber.?.context, &scheduler_context);
-    // Resumed — fd is ready
+    fiber.context_switch(&process_table[idx].proc_fiber.?.context, &thread.scheduler_context);
 }
 
 /// Return the current process's PID.
 pub fn verve_self() usize {
     return current_process_id;
+}
+
+/// Decrement reduction counter. If zero, yield to scheduler and reset.
+/// Called at loop back-edges for cooperative preemption.
+pub fn verve_yield_check() void {
+    if (!scheduler_running.load(.acquire)) return;
+    if (current_process_id == 0) return;
+    const idx = pidx(current_process_id);
+    if (process_table[idx].reductions > 0) {
+        process_table[idx].reductions -= 1;
+        return;
+    }
+    // Reductions exhausted — yield
+    process_table[idx].reductions = 4000;
+    _ = verve_yield();
+}
+
+/// Return the current scheduler thread ID (for testing parallelism).
+pub fn verve_thread_id() i64 {
+    if (current_thread) |t| return @intCast(t.id);
+    return 0;
 }
 
 /// Fiber entry point for each process. Drains one message at a time,
@@ -389,23 +461,23 @@ fn process_fiber_entry(pid_raw: usize) void {
         const idx = pidx(pid);
         if (!process_table[idx].alive) break;
 
-        // Drain one message
         const had_msg = drain_one(pid);
 
         if (!process_table[idx].alive) break;
 
         if (had_msg) {
-            // After processing a message, yield to scheduler if others need CPU
             process_table[idx].yielded = (process_table[idx].mailbox.count > 0) or process_table[idx].yielded;
         }
 
-        // Return to scheduler (it will switch back if we have more work)
-        fiber.context_switch(&process_table[idx].proc_fiber.?.context, &scheduler_context);
+        // Return to scheduler
+        const thread = current_thread orelse break;
+        fiber.context_switch(&process_table[idx].proc_fiber.?.context, &thread.scheduler_context);
     }
-    // Mark fiber as done so it can be reinitialized on reuse
     const idx = pidx(pid_raw);
     if (process_table[idx].proc_fiber) |*f| f.state = .done;
-    fiber.context_switch(&process_table[idx].proc_fiber.?.context, &scheduler_context);
+    if (current_thread) |thread| {
+        fiber.context_switch(&process_table[idx].proc_fiber.?.context, &thread.scheduler_context);
+    }
 }
 
 /// Ensure a process has a fiber ready to run.
@@ -424,57 +496,87 @@ fn ensure_fiber(proc: *VerveProcess) void {
     };
 }
 
-/// Run the cooperative scheduler until no processes are alive or runnable.
-/// Called from main after spawning initial processes.
-pub fn verve_scheduler_run() i64 {
-    scheduler_running.store(true, .release);
-    defer scheduler_running.store(false, .release);
+/// Run the cooperative scheduler on a single SchedulerThread.
+/// Iterates only this thread's local_pids.
+pub fn scheduler_run(thread: *SchedulerThread) i64 {
+    current_thread = thread;
+    defer current_thread = null;
 
     while (true) {
         var any_ran = false;
 
-        // Round-robin: give each runnable process one turn
-        const count: usize = process_count;
-        for (0..count) |i| {
-            if (i >= process_table.len) break;
+        // LIFO slot: run hot process first (Tokio optimization)
+        if (thread.next_pid) |npid| {
+            thread.next_pid = null;
+            const ni = pidx(npid);
+            if (ni < process_table.len) {
+                const proc = &process_table[ni];
+                if (proc.alive and (proc.yielded or proc.mailbox.count > 0)) {
+                    any_ran = true;
+                    ensure_fiber(proc);
+                    if (proc.proc_fiber != null) {
+                        proc.proc_fiber.?.state = .running;
+                        proc.reductions = 4000;
+                        current_process_id = proc.id;
+                        fiber.context_switch(&thread.scheduler_context, &proc.proc_fiber.?.context);
+                        current_process_id = 0;
+                    }
+                }
+            }
+        }
+
+        // Round-robin through local processes
+        for (thread.local_pids.items) |pid| {
+            const i = pidx(pid);
+            if (i >= process_table.len) continue;
             const proc = &process_table[i];
             if (!proc.alive) continue;
             if (!proc.yielded and proc.mailbox.count == 0) continue;
 
             any_ran = true;
             ensure_fiber(proc);
-            if (proc.proc_fiber == null) continue; // alloc failed
+            if (proc.proc_fiber == null) continue;
 
             proc.proc_fiber.?.state = .running;
+            proc.reductions = 4000;
             current_process_id = proc.id;
-            fiber.context_switch(&scheduler_context, &proc.proc_fiber.?.context);
-            // Process yielded or finished draining one message — back in scheduler
+            fiber.context_switch(&thread.scheduler_context, &proc.proc_fiber.?.context);
             current_process_id = 0;
         }
 
+        // Clean up dead processes from local list
+        var j: usize = 0;
+        while (j < thread.local_pids.items.len) {
+            const pid = thread.local_pids.items[j];
+            const pi = pidx(pid);
+            if (pi < process_table.len and !process_table[pi].alive) {
+                _ = thread.local_pids.swapRemove(j);
+            } else {
+                j += 1;
+            }
+        }
+
         if (!any_ran) {
-            // Nothing runnable — check if any process is alive
             var any_alive = false;
             var any_io_wait = false;
-            for (0..count) |i| {
-                if (i >= process_table.len) break;
-                if (process_table[i].alive) {
+            for (thread.local_pids.items) |pid| {
+                const pi = pidx(pid);
+                if (pi >= process_table.len) continue;
+                if (process_table[pi].alive) {
                     any_alive = true;
-                    if (process_table[i].io_wait_fd >= 0) any_io_wait = true;
+                    if (process_table[pi].io_wait_fd >= 0) any_io_wait = true;
                 }
             }
-            if (!any_alive) break; // all processes dead, exit scheduler
-            if (!any_io_wait) break; // no I/O waiters, nothing to do
+            if (!any_alive) break;
+            if (!any_io_wait) break;
 
-            // Block on epoll until I/O ready
-            ensureEpoll();
-            if (epoll_fd < 0) break;
+            thread.ensureEpoll();
+            if (thread.epoll_fd < 0) break;
 
             var events: [64]std.os.linux.epoll_event = undefined;
-            const n = std.posix.epoll_wait(epoll_fd, &events, -1);
+            const n = std.posix.epoll_wait(thread.epoll_fd, &events, -1);
             if (n == 0) continue;
 
-            // Wake processes whose fds are ready (including HUP/ERR — let handler detect close)
             for (events[0..n]) |ev| {
                 const pid: usize = @intCast(ev.data.u64);
                 const pidx_val = pidx(pid);
@@ -487,6 +589,65 @@ pub fn verve_scheduler_run() i64 {
     }
 
     return 0;
+}
+
+/// Run the cooperative scheduler until no processes are alive or runnable.
+/// Creates a single SchedulerThread (backward-compatible single-threaded mode).
+pub fn verve_scheduler_run() i64 {
+    return verve_scheduler_run_threaded(1);
+}
+
+/// Run the scheduler with N threads. N=0 means auto-detect CPU count.
+pub fn verve_scheduler_run_threaded(num_threads_arg: usize) i64 {
+    const alloc = std.heap.page_allocator;
+    const num_threads = if (num_threads_arg == 0) (std.Thread.getCpuCount() catch 1) else num_threads_arg;
+
+    scheduler_running.store(true, .release);
+    defer scheduler_running.store(false, .release);
+
+    // Create scheduler threads
+    var threads_storage: [MAX_THREADS]SchedulerThread = undefined;
+    var os_threads: [MAX_THREADS]?std.Thread = .{null} ** MAX_THREADS;
+    thread_count = num_threads;
+
+    for (0..num_threads) |i| {
+        threads_storage[i] = SchedulerThread.init(i, alloc);
+        scheduler_threads[i] = &threads_storage[i];
+    }
+
+    // Assign existing processes to threads (round-robin)
+    for (0..process_count) |i| {
+        if (i >= process_table.len) break;
+        if (!process_table[i].alive) continue;
+        const tid = i % num_threads;
+        process_table[i].owner_thread = tid;
+        scheduler_threads[tid].?.addProcess(process_table[i].id);
+    }
+
+    // Spawn N-1 worker threads
+    for (1..num_threads) |i| {
+        os_threads[i] = std.Thread.spawn(.{}, scheduler_thread_entry, .{scheduler_threads[i].?}) catch null;
+    }
+
+    // Run thread 0 on main thread
+    _ = scheduler_run(scheduler_threads[0].?);
+
+    // Join worker threads
+    for (1..num_threads) |i| {
+        if (os_threads[i]) |t| t.join();
+    }
+
+    // Clean up
+    for (0..num_threads) |i| {
+        scheduler_threads[i] = null;
+    }
+    thread_count = 0;
+
+    return 0;
+}
+
+fn scheduler_thread_entry(thread: *SchedulerThread) void {
+    _ = scheduler_run(thread);
 }
 
 /// Register current process as waiting for I/O on a file descriptor.

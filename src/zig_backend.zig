@@ -1249,6 +1249,9 @@ pub const ZigBackend = struct {
             },
 
             .break_loop, .continue_loop => {},
+            .yield_check => {
+                self.line("rt.process.verve_yield_check();");
+            },
         }
     }
 
@@ -1387,6 +1390,10 @@ pub const ZigBackend = struct {
             self.lineFmt("{s} = rt.process.verve_self();", .{self.regName(dest)});
         } else if (std.mem.eql(u8, name, "process_run")) {
             self.lineFmt("{s} = rt.process.verve_scheduler_run();", .{self.regName(dest)});
+        } else if (std.mem.eql(u8, name, "process_run_threaded")) {
+            self.lineFmt("{s} = rt.process.verve_scheduler_run_threaded(@intCast(@as(u64, @bitCast({s}))));", .{ self.regName(dest), self.regName(args[0]) });
+        } else if (std.mem.eql(u8, name, "process_thread_id")) {
+            self.lineFmt("{s} = rt.process.verve_thread_id();", .{self.regName(dest)});
         }
     }
 

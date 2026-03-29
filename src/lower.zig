@@ -449,6 +449,7 @@ pub const Lower = struct {
 
                 self.current_block_id = body_id;
                 for (w.body) |s| self.lowerStmt(s);
+                self.appendInst(.{ .yield_check = {} }); // preemption point at loop back-edge
                 self.appendInst(.{ .jump = .{ .target = cond_id } });
 
                 self.loop_cond_block = saved_cond;

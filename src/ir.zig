@@ -71,6 +71,10 @@ pub const Inst = union(enum) {
     break_loop: void,
     continue_loop: void,
 
+    /// Reduction check: decrement process reductions counter, yield if zero.
+    /// Inserted at loop back-edges for cooperative preemption.
+    yield_check: void,
+
     // ── Tagged values ────────────────────────────────────
     tag_get: struct { dest: Reg, tagged: Reg },
     tag_value: struct { dest: Reg, tagged: Reg },
