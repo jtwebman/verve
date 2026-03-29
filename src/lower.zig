@@ -467,7 +467,6 @@ pub const Lower = struct {
                 const val_reg = self.lowerExpr(a.value);
                 self.appendInst(.{ .list_append = .{ .list = list_reg, .value = val_reg } });
             },
-            .tell_stmt => {},
             .watch_stmt => |w| {
                 const target_reg = self.lowerExpr(w.target);
                 self.appendInst(.{ .process_watch = .{ .target = target_reg } });
@@ -1470,12 +1469,6 @@ pub const Lower = struct {
                 args[1] = zero_reg;
                 self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = "make_tagged", .args = args } });
                 return dest;
-            },
-            .tell_expr => {
-                // Deprecated: use Process.tell() instead
-                const tell_dest = func.newReg();
-                self.appendInst(.{ .const_int = .{ .dest = tell_dest, .value = 0 } });
-                return tell_dest;
             },
             else => {
                 const dest = func.newReg();

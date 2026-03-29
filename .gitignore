@@ -14,3 +14,14 @@ examples/verve_runtime.zig
 /tmp/verve_*
 examples/*_cache/
 examples/*_build/
+
+# Benchmark build artifacts
+bench/verve/server
+bench/verve/server_fast
+bench/verve/server_cache/
+bench/verve/server_fast_cache/
+bench/verve/server_build/
+bench/verve/server_fast_build/
+bench/go_server
+bench/go/server
+bench/zig/server

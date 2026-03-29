@@ -581,53 +581,6 @@ pub const Checker = struct {
                 try self.checkExpr(a.target);
                 try self.checkExpr(a.value);
             },
-            .tell_stmt => |t| {
-                try self.checkExpr(t.target);
-                // Verify target is a process, not a module
-                if (t.target == .identifier) {
-                    const name = t.target.identifier;
-                    if (self.modules.get(name) != null) {
-                        try self.addError(
-                            try std.fmt.allocPrint(self.alloc, "cannot use 'tell' with module '{s}' — tell is for processes only", .{name}),
-                            t.span,
-                        );
-                    }
-                    // Check handler arg count/types if process type is known
-                    if (self.process_var_types.get(name)) |proc_name| {
-                        if (self.process_decls.get(proc_name)) |proc| {
-                            for (proc.receive_handlers) |handler| {
-                                if (std.mem.eql(u8, handler.name, t.handler)) {
-                                    // Skip the state param (injected by runtime) for new-style processes
-                                    const user_params = if (proc.state_type != null and handler.params.len > 0 and
-                                        std.mem.eql(u8, handler.params[0].name, "state"))
-                                        handler.params[1..]
-                                    else
-                                        handler.params;
-
-                                    if (t.args.len != user_params.len) {
-                                        try self.addError(
-                                            try std.fmt.allocPrint(self.alloc, "'{s}.{s}' expects {d} argument(s), got {d}", .{ proc_name, t.handler, user_params.len, t.args.len }),
-                                            t.span,
-                                        );
-                                    } else {
-                                        for (user_params, t.args) |param, arg| {
-                                            const inferred = self.inferExprType(arg);
-                                            if (!self.typesCompatible(param.type_expr, inferred)) {
-                                                try self.addError(
-                                                    try std.fmt.allocPrint(self.alloc, "argument type mismatch in '{s}.{s}': expected {s}, got {s}", .{ proc_name, t.handler, self.typeExprName(param.type_expr), self.formatTypeExpr(inferred) }),
-                                                    t.span,
-                                                );
-                                            }
-                                        }
-                                    }
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                }
-                for (t.args) |arg| try self.checkExpr(arg);
-            },
             .expr_stmt => |e| {
                 try self.checkExpr(e);
             },
@@ -756,10 +709,6 @@ pub const Checker = struct {
                 for (sl.fields) |f| try self.checkExpr(f.value);
             },
             .match_expr => {},
-            .tell_expr => |t| {
-                try self.checkExpr(t.target);
-                for (t.args) |arg| try self.checkExpr(arg);
-            },
         }
     }
 
@@ -1210,7 +1159,6 @@ pub const Checker = struct {
                 }
                 return null;
             },
-            .tell_expr => return self.makeResultType("void"),
             else => return null,
         }
     }
@@ -1574,9 +1522,6 @@ pub const Checker = struct {
             .append => |a| {
                 try self.collectCallsFromExpr(a.target, current_module, callees);
                 try self.collectCallsFromExpr(a.value, current_module, callees);
-            },
-            .tell_stmt => |t| {
-                for (t.args) |arg| try self.collectCallsFromExpr(arg, current_module, callees);
             },
             .expr_stmt => |e| try self.collectCallsFromExpr(e, current_module, callees),
             .watch_stmt => |w| try self.collectCallsFromExpr(w.target, current_module, callees),

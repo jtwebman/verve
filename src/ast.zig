@@ -146,7 +146,6 @@ pub const Stmt = union(enum) {
     if_stmt: IfStmt,
     while_stmt: WhileStmt,
     send_stmt: SendStmt,
-    tell_stmt: TellStmt,
     return_stmt: ReturnStmt,
     break_stmt: Span,
     continue_stmt: Span,
@@ -223,13 +222,6 @@ pub const SendStmt = struct {
     span: Span,
 };
 
-pub const TellStmt = struct {
-    target: Expr,
-    handler: []const u8,
-    args: []const Expr,
-    span: Span,
-};
-
 pub const AssertStmt = struct {
     condition: Expr,
     message: ?[]const u8,
@@ -258,7 +250,6 @@ pub const Expr = union(enum) {
     struct_literal: StructLiteral,
     string_interp: StringInterp,
     match_expr: *const MatchStmt,
-    tell_expr: *const TellStmt, // tell as expression, returns Result<void>
     none_literal: void,
     void_literal: void,
 };
