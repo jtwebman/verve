@@ -5,6 +5,7 @@ pub const TypeError = struct {
     message: []const u8,
     line: usize,
     col: usize,
+    file: []const u8 = "",
 };
 
 pub const Checker = struct {
@@ -20,6 +21,8 @@ pub const Checker = struct {
     current_fn_name: ?[]const u8,
     current_return_type: ?ast.TypeExpr,
     process_var_types: std.StringHashMapUnmanaged([]const u8), // var name -> process decl name
+    source: []const u8,
+    file_path: []const u8,
 
     const FnSignature = struct {
         name: []const u8,
@@ -28,7 +31,11 @@ pub const Checker = struct {
         return_type: ast.TypeExpr,
     };
 
-    pub fn init(alloc: std.mem.Allocator) Checker {
+    pub fn init(alloc: std.mem.Allocator, source: []const u8) Checker {
+        return initWithFile(alloc, source, "");
+    }
+
+    pub fn initWithFile(alloc: std.mem.Allocator, source: []const u8, file_path: []const u8) Checker {
         return .{
             .alloc = alloc,
             .errors = .{},
@@ -42,7 +49,23 @@ pub const Checker = struct {
             .current_fn_name = null,
             .current_return_type = null,
             .process_var_types = .{},
+            .source = source,
+            .file_path = file_path,
         };
+    }
+
+    fn getLineCol(self: *Checker, pos: usize) struct { line: usize, col: usize } {
+        var line: usize = 1;
+        var col: usize = 1;
+        for (self.source[0..@min(pos, self.source.len)]) |c| {
+            if (c == '\n') {
+                line += 1;
+                col = 1;
+            } else {
+                col += 1;
+            }
+        }
+        return .{ .line = line, .col = col };
     }
 
     pub fn check(self: *Checker, file: ast.File) !void {
@@ -104,9 +127,9 @@ pub const Checker = struct {
         }
 
         if (found == 0 and !has_exports) {
-            try self.addError("no entry point found — add fn main(args: list<string>) -> int", 0, 0);
+            try self.addError("no entry point found — add fn main(args: list<string>) -> int", .{ .start = 0, .end = 0 });
         } else if (found > 1) {
-            try self.addError("multiple entry points found — only one main() is allowed", 0, 0);
+            try self.addError("multiple entry points found — only one main() is allowed", .{ .start = 0, .end = 0 });
         }
     }
 
@@ -119,8 +142,7 @@ pub const Checker = struct {
         if (m.exported and m.doc_comment == null) {
             try self.addError(
                 try std.fmt.allocPrint(self.alloc, "exported module '{s}' is missing a /// doc comment", .{m.name}),
-                0,
-                0,
+                m.span,
             );
         }
 
@@ -143,8 +165,7 @@ pub const Checker = struct {
         if (p.exported and p.doc_comment == null) {
             try self.addError(
                 try std.fmt.allocPrint(self.alloc, "exported process '{s}' is missing a /// doc comment", .{p.name}),
-                0,
-                0,
+                p.span,
             );
         }
 
@@ -153,8 +174,7 @@ pub const Checker = struct {
             if (self.struct_decls.get(st) == null) {
                 try self.addError(
                     try std.fmt.allocPrint(self.alloc, "process '{s}' state type '{s}' is not a known struct", .{ p.name, st }),
-                    0,
-                    0,
+                    p.span,
                 );
             }
         }
@@ -172,8 +192,7 @@ pub const Checker = struct {
         if (is_exported and handler.doc_comment == null and !std.mem.eql(u8, handler.name, "main")) {
             try self.addError(
                 try std.fmt.allocPrint(self.alloc, "exported handler '{s}.{s}' is missing a /// doc comment", .{ p.name, handler.name }),
-                0,
-                0,
+                handler.span,
             );
         }
 
@@ -195,14 +214,12 @@ pub const Checker = struct {
             if (handler.params.len == 0 or !std.mem.eql(u8, handler.params[0].name, "state")) {
                 try self.addError(
                     try std.fmt.allocPrint(self.alloc, "handler '{s}.{s}' must have 'state: {s}' as first parameter", .{ p.name, handler.name, st }),
-                    0,
-                    0,
+                    handler.span,
                 );
             } else if (!std.mem.eql(u8, self.typeExprName(handler.params[0].type_expr), st)) {
                 try self.addError(
                     try std.fmt.allocPrint(self.alloc, "handler '{s}.{s}' state parameter must be typed '{s}'", .{ p.name, handler.name, st }),
-                    0,
-                    0,
+                    handler.span,
                 );
             }
         }
@@ -217,6 +234,16 @@ pub const Checker = struct {
         for (handler.body) |stmt| {
             try self.checkStmt(stmt);
         }
+
+        // Check all code paths return for non-void handlers
+        if (!std.mem.eql(u8, self.typeExprName(handler.return_type), "void")) {
+            if (!self.allPathsReturn(handler.body)) {
+                try self.addError(
+                    try std.fmt.allocPrint(self.alloc, "handler '{s}.{s}' does not return a value on all code paths", .{ p.name, handler.name }),
+                    handler.span,
+                );
+            }
+        }
     }
 
     // ── Function checking ─────────────────────────────────────
@@ -226,8 +253,7 @@ pub const Checker = struct {
         if (is_exported and func.doc_comment == null and !std.mem.eql(u8, func.name, "main")) {
             try self.addError(
                 try std.fmt.allocPrint(self.alloc, "exported function '{s}.{s}' is missing a /// doc comment", .{ module_name, func.name }),
-                0,
-                0,
+                func.span,
             );
         }
 
@@ -268,6 +294,16 @@ pub const Checker = struct {
         // Warn about obvious poison values and divergence
         try self.warnUnguardedDivision(func.body, func.guards);
         try self.checkForDivergence(func.body);
+
+        // Check all code paths return for non-void functions
+        if (!std.mem.eql(u8, self.typeExprName(func.return_type), "void")) {
+            if (!self.allPathsReturn(func.body)) {
+                try self.addError(
+                    try std.fmt.allocPrint(self.alloc, "function '{s}.{s}' does not return a value on all code paths", .{ module_name, func.name }),
+                    func.span,
+                );
+            }
+        }
     }
 
     // ── Struct checking ───────────────────────────────────────
@@ -280,15 +316,13 @@ pub const Checker = struct {
             if (field.default_value == null) {
                 try self.addError(
                     try std.fmt.allocPrint(self.alloc, "struct field '{s}' in '{s}' requires a default value — add = <value>", .{ field.name, s.name }),
-                    0,
-                    0,
+                    field.span,
                 );
             }
             if (seen_fields.get(field.name) != null) {
                 try self.addError(
                     try std.fmt.allocPrint(self.alloc, "duplicate field '{s}' in struct '{s}'", .{ field.name, s.name }),
-                    0,
-                    0,
+                    field.span,
                 );
             }
             try seen_fields.put(self.alloc, field.name, {});
@@ -311,8 +345,7 @@ pub const Checker = struct {
                     if (!self.typesCompatible(te, inferred)) {
                         try self.addError(
                             try std.fmt.allocPrint(self.alloc, "{s}: type mismatch in '{s}' — cannot assign {s} to {s}", .{ self.locationPrefix(), a.name, self.formatTypeExpr(inferred), self.typeExprName(te) }),
-                            0,
-                            0,
+                            a.span,
                         );
                     }
 
@@ -333,16 +366,14 @@ pub const Checker = struct {
                             if (!self.typesCompatible(expected_type, inferred)) {
                                 try self.addError(
                                     try std.fmt.allocPrint(self.alloc, "{s}: type mismatch in '{s}' — cannot assign {s} to {s}", .{ self.locationPrefix(), a.name, self.formatTypeExpr(inferred), self.typeExprName(expected_type) }),
-                                    0,
-                                    0,
+                                    a.span,
                                 );
                             }
                         }
                     } else {
                         try self.addError(
                             try std.fmt.allocPrint(self.alloc, "variable '{s}' must be declared with a type: {s}: <type> = ...", .{ a.name, a.name }),
-                            0,
-                            0,
+                            a.span,
                         );
                     }
                 }
@@ -356,8 +387,7 @@ pub const Checker = struct {
                         if (!self.typesCompatible(expected, inferred)) {
                             try self.addError(
                                 try std.fmt.allocPrint(self.alloc, "{s}: return type mismatch — expected {s}, got {s}", .{ self.locationPrefix(), self.typeExprName(expected), self.formatTypeExpr(inferred) }),
-                                0,
-                                0,
+                                r.span,
                             );
                         }
                     }
@@ -365,19 +395,29 @@ pub const Checker = struct {
             },
             .if_stmt => |i| {
                 try self.checkExprIsBoolean(i.condition);
-                for (i.body) |s| try self.checkStmt(s);
+                {
+                    const saved = self.saveScope();
+                    for (i.body) |s| try self.checkStmt(s);
+                    self.restoreScope(saved);
+                }
                 if (i.else_body) |eb| {
+                    const saved = self.saveScope();
                     for (eb) |s| try self.checkStmt(s);
+                    self.restoreScope(saved);
                 }
             },
             .while_stmt => |w| {
                 try self.checkExprIsBoolean(w.condition);
-                for (w.body) |s| try self.checkStmt(s);
+                {
+                    const saved = self.saveScope();
+                    for (w.body) |s| try self.checkStmt(s);
+                    self.restoreScope(saved);
+                }
             },
             .match_stmt => |m| {
                 try self.checkExpr(m.subject);
                 if (m.arms.len == 0) {
-                    try self.addError("match must have at least one arm", 0, 0);
+                    try self.addError("match must have at least one arm", .{ .start = 0, .end = 0 });
                 }
 
                 // Check boolean exhaustiveness
@@ -408,6 +448,7 @@ pub const Checker = struct {
                 var has_wildcard = false;
                 for (m.arms) |arm| {
                     if (arm.pattern == .wildcard) has_wildcard = true;
+                    const arm_scope = self.saveScope();
                     switch (arm.pattern) {
                         .tag => |t| {
                             // If subject is Result<T>, bind :ok{val} as T, :error{e} as string
@@ -446,6 +487,7 @@ pub const Checker = struct {
                         else => {},
                     }
                     for (arm.body) |s| try self.checkStmt(s);
+                    self.restoreScope(arm_scope);
                 }
                 if (!has_wildcard and m.arms.len > 0) {
                     // Check if exhaustiveness was already proven (bool or enum)
@@ -530,8 +572,7 @@ pub const Checker = struct {
                     if (!proven_exhaustive) {
                         try self.addError(
                             try std.fmt.allocPrint(self.alloc, "{s}: match is not exhaustive — add missing cases or a wildcard '_' arm", .{self.locationPrefix()}),
-                            0,
-                            0,
+                            m.span,
                         );
                     }
                 }
@@ -548,8 +589,7 @@ pub const Checker = struct {
                     if (self.modules.get(name) != null) {
                         try self.addError(
                             try std.fmt.allocPrint(self.alloc, "cannot use 'tell' with module '{s}' — tell is for processes only", .{name}),
-                            0,
-                            0,
+                            t.span,
                         );
                     }
                     // Check handler arg count/types if process type is known
@@ -567,8 +607,7 @@ pub const Checker = struct {
                                     if (t.args.len != user_params.len) {
                                         try self.addError(
                                             try std.fmt.allocPrint(self.alloc, "'{s}.{s}' expects {d} argument(s), got {d}", .{ proc_name, t.handler, user_params.len, t.args.len }),
-                                            0,
-                                            0,
+                                            t.span,
                                         );
                                     } else {
                                         for (user_params, t.args) |param, arg| {
@@ -576,8 +615,7 @@ pub const Checker = struct {
                                             if (!self.typesCompatible(param.type_expr, inferred)) {
                                                 try self.addError(
                                                     try std.fmt.allocPrint(self.alloc, "argument type mismatch in '{s}.{s}': expected {s}, got {s}", .{ proc_name, t.handler, self.typeExprName(param.type_expr), self.formatTypeExpr(inferred) }),
-                                                    0,
-                                                    0,
+                                                    t.span,
                                                 );
                                             }
                                         }
@@ -599,7 +637,7 @@ pub const Checker = struct {
             .break_stmt, .continue_stmt => {},
             .receive_stmt => {
                 if (!self.in_receive_handler) {
-                    try self.addError("receive; can only be used inside a process", 0, 0);
+                    try self.addError("receive; can only be used inside a process", .{ .start = 0, .end = 0 });
                 }
             },
             .watch_stmt => |w| {
@@ -644,8 +682,7 @@ pub const Checker = struct {
                 if (self.current_scope.get(name) == null) {
                     try self.addError(
                         try std.fmt.allocPrint(self.alloc, "undefined variable '{s}'", .{name}),
-                        0,
-                        0,
+                        .{ .start = 0, .end = 0 },
                     );
                 }
             },
@@ -695,8 +732,7 @@ pub const Checker = struct {
                     if (c.args.len != sig.params.len) {
                         try self.addError(
                             try std.fmt.allocPrint(self.alloc, "{s}: '{s}' expects {d} argument(s), got {d}", .{ self.locationPrefix(), fn_qual, sig.params.len, c.args.len }),
-                            0,
-                            0,
+                            .{ .start = 0, .end = 0 },
                         );
                     } else {
                         for (sig.params, c.args) |param, arg| {
@@ -704,8 +740,7 @@ pub const Checker = struct {
                             if (!self.typesCompatible(param.type_expr, inferred)) {
                                 try self.addError(
                                     try std.fmt.allocPrint(self.alloc, "{s}: argument '{s}' in call to '{s}' — expected {s}, got {s}", .{ self.locationPrefix(), param.name, fn_qual, self.typeExprName(param.type_expr), self.formatTypeExpr(inferred) }),
-                                    0,
-                                    0,
+                                    .{ .start = 0, .end = 0 },
                                 );
                             }
                         }
@@ -727,9 +762,9 @@ pub const Checker = struct {
     fn checkExprIsBoolean(self: *Checker, expr: ast.Expr) !void {
         try self.checkExpr(expr);
         switch (expr) {
-            .string_literal => try self.addError("guard/while condition must be boolean, got string", 0, 0),
-            .int_literal => try self.addError("guard/while condition must be boolean, got int", 0, 0),
-            .float_literal => try self.addError("guard/while condition must be boolean, got float", 0, 0),
+            .string_literal => try self.addError("guard/while condition must be boolean, got string", .{ .start = 0, .end = 0 }),
+            .int_literal => try self.addError("guard/while condition must be boolean, got int", .{ .start = 0, .end = 0 }),
+            .float_literal => try self.addError("guard/while condition must be boolean, got float", .{ .start = 0, .end = 0 }),
             else => {},
         }
     }
@@ -742,7 +777,7 @@ pub const Checker = struct {
         for (guards) |guard| {
             // Check for always-false guards
             if (guard == .bool_literal and !guard.bool_literal) {
-                try self.addError("guard is always false — function can never execute", 0, 0);
+                try self.addError("guard is always false — function can never execute", .{ .start = 0, .end = 0 });
             }
             // Check for contradictions: guard x > 0; guard x < 0;
             // (simplified: check literal contradictions)
@@ -763,8 +798,7 @@ pub const Checker = struct {
                                             else => "?",
                                         },
                                     }),
-                                    0,
-                                    0,
+                                    .{ .start = 0, .end = 0 },
                                 );
                             },
                             else => {},
@@ -784,7 +818,7 @@ pub const Checker = struct {
                     // while true { ... } with no return/break is infinite
                     if (w.condition == .bool_literal and w.condition.bool_literal) {
                         if (!self.bodyHasReturn(w.body)) {
-                            try self.addError("potential infinite loop — 'while true' with no return statement", 0, 0);
+                            try self.addError("potential infinite loop — 'while true' with no return statement", w.span);
                         }
                     }
                 },
@@ -805,6 +839,91 @@ pub const Checker = struct {
                 },
                 .while_stmt => |w| {
                     if (self.bodyHasReturn(w.body)) return true;
+                },
+                else => {},
+            }
+        }
+        return false;
+    }
+
+    // ── Return path analysis ─────────────────────────────────
+
+    fn allPathsReturn(self: *Checker, stmts: []const ast.Stmt) bool {
+        for (stmts) |stmt| {
+            switch (stmt) {
+                .return_stmt => return true,
+                .if_stmt => |i| {
+                    if (i.else_body) |eb| {
+                        if (self.allPathsReturn(i.body) and self.allPathsReturn(eb)) return true;
+                    }
+                },
+                .match_stmt => |m| {
+                    if (m.arms.len == 0) continue;
+                    var has_wildcard = false;
+                    var all_return = true;
+                    for (m.arms) |arm| {
+                        if (arm.pattern == .wildcard) has_wildcard = true;
+                        if (!self.allPathsReturn(arm.body)) all_return = false;
+                    }
+                    // Also check for proven-exhaustive matches (enum/bool/Result)
+                    var proven_exhaustive = has_wildcard;
+                    if (!proven_exhaustive) {
+                        // Boolean: true + false
+                        var has_true = false;
+                        var has_false = false;
+                        for (m.arms) |arm| {
+                            if (arm.pattern == .literal) {
+                                if (arm.pattern.literal == .bool_literal) {
+                                    if (arm.pattern.literal.bool_literal) has_true = true else has_false = true;
+                                }
+                            }
+                        }
+                        if (has_true and has_false) proven_exhaustive = true;
+                    }
+                    if (!proven_exhaustive) {
+                        // Result<T>: :ok + :error
+                        var has_ok = false;
+                        var has_error = false;
+                        for (m.arms) |arm| {
+                            if (arm.pattern == .tag) {
+                                if (std.mem.eql(u8, arm.pattern.tag.tag, "ok")) has_ok = true;
+                                if (std.mem.eql(u8, arm.pattern.tag.tag, "error")) has_error = true;
+                            }
+                        }
+                        if (has_ok and has_error) proven_exhaustive = true;
+                    }
+                    if (!proven_exhaustive) {
+                        // Enum: check if all variants covered
+                        if (m.subject == .identifier) {
+                            if (self.current_scope.get(m.subject.identifier)) |maybe_type| {
+                                if (maybe_type) |type_expr| {
+                                    if (type_expr == .simple) {
+                                        if (self.type_decls.get(type_expr.simple)) |td| {
+                                            if (td.value == .enum_type) {
+                                                var covered: std.StringHashMapUnmanaged(void) = .{};
+                                                for (m.arms) |arm| {
+                                                    if (arm.pattern == .tag) covered.put(self.alloc, arm.pattern.tag.tag, {}) catch {};
+                                                    if (arm.pattern == .literal and arm.pattern.literal == .tag) covered.put(self.alloc, arm.pattern.literal.tag, {}) catch {};
+                                                }
+                                                var all_covered = true;
+                                                for (td.value.enum_type) |variant| {
+                                                    if (covered.get(variant) == null) all_covered = false;
+                                                }
+                                                if (all_covered) proven_exhaustive = true;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if (all_return and proven_exhaustive) return true;
+                },
+                .while_stmt => |w| {
+                    // while true { ... return ... } guarantees return
+                    if (w.condition == .bool_literal and w.condition.bool_literal) {
+                        if (self.allPathsReturn(w.body)) return true;
+                    }
                 },
                 else => {},
             }
@@ -834,7 +953,7 @@ pub const Checker = struct {
                 if (op.op == .div or op.op == .mod) {
                     // Check if divisor is a literal 0
                     if (op.right.* == .int_literal and op.right.int_literal == 0) {
-                        try self.addError("division by zero — divisor is always 0", 0, 0);
+                        try self.addError("division by zero — divisor is always 0", .{ .start = 0, .end = 0 });
                     }
                 }
                 try self.checkForUnguardedDivision(op.left.*);
@@ -859,8 +978,7 @@ pub const Checker = struct {
                     if (std.mem.eql(u8, name, g)) {
                         try self.addError(
                             try std.fmt.allocPrint(self.alloc, "'{s}' requires type parameters — use {s}<T> instead", .{ name, name }),
-                            0,
-                            0,
+                            .{ .start = 0, .end = 0 },
                         );
                         return;
                     }
@@ -884,8 +1002,7 @@ pub const Checker = struct {
 
                 try self.addError(
                     try std.fmt.allocPrint(self.alloc, "unknown type '{s}'", .{name}),
-                    0,
-                    0,
+                    .{ .start = 0, .end = 0 },
                 );
             },
             .generic => |g| {
@@ -901,8 +1018,7 @@ pub const Checker = struct {
                 if (!found and self.struct_decls.get(g.name) == null) {
                     try self.addError(
                         try std.fmt.allocPrint(self.alloc, "unknown generic type '{s}'", .{g.name}),
-                        0,
-                        0,
+                        .{ .start = 0, .end = 0 },
                     );
                 }
                 for (g.args) |arg| try self.checkTypeExists(arg);
@@ -943,6 +1059,21 @@ pub const Checker = struct {
     fn formatTypeExpr(self: *Checker, t: ?ast.TypeExpr) []const u8 {
         if (t) |te| return self.typeExprName(te);
         return "unknown";
+    }
+
+    // ── Scope isolation ────────────────────────────────────────────
+
+    fn saveScope(self: *Checker) std.StringHashMapUnmanaged(?ast.TypeExpr) {
+        var copy: std.StringHashMapUnmanaged(?ast.TypeExpr) = .{};
+        var iter = self.current_scope.iterator();
+        while (iter.next()) |entry| {
+            copy.put(self.alloc, entry.key_ptr.*, entry.value_ptr.*) catch {};
+        }
+        return copy;
+    }
+
+    fn restoreScope(self: *Checker, saved: std.StringHashMapUnmanaged(?ast.TypeExpr)) void {
+        self.current_scope = saved;
     }
 
     // ── Type inference ───────────────────────────────────────────
@@ -1294,10 +1425,10 @@ pub const Checker = struct {
                 return;
             }
             if (!has_true) {
-                try self.addError("match on boolean is missing 'true' case", 0, 0);
+                try self.addError("match on boolean is missing 'true' case", .{ .start = 0, .end = 0 });
             }
             if (!has_false) {
-                try self.addError("match on boolean is missing 'false' case", 0, 0);
+                try self.addError("match on boolean is missing 'false' case", .{ .start = 0, .end = 0 });
             }
         }
     }
@@ -1321,8 +1452,7 @@ pub const Checker = struct {
                 if (covered.get(variant) == null) {
                     try self.addError(
                         try std.fmt.allocPrint(self.alloc, "match on '{s}' is missing case ':{s}'", .{ type_name, variant }),
-                        0,
-                        0,
+                        .{ .start = 0, .end = 0 },
                     );
                 }
             }
@@ -1387,8 +1517,7 @@ pub const Checker = struct {
                     // Cycle found!
                     try self.addError(
                         try std.fmt.allocPrint(self.alloc, "recursion detected: '{s}' calls '{s}' which creates a cycle — use a while loop instead", .{ node, callee }),
-                        0,
-                        0,
+                        .{ .start = 0, .end = 0 },
                     );
                 } else if (state == 0) {
                     try self.detectCycleDFS(callee, graph, visited);
@@ -1503,11 +1632,19 @@ pub const Checker = struct {
 
     // ── Error management ──────────────────────────────────────
 
-    fn addError(self: *Checker, message: []const u8, line: usize, col: usize) !void {
+    fn addError(self: *Checker, message: []const u8, span: ast.Span) !void {
+        var line: usize = 0;
+        var col: usize = 0;
+        if (span.start > 0 or span.end > 0) {
+            const loc = self.getLineCol(span.start);
+            line = loc.line;
+            col = loc.col;
+        }
         try self.errors.append(self.alloc, .{
             .message = message,
             .line = line,
             .col = col,
+            .file = self.file_path,
         });
     }
 
@@ -1521,6 +1658,36 @@ pub const Checker = struct {
                 std.debug.print("  line {d}, col {d}: {s}\n", .{ err.line, err.col, err.message });
             } else {
                 std.debug.print("  {s}\n", .{err.message});
+            }
+        }
+    }
+
+    pub fn printErrorsJson(self: *Checker) void {
+        // Build JSON string and output via std.debug.print
+        var buf: std.ArrayListUnmanaged(u8) = .{};
+        buf.appendSlice(self.alloc, "[") catch return;
+        for (self.errors.items, 0..) |err, i| {
+            if (i > 0) buf.appendSlice(self.alloc, ",") catch return;
+            buf.appendSlice(self.alloc, "{\"file\":\"") catch return;
+            appendJsonEscaped(&buf, self.alloc, err.file);
+            const loc = std.fmt.allocPrint(self.alloc, "\",\"line\":{d},\"col\":{d},\"message\":\"", .{ err.line, err.col }) catch return;
+            buf.appendSlice(self.alloc, loc) catch return;
+            appendJsonEscaped(&buf, self.alloc, err.message);
+            buf.appendSlice(self.alloc, "\",\"severity\":\"error\"}") catch return;
+        }
+        buf.appendSlice(self.alloc, "]\n") catch return;
+        std.debug.print("{s}", .{buf.items});
+    }
+
+    fn appendJsonEscaped(buf: *std.ArrayListUnmanaged(u8), alloc: std.mem.Allocator, s: []const u8) void {
+        for (s) |c| {
+            switch (c) {
+                '"' => buf.appendSlice(alloc, "\\\"") catch return,
+                '\\' => buf.appendSlice(alloc, "\\\\") catch return,
+                '\n' => buf.appendSlice(alloc, "\\n") catch return,
+                '\r' => buf.appendSlice(alloc, "\\r") catch return,
+                '\t' => buf.appendSlice(alloc, "\\t") catch return,
+                else => buf.append(alloc, c) catch return,
             }
         }
     }

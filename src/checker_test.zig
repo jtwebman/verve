@@ -9,7 +9,7 @@ fn checkSource(source: []const u8) !Checker {
     const alloc = std.heap.page_allocator;
     var parser = Parser.init(source, alloc);
     const file = try parser.parseFile();
-    var checker = Checker.init(alloc);
+    var checker = Checker.init(alloc, source);
     try checker.check(file);
     return checker;
 }
@@ -738,6 +738,7 @@ test "valid: while with condition variable" {
         \\        while running {
         \\            return 0;
         \\        }
+        \\        return 1;
         \\    }
         \\}
     );
@@ -1679,4 +1680,781 @@ test "checker: File.open returns Result" {
         \\    }
         \\}
     );
+}
+
+// ── Error location tests ─────────────────────────────────
+
+fn expectErrorWithLocation(source: []const u8, expected_substring: []const u8) !void {
+    var checker = try checkSource(source);
+    try testing.expect(checker.hasErrors());
+    var found = false;
+    for (checker.errors.items) |err| {
+        if (std.mem.indexOf(u8, err.message, expected_substring) != null) {
+            // Verify line > 0 (has real location)
+            if (err.line > 0) {
+                found = true;
+                break;
+            }
+        }
+    }
+    if (!found) {
+        std.debug.print("\nExpected error with location containing: '{s}'\nGot errors:\n", .{expected_substring});
+        for (checker.errors.items) |err| {
+            std.debug.print("  line {d}, col {d}: {s}\n", .{ err.line, err.col, err.message });
+        }
+    }
+    try testing.expect(found);
+}
+
+test "error location: type mismatch in assignment" {
+    try expectErrorWithLocation(
+        \\module App {
+        \\    fn main() -> int {
+        \\        x: int = "hello";
+        \\        return 0;
+        \\    }
+        \\}
+    , "type mismatch");
+}
+
+test "error location: return type mismatch" {
+    try expectErrorWithLocation(
+        \\module App {
+        \\    fn main() -> int {
+        \\        return "hello";
+        \\    }
+        \\}
+    , "return type mismatch");
+}
+
+test "error location: struct field missing default" {
+    try expectErrorWithLocation(
+        \\struct Point {
+        \\    x: int;
+        \\}
+        \\module App {
+        \\    fn main() -> int { return 0; }
+        \\}
+    , "requires a default value");
+}
+
+test "error location: exported module missing doc comment" {
+    try expectErrorWithLocation(
+        \\export module Lib {
+        \\    /// documented
+        \\    fn helper() -> int { return 0; }
+        \\}
+        \\module App {
+        \\    fn main() -> int { return 0; }
+        \\}
+    , "missing a /// doc comment");
+}
+
+test "error location: exported function missing doc comment" {
+    try expectErrorWithLocation(
+        \\export module Lib {
+        \\    fn helper() -> int { return 0; }
+        \\}
+        \\module App {
+        \\    fn main() -> int { return 0; }
+        \\}
+    , "missing a /// doc comment");
+}
+
+// ── Scope isolation tests ────────────────────────────────
+
+test "scope: variable declared in if-body not visible after" {
+    try expectError(
+        \\module App {
+        \\    fn main() -> int {
+        \\        if true {
+        \\            x: int = 42;
+        \\        }
+        \\        y: int = x;
+        \\        return 0;
+        \\    }
+        \\}
+    , "undefined variable 'x'");
+}
+
+test "scope: variable declared in while-body not visible after" {
+    try expectError(
+        \\module App {
+        \\    fn main() -> int {
+        \\        while false {
+        \\            x: int = 42;
+        \\        }
+        \\        y: int = x;
+        \\        return 0;
+        \\    }
+        \\}
+    , "undefined variable 'x'");
+}
+
+test "scope: variable declared before if is accessible inside" {
+    try expectNoErrors(
+        \\module App {
+        \\    fn main() -> int {
+        \\        x: int = 10;
+        \\        if true {
+        \\            y: int = x;
+        \\        }
+        \\        return x;
+        \\    }
+        \\}
+    );
+}
+
+test "scope: variable declared before if is accessible after" {
+    try expectNoErrors(
+        \\module App {
+        \\    fn main() -> int {
+        \\        x: int = 10;
+        \\        if true {
+        \\            x = 20;
+        \\        }
+        \\        return x;
+        \\    }
+        \\}
+    );
+}
+
+// ── Return path analysis tests ───────────────────────────
+
+test "return: function with no return errors" {
+    try expectError(
+        \\module App {
+        \\    fn add(a: int, b: int) -> int {
+        \\        x: int = a + b;
+        \\    }
+        \\    fn main() -> int { return 0; }
+        \\}
+    , "does not return a value on all code paths");
+}
+
+test "return: function with return in both if/else ok" {
+    try expectNoErrors(
+        \\module App {
+        \\    fn abs(x: int) -> int {
+        \\        if x > 0 {
+        \\            return x;
+        \\        } else {
+        \\            return 0 - x;
+        \\        }
+        \\    }
+        \\    fn main() -> int { return 0; }
+        \\}
+    );
+}
+
+test "return: function with return only in if errors" {
+    try expectError(
+        \\module App {
+        \\    fn maybe(x: int) -> int {
+        \\        if x > 0 {
+        \\            return x;
+        \\        }
+        \\    }
+        \\    fn main() -> int { return 0; }
+        \\}
+    , "does not return a value on all code paths");
+}
+
+test "return: void function with no return ok" {
+    try expectNoErrors(
+        \\module App {
+        \\    fn doNothing() -> void {
+        \\        x: int = 42;
+        \\    }
+        \\    fn main() -> int { return 0; }
+        \\}
+    );
+}
+
+test "return: while true with return ok" {
+    try expectNoErrors(
+        \\module App {
+        \\    fn loop() -> int {
+        \\        while true {
+        \\            return 0;
+        \\        }
+        \\    }
+        \\    fn main() -> int { return 0; }
+        \\}
+    );
+}
+
+test "return: match with both bool arms return ok" {
+    try expectNoErrors(
+        \\module App {
+        \\    fn check(x: int) -> int {
+        \\        match x > 0 {
+        \\            true => return 1;
+        \\            false => return 0;
+        \\        }
+        \\    }
+        \\    fn main() -> int { return 0; }
+        \\}
+    );
+}
+
+// ── Additional error location tests ──────────────────────
+
+test "error location: reassignment type mismatch" {
+    try expectErrorWithLocation(
+        \\module App {
+        \\    fn main() -> int {
+        \\        x: int = 10;
+        \\        x = "oops";
+        \\        return 0;
+        \\    }
+        \\}
+    , "type mismatch");
+}
+
+test "error location: variable without type declaration" {
+    try expectErrorWithLocation(
+        \\module App {
+        \\    fn main() -> int {
+        \\        x = 42;
+        \\        return 0;
+        \\    }
+        \\}
+    , "must be declared with a type");
+}
+
+test "error location: tell on module" {
+    try expectErrorWithLocation(
+        \\module Helper {
+        \\    fn work() -> int { return 0; }
+        \\}
+        \\module App {
+        \\    fn main() -> int {
+        \\        tell Helper.work();
+        \\        return 0;
+        \\    }
+        \\}
+    , "tell is for processes only");
+}
+
+test "error location: exported process missing doc comment" {
+    try expectErrorWithLocation(
+        \\struct CS { count: int = 0; }
+        \\export process Counter<CS> {
+        \\    /// documented
+        \\    receive Inc(state: CS) -> int { return state.count; }
+        \\}
+        \\module App {
+        \\    fn main() -> int { return 0; }
+        \\}
+    , "missing a /// doc comment");
+}
+
+test "error location: duplicate struct field" {
+    try expectErrorWithLocation(
+        \\struct Bad {
+        \\    x: int = 0;
+        \\    x: int = 1;
+        \\}
+        \\module App {
+        \\    fn main() -> int { return 0; }
+        \\}
+    , "duplicate field");
+}
+
+test "error location: handler state type mismatch" {
+    try expectErrorWithLocation(
+        \\struct A { x: int = 0; }
+        \\struct B { y: int = 0; }
+        \\export process P<A> {
+        \\    /// handler
+        \\    receive Do(state: B) -> int { return 0; }
+        \\}
+        \\module App {
+        \\    fn main() -> int { return 0; }
+        \\}
+    , "state parameter must be typed");
+}
+
+test "error location: process unknown state type" {
+    try expectErrorWithLocation(
+        \\export process P<NoSuchStruct> {
+        \\    /// handler
+        \\    receive Do() -> int { return 0; }
+        \\}
+        \\module App {
+        \\    fn main() -> int { return 0; }
+        \\}
+    , "not a known struct");
+}
+
+test "error location: non-exhaustive match" {
+    try expectErrorWithLocation(
+        \\module App {
+        \\    fn main() -> int {
+        \\        x: int = 5;
+        \\        match x > 0 {
+        \\            true => return 1;
+        \\        }
+        \\        return 0;
+        \\    }
+        \\}
+    , "not exhaustive");
+}
+
+test "error location: while true no return (divergence)" {
+    try expectErrorWithLocation(
+        \\module App {
+        \\    fn main() -> int {
+        \\        while true {
+        \\            x: int = 1;
+        \\        }
+        \\    }
+        \\}
+    , "potential infinite loop");
+}
+
+test "error location: return path analysis" {
+    try expectErrorWithLocation(
+        \\module App {
+        \\    fn bad() -> int {
+        \\        x: int = 42;
+        \\    }
+        \\    fn main() -> int { return 0; }
+        \\}
+    , "does not return a value");
+}
+
+// ── Additional scope isolation tests ─────────────────────
+
+test "scope: variable declared in else-body not visible after" {
+    try expectError(
+        \\module App {
+        \\    fn main() -> int {
+        \\        if false {
+        \\            y: int = 1;
+        \\        } else {
+        \\            x: int = 42;
+        \\        }
+        \\        z: int = x;
+        \\        return 0;
+        \\    }
+        \\}
+    , "undefined variable 'x'");
+}
+
+test "scope: match arm binding not visible after match" {
+    try expectError(
+        \\module App {
+        \\    fn main() -> int {
+        \\        match true {
+        \\            true => {
+        \\                inner: int = 99;
+        \\            }
+        \\            false => {
+        \\                other: int = 0;
+        \\            }
+        \\        }
+        \\        z: int = inner;
+        \\        return 0;
+        \\    }
+        \\}
+    , "undefined variable 'inner'");
+}
+
+test "scope: nested if scopes are isolated" {
+    try expectError(
+        \\module App {
+        \\    fn main() -> int {
+        \\        if true {
+        \\            if true {
+        \\                deep: int = 1;
+        \\            }
+        \\            z: int = deep;
+        \\        }
+        \\        return 0;
+        \\    }
+        \\}
+    , "undefined variable 'deep'");
+}
+
+// ── Additional return path tests ─────────────────────────
+
+test "return: nested if/else all return ok" {
+    try expectNoErrors(
+        \\module App {
+        \\    fn classify(x: int) -> int {
+        \\        if x > 0 {
+        \\            if x > 100 {
+        \\                return 2;
+        \\            } else {
+        \\                return 1;
+        \\            }
+        \\        } else {
+        \\            return 0;
+        \\        }
+        \\    }
+        \\    fn main() -> int { return 0; }
+        \\}
+    );
+}
+
+test "return: nested if without else in one branch errors" {
+    try expectError(
+        \\module App {
+        \\    fn classify(x: int) -> int {
+        \\        if x > 0 {
+        \\            if x > 100 {
+        \\                return 2;
+        \\            }
+        \\        } else {
+        \\            return 0;
+        \\        }
+        \\    }
+        \\    fn main() -> int { return 0; }
+        \\}
+    , "does not return a value on all code paths");
+}
+
+test "return: match with wildcard all arms return ok" {
+    try expectNoErrors(
+        \\module App {
+        \\    fn check(x: int) -> int {
+        \\        match x {
+        \\            _ => return 0;
+        \\        }
+        \\    }
+        \\    fn main() -> int { return 0; }
+        \\}
+    );
+}
+
+test "return: match without wildcard and not exhaustive errors" {
+    try expectError(
+        \\module App {
+        \\    fn check(x: int) -> int {
+        \\        match x > 0 {
+        \\            true => return 1;
+        \\        }
+        \\    }
+        \\    fn main() -> int { return 0; }
+        \\}
+    , "does not return a value on all code paths");
+}
+
+test "return: return after if without else ok" {
+    try expectNoErrors(
+        \\module App {
+        \\    fn check(x: int) -> int {
+        \\        if x > 0 {
+        \\            x = x + 1;
+        \\        }
+        \\        return x;
+        \\    }
+        \\    fn main() -> int { return 0; }
+        \\}
+    );
+}
+
+test "return: handler missing return errors" {
+    try expectError(
+        \\struct CS { v: int = 0; }
+        \\process P<CS> {
+        \\    receive Get(state: CS) -> int {
+        \\        x: int = state.v;
+        \\    }
+        \\    receive main(state: CS) -> int { return 0; }
+        \\}
+    , "does not return a value on all code paths");
+}
+
+test "return: handler missing return has location" {
+    try expectErrorWithLocation(
+        \\struct CS { v: int = 0; }
+        \\process P<CS> {
+        \\    receive Get(state: CS) -> int {
+        \\        x: int = state.v;
+        \\    }
+        \\    receive main(state: CS) -> int { return 0; }
+        \\}
+    , "does not return a value");
+}
+
+// ── Coverage for all remaining checker error paths ───────
+
+test "error: exported handler missing doc comment" {
+    try expectError(
+        \\struct CS { count: int = 0; }
+        \\export process Counter<CS> {
+        \\    receive Inc(state: CS) -> int { return state.count; }
+        \\}
+        \\module App {
+        \\    fn main() -> int { return 0; }
+        \\}
+    , "missing a /// doc comment");
+}
+
+test "error location: exported handler missing doc comment" {
+    try expectErrorWithLocation(
+        \\struct CS { count: int = 0; }
+        \\export process Counter<CS> {
+        \\    receive Inc(state: CS) -> int { return state.count; }
+        \\}
+        \\module App {
+        \\    fn main() -> int { return 0; }
+        \\}
+    , "missing a /// doc comment");
+}
+
+test "error: handler must have state as first parameter" {
+    try expectError(
+        \\struct CS { x: int = 0; }
+        \\process P<CS> {
+        \\    receive Do(val: int) -> int { return val; }
+        \\    receive main(state: CS) -> int { return 0; }
+        \\}
+    , "must have 'state: CS' as first parameter");
+}
+
+test "error location: handler must have state as first parameter" {
+    try expectErrorWithLocation(
+        \\struct CS { x: int = 0; }
+        \\process P<CS> {
+        \\    receive Do(val: int) -> int { return val; }
+        \\    receive main(state: CS) -> int { return 0; }
+        \\}
+    , "must have 'state:");
+}
+
+test "error: argument type mismatch in tell" {
+    try expectError(
+        \\struct CS { v: int = 0; }
+        \\process Counter<CS> {
+        \\    /// inc
+        \\    receive Inc(state: CS, amount: int) -> int { return state.v; }
+        \\}
+        \\module App {
+        \\    fn main() -> int {
+        \\        pid: int = spawn Counter();
+        \\        tell pid.Inc("wrong");
+        \\        return 0;
+        \\    }
+        \\}
+    , "argument type mismatch");
+}
+
+test "error: float literal as guard condition" {
+    try expectError(
+        \\module App {
+        \\    fn bad() -> int {
+        \\        guard 3.14;
+        \\        return 0;
+        \\    }
+        \\    fn main() -> int { return 0; }
+        \\}
+    , "must be boolean, got float");
+}
+
+test "error: generic type requires type parameters" {
+    try expectError(
+        \\module App {
+        \\    fn main() -> int {
+        \\        x: list = list();
+        \\        return 0;
+        \\    }
+        \\}
+    , "requires type parameters");
+}
+
+test "error: tell wrong argument count zero" {
+    try expectError(
+        \\struct CS { v: int = 0; }
+        \\process Counter<CS> {
+        \\    /// inc
+        \\    receive Inc(state: CS, amount: int) -> int { return state.v; }
+        \\}
+        \\module App {
+        \\    fn main() -> int {
+        \\        pid: int = spawn Counter();
+        \\        tell pid.Inc();
+        \\        return 0;
+        \\    }
+        \\}
+    , "expects 1 argument(s), got 0");
+}
+
+test "error: while condition must be boolean string" {
+    try expectError(
+        \\module App {
+        \\    fn main() -> int {
+        \\        while "yes" {
+        \\            return 0;
+        \\        }
+        \\        return 0;
+        \\    }
+        \\}
+    , "must be boolean, got string");
+}
+
+test "error: while condition must be boolean int" {
+    try expectError(
+        \\module App {
+        \\    fn main() -> int {
+        \\        while 42 {
+        \\            return 0;
+        \\        }
+        \\        return 0;
+        \\    }
+        \\}
+    , "must be boolean, got int");
+}
+
+test "error: guard x compared to itself" {
+    try expectError(
+        \\module App {
+        \\    fn bad(x: int) -> int {
+        \\        guard x > x;
+        \\        return 0;
+        \\    }
+        \\    fn main() -> int { return 0; }
+        \\}
+    , "compared to itself");
+}
+
+test "error: division by zero literal" {
+    try expectError(
+        \\module App {
+        \\    fn main() -> int {
+        \\        return 42 / 0;
+        \\    }
+        \\}
+    , "division by zero");
+}
+
+test "error: unknown type in declaration" {
+    try expectError(
+        \\module App {
+        \\    fn main() -> int {
+        \\        x: Foo = 42;
+        \\        return 0;
+        \\    }
+        \\}
+    , "unknown type 'Foo'");
+}
+
+test "error: unknown generic type in variable" {
+    try expectError(
+        \\module App {
+        \\    fn main() -> int {
+        \\        x: Foo<int> = 42;
+        \\        return 0;
+        \\    }
+        \\}
+    , "unknown generic type 'Foo'");
+}
+
+test "error: match on boolean missing true" {
+    try expectError(
+        \\module App {
+        \\    fn main() -> int {
+        \\        x: bool = false;
+        \\        match x {
+        \\            false => return 0;
+        \\        }
+        \\        return 0;
+        \\    }
+        \\}
+    , "missing 'true' case");
+}
+
+test "error: match on boolean missing false" {
+    try expectError(
+        \\module App {
+        \\    fn main() -> int {
+        \\        x: bool = true;
+        \\        match x {
+        \\            true => return 0;
+        \\        }
+        \\        return 0;
+        \\    }
+        \\}
+    , "missing 'false' case");
+}
+
+test "error: match on enum missing variant" {
+    try expectError(
+        \\type Color = enum { Red, Green, Blue };
+        \\module App {
+        \\    fn main() -> int {
+        \\        c: Color = :Red;
+        \\        match c {
+        \\            :Red => return 0;
+        \\            :Green => return 1;
+        \\        }
+        \\        return 0;
+        \\    }
+        \\}
+    , "missing case ':Blue'");
+}
+
+test "error: recursion detected" {
+    try expectError(
+        \\module App {
+        \\    fn loop() -> int { return App.loop(); }
+        \\    fn main() -> int { return 0; }
+        \\}
+    , "recursion detected");
+}
+
+test "error: receive outside process" {
+    try expectError(
+        \\module App {
+        \\    fn main() -> int {
+        \\        receive;
+        \\        return 0;
+        \\    }
+        \\}
+    , "can only be used inside a process");
+}
+
+test "error: missing entry point" {
+    try expectError(
+        \\module Lib {
+        \\    fn helper() -> int { return 0; }
+        \\}
+    , "no entry point found");
+}
+
+test "error: two main functions" {
+    try expectError(
+        \\module A {
+        \\    fn main() -> int { return 0; }
+        \\}
+        \\module B {
+        \\    fn main() -> int { return 0; }
+        \\}
+    , "multiple entry points");
+}
+
+test "error: match must have at least one arm" {
+    try expectError(
+        \\module App {
+        \\    fn main() -> int {
+        \\        match true {}
+        \\        return 0;
+        \\    }
+        \\}
+    , "at least one arm");
+}
+
+test "error: guard always false literal" {
+    try expectError(
+        \\module App {
+        \\    fn bad() -> int {
+        \\        guard false;
+        \\        return 0;
+        \\    }
+        \\    fn main() -> int { return 0; }
+        \\}
+    , "guard is always false");
 }

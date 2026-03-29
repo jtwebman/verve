@@ -968,6 +968,7 @@ pub const Parser = struct {
     }
 
     fn parseMatchStmt(self: *Parser) Error!ast.Stmt {
+        const start = self.pos;
         _ = self.matchKeyword("match");
         const subject = try self.parseExpr();
         try self.expectChar('{');
@@ -988,7 +989,7 @@ pub const Parser = struct {
             try arms.append(self.alloc, .{ .pattern = pattern, .body = try body.toOwnedSlice(self.alloc) });
         }
         try self.expectChar('}');
-        return .{ .match_stmt = .{ .subject = subject, .arms = try arms.toOwnedSlice(self.alloc), .span = .{ .start = 0, .end = 0 } } };
+        return .{ .match_stmt = .{ .subject = subject, .arms = try arms.toOwnedSlice(self.alloc), .span = .{ .start = start, .end = self.pos } } };
     }
 
     fn parsePattern(self: *Parser) Error!ast.Pattern {
@@ -1025,6 +1026,7 @@ pub const Parser = struct {
     fn parseTellStmt(self: *Parser) Error!ast.Stmt {
         // tell process.Handler(args); — fire and forget
         // Parse the call expression, then wrap as tell_stmt
+        const start = self.pos;
         const target_expr = try self.parseExpr();
         try self.expectChar(';');
         // Extract process call info from the parsed expression
@@ -1034,7 +1036,7 @@ pub const Parser = struct {
                     .target = target_expr.call.target.field_access.target.*,
                     .handler = target_expr.call.target.field_access.field,
                     .args = target_expr.call.args,
-                    .span = .{ .start = 0, .end = 0 },
+                    .span = .{ .start = start, .end = self.pos },
                 } };
             }
         }
@@ -1054,6 +1056,7 @@ pub const Parser = struct {
     // ── Functions ─────────────────────────────────────────────
 
     pub fn parseFnDecl(self: *Parser, doc: ?[]const u8) Error!ast.FnDecl {
+        const start = self.pos;
         const name = try self.parseIdentifier();
         try self.expectChar('(');
         var params: std.ArrayListUnmanaged(ast.Param) = .{};
@@ -1091,18 +1094,20 @@ pub const Parser = struct {
             .doc_comment = doc,
             .examples = &.{},
             .properties = &.{},
-            .span = .{ .start = 0, .end = 0 },
+            .span = .{ .start = start, .end = self.pos },
         };
     }
 
     fn parseParam(self: *Parser) Error!ast.Param {
+        const start = self.pos;
         const name = try self.parseIdentifier();
         try self.expectChar(':');
         const type_expr = try self.parseTypeExpr();
-        return .{ .name = name, .type_expr = type_expr, .span = .{ .start = 0, .end = 0 } };
+        return .{ .name = name, .type_expr = type_expr, .span = .{ .start = start, .end = self.pos } };
     }
 
     pub fn parseReceiveDecl(self: *Parser, doc: ?[]const u8) Error!ast.ReceiveDecl {
+        const start = self.pos;
         const name = try self.parseIdentifier();
         try self.expectChar('(');
         var params: std.ArrayListUnmanaged(ast.Param) = .{};
@@ -1140,13 +1145,14 @@ pub const Parser = struct {
             .doc_comment = doc,
             .examples = &.{},
             .properties = &.{},
-            .span = .{ .start = 0, .end = 0 },
+            .span = .{ .start = start, .end = self.pos },
         };
     }
 
     // ── Top-level Declarations ────────────────────────────────
 
     pub fn parseModuleDecl(self: *Parser) Error!ast.ModuleDecl {
+        const start = self.pos;
         const name = try self.parseIdentifier();
         try self.expectChar('{');
 
@@ -1195,11 +1201,12 @@ pub const Parser = struct {
             .imports = try imports.toOwnedSlice(self.alloc),
             .exported = false,
             .doc_comment = null,
-            .span = .{ .start = 0, .end = 0 },
+            .span = .{ .start = start, .end = self.pos },
         };
     }
 
     pub fn parseProcessDecl(self: *Parser) Error!ast.ProcessDecl {
+        const start = self.pos;
         const name = try self.parseIdentifier();
 
         // Parse optional state type: process Counter<CounterState>
@@ -1254,7 +1261,7 @@ pub const Parser = struct {
             .invariants = try invariants.toOwnedSlice(self.alloc),
             .exported = false,
             .doc_comment = null,
-            .span = .{ .start = 0, .end = 0 },
+            .span = .{ .start = start, .end = self.pos },
         };
     }
 
@@ -1278,6 +1285,7 @@ pub const Parser = struct {
     }
 
     pub fn parseStructDecl(self: *Parser) Error!ast.StructDecl {
+        const start = self.pos;
         const name = try self.parseIdentifier();
         var type_params: std.ArrayListUnmanaged([]const u8) = .{};
         if (self.peekChar('<')) {
@@ -1293,6 +1301,7 @@ pub const Parser = struct {
         try self.expectChar('{');
         var fields: std.ArrayListUnmanaged(ast.Field) = .{};
         while (!self.peekChar('}')) {
+            const field_start = self.pos;
             const fname = try self.parseIdentifier();
             try self.expectChar(':');
             const ftype = try self.parseTypeExpr();
@@ -1302,7 +1311,7 @@ pub const Parser = struct {
                 field_default = try self.parseExpr();
             }
             try self.expectChar(';');
-            try fields.append(self.alloc, .{ .name = fname, .type_expr = ftype, .default_value = field_default, .span = .{ .start = 0, .end = 0 } });
+            try fields.append(self.alloc, .{ .name = fname, .type_expr = ftype, .default_value = field_default, .span = .{ .start = field_start, .end = self.pos } });
         }
         try self.expectChar('}');
 
@@ -1311,16 +1320,17 @@ pub const Parser = struct {
             .fields = try fields.toOwnedSlice(self.alloc),
             .type_params = try type_params.toOwnedSlice(self.alloc),
             .exported = false,
-            .span = .{ .start = 0, .end = 0 },
+            .span = .{ .start = start, .end = self.pos },
         };
     }
 
     pub fn parseTypeDecl(self: *Parser) Error!ast.TypeDecl {
+        const start = self.pos;
         const name = try self.parseIdentifier();
         try self.expectChar('=');
         const value = try self.parseTypeExpr();
         try self.expectChar(';');
-        return .{ .name = name, .value = value, .exported = false, .span = .{ .start = 0, .end = 0 } };
+        return .{ .name = name, .value = value, .exported = false, .span = .{ .start = start, .end = self.pos } };
     }
 
     // ── File (entry point) ────────────────────────────────────

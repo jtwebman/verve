@@ -55,6 +55,16 @@ pub fn build(b: *std.Build) void {
     });
     test_step.dependOn(&b.addRunArtifact(checker_tests).step);
 
+    // IR-level tests (no backend needed)
+    const ir_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/ir_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    test_step.dependOn(&b.addRunArtifact(ir_tests).step);
+
     // Compile pipeline tests — fast (parallel, ~15s)
     const fast_compile_tests = [_][]const u8{
         "src/compile_test_basic.zig",

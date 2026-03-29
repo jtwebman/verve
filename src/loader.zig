@@ -5,6 +5,7 @@ const Parser = @import("parser.zig").Parser;
 pub const Loader = struct {
     alloc: std.mem.Allocator,
     loaded_files: std.StringHashMapUnmanaged(ast.File),
+    entry_source: []const u8 = "",
 
     pub const Error = error{
         FileNotFound,
@@ -89,6 +90,11 @@ pub const Loader = struct {
         const source = std.fs.cwd().readFileAlloc(self.alloc, file_path, 1024 * 1024) catch {
             return error.FileNotFound;
         };
+
+        // Store entry file source for error reporting
+        if (import_chain.len == 0) {
+            self.entry_source = source;
+        }
 
         var parser = Parser.init(source, self.alloc);
         const file = parser.parseFile() catch {

@@ -50,15 +50,25 @@ pub fn main() !void {
             }
             return;
         };
+        // Check for --json flag
+        var json_output = false;
+        while (args.next()) |arg| {
+            if (std.mem.eql(u8, arg, "--json")) json_output = true;
+        }
+
         // Type check
         const Chk = @import("checker.zig").Checker;
-        var checker = Chk.init(alloc);
+        var checker = Chk.initWithFile(alloc, loader.entry_source, file_path);
         checker.check(merged) catch {};
         if (checker.hasErrors()) {
-            std.debug.print("Type errors in {s}:\n", .{file_path});
-            checker.printErrors();
+            if (json_output) {
+                checker.printErrorsJson();
+            } else {
+                std.debug.print("Type errors in {s}:\n", .{file_path});
+                checker.printErrors();
+            }
         } else {
-            std.debug.print("OK — no errors\n", .{});
+            if (!json_output) std.debug.print("OK — no errors\n", .{});
         }
 
         std.debug.print("Loaded {d} declarations from {s}\n", .{ merged.decls.len, file_path });
@@ -101,7 +111,7 @@ pub fn main() !void {
 
         // Type check
         const Chk = @import("checker.zig").Checker;
-        var checker = Chk.init(alloc);
+        var checker = Chk.initWithFile(alloc, loader.entry_source, file_path);
         checker.check(file) catch {};
         if (checker.hasErrors()) {
             std.debug.print("Type errors in {s}:\n", .{file_path});
@@ -278,7 +288,7 @@ pub fn main() !void {
 
         // Type check
         const Chk2 = @import("checker.zig").Checker;
-        var checker2 = Chk2.init(alloc);
+        var checker2 = Chk2.initWithFile(alloc, loader.entry_source, file_path);
         checker2.check(merged) catch {};
         if (checker2.hasErrors()) {
             std.debug.print("Type errors in {s}:\n", .{file_path});

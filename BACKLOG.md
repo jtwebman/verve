@@ -2,13 +2,15 @@
 
 ## Completed ✅
 
-Parser, formatter, type checker (121 tests), native compiler via Zig backend, per-process arena allocator, bounded mailbox, dynamic process table, spawn-per-connection, poison-safe arithmetic (overflow, div-zero, infinity/NaN), string builtins, float arithmetic, test blocks + @example, interpreter removed (4,549 lines), old state{}/transition syntax removed.
+Parser, formatter, type checker (181 tests), native compiler via Zig backend, per-process arena allocator, bounded mailbox, dynamic process table, spawn-per-connection, poison-safe arithmetic (overflow, div-zero, infinity/NaN), string builtins, float arithmetic, test blocks + @example, interpreter removed (4,549 lines), old state{}/transition syntax removed.
 
 Stdlib: Tcp, Http (lazy parsing, size limits), Json (scanning + typed struct parse + builder), Stream, Math (int + float), String (all operations), Convert, Env, System, Process, Stdio (println/print).
 
-368 tests across parser (49), parser errors (42), checker (121), compile pipeline (156).
+470+ tests across parser (49), parser errors (42), checker (181), IR (10), compile pipeline (156).
 
 Typed IR + Zig slices: strings are []const u8, floats are f64, bools are native bool in generated Zig. Binary message protocol for process communication — self-describing byte sequences, ready for clustering.
+
+Compiler correctness: error locations (line/col from AST spans), control flow return analysis, scope isolation (if/else/while/match), structured JSON error output (`--json`), IR-level tests.
 
 ---
 
@@ -36,6 +38,11 @@ These are things LANGUAGE-DESIGN.md and LANGUAGE.md claim that don't fully work 
 - [x] Struct allocations use arena — switched from page_allocator to rt.arena_alloc
 - [x] `verve check` uses compiler pipeline — checker runs in build/run commands
 - [x] Import/export system in compiler — Loader used by all commands (run/test/build/check)
+- [x] Error locations — thread line/col from AST nodes through checker so every TypeError has a real source position
+- [x] Control flow return analysis — verify all code paths in a function return a value (catch fall-off-end bugs in Verve, not downstream in Zig)
+- [x] Scope isolation — variables declared in if/else/while/match bodies don't leak into outer scope
+- [x] Structured error output — JSON error format (file/line/col/message) via `verve check --json`
+- [x] IR-level tests — test lowering output directly so IR bugs surface as "invalid IR" not "Zig compilation failed"
 
 ## Priority 2 — Runtime for Concurrency Story
 
@@ -47,7 +54,11 @@ The benchmark apps need real concurrency to show Verve's advantage.
 - [ ] Process affinity — each process runs on one thread at a time
 - [ ] Proper locking on mailbox push (multi-producer)
 
+### Generics
+- [ ] Multi-type-parameter generics — `struct Pair<K, V>`, `struct Either<A, B>` (needed for real data structures)
+
 ### Process Improvements
+- [ ] Mailbox overflow policy — define behavior when 64KB ring buffer fills (block sender / return error / drop oldest), add backpressure signaling
 - [ ] Send timeout language syntax — `match counter.Inc() timeout 5000 { ... }`
 - [ ] Process worker pool — `ProcessPool.create(Handler, size)`, fetch/release
 - [ ] `tell` handlers with `-> void` return type (no meaningless return 0)
@@ -69,6 +80,7 @@ What's needed to build the 20 benchmark apps.
 - [ ] module Uuid (v4 generation)
 - [ ] module Base64 (encode/decode)
 - [ ] module Hash (sha256, for auth tokens)
+- [ ] StringBuilder / Buffer type — avoid O(n²) string concat in loops, growable byte buffer
 
 ### Nice to Have
 - [ ] IO — Udp, Signal
@@ -93,6 +105,7 @@ What's needed to build the 20 benchmark apps.
 
 - [ ] Json — high-performance parser (SIMD/vectorized scanning, replace arena string-concat builder)
 - [ ] C FFI with process isolation
+- [ ] Portable fiber fallback — non-x86-64-linux platforms need a working scheduler (even if slower)
 - [ ] arm64 / macOS / cross-compilation
 - [ ] Clustering (distributed processes, network message passing)
 - [ ] Property-based testing as language feature
