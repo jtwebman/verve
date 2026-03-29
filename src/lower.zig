@@ -120,6 +120,7 @@ pub const Lower = struct {
                         .state_type = p.state_type,
                         .state_fields = try state_fields.toOwnedSlice(self.alloc),
                         .handler_names = try handler_names.toOwnedSlice(self.alloc),
+                        .mailbox_size = if (p.mailbox_size) |s| @intCast(s) else 64,
                     });
                 },
                 else => {},
@@ -476,7 +477,9 @@ pub const Lower = struct {
                         if (self.process_decls.get(proc_type)) |pdecl| {
                             for (pdecl.receive_handlers, 0..) |h, hi| {
                                 if (std.mem.eql(u8, h.name, t.handler)) {
+                                    const tell_dest = func.newReg();
                                     self.appendInst(.{ .process_tell = .{
+                                        .dest = tell_dest,
                                         .target = target_reg,
                                         .handler_index = @intCast(hi),
                                         .args = arg_regs.toOwnedSlice(self.alloc) catch &.{},
@@ -1410,6 +1413,35 @@ pub const Lower = struct {
                 args[1] = zero_reg;
                 self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = "make_tagged", .args = args } });
                 return dest;
+            },
+            .tell_expr => |t| {
+                // tell as expression — same as tell_stmt but returns the dest reg
+                const target_reg = self.lowerExpr(t.target);
+                var arg_regs = std.ArrayListUnmanaged(ir.Reg){};
+                for (t.args) |arg| {
+                    arg_regs.append(self.alloc, self.lowerExpr(arg)) catch {};
+                }
+                const tell_dest = func.newReg();
+                if (t.target == .identifier) {
+                    if (self.process_vars.get(t.target.identifier)) |proc_type| {
+                        if (self.process_decls.get(proc_type)) |pdecl| {
+                            for (pdecl.receive_handlers, 0..) |h, hi| {
+                                if (std.mem.eql(u8, h.name, t.handler)) {
+                                    self.appendInst(.{ .process_tell = .{
+                                        .dest = tell_dest,
+                                        .target = target_reg,
+                                        .handler_index = @intCast(hi),
+                                        .args = arg_regs.toOwnedSlice(self.alloc) catch &.{},
+                                    } });
+                                    return tell_dest;
+                                }
+                            }
+                        }
+                    }
+                }
+                // Fallback: return 0
+                self.appendInst(.{ .const_int = .{ .dest = tell_dest, .value = 0 } });
+                return tell_dest;
             },
             else => {
                 const dest = func.newReg();

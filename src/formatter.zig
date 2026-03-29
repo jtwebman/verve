@@ -706,6 +706,18 @@ pub const Formatter = struct {
                 try self.write(" }");
             },
             .match_expr => {},
+            .tell_expr => |t| {
+                try self.write("tell ");
+                try self.formatExpr(t.target);
+                try self.write(".");
+                try self.write(t.handler);
+                try self.write("(");
+                for (t.args, 0..) |arg, i| {
+                    if (i > 0) try self.write(", ");
+                    try self.formatExpr(arg);
+                }
+                try self.write(")");
+            },
         }
     }
 

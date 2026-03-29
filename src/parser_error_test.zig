@@ -147,14 +147,14 @@ test "error: unknown declaration in process" {
     , "expected 'invariant' or 'receive' inside process");
 }
 
-test "error: process memory missing keyword" {
+test "error: process annotation unknown keyword" {
     try expectParseError(
         \\process Ledger<LedgerState> [size: 64] {
         \\    receive Get(state: LedgerState) -> int {
         \\        return state.balance;
         \\    }
         \\}
-    , "expected 'memory'");
+    , "expected 'memory' or 'mailbox'");
 }
 
 // ── Expression errors ─────────────────────────────────────

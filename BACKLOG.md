@@ -58,7 +58,7 @@ The benchmark apps need real concurrency to show Verve's advantage.
 - [x] Multi-type-parameter generics — `struct Pair<K, V>`, `struct Either<A, B>` (already works: parser, checker, lowerer all handle N params)
 
 ### Process Improvements
-- [ ] Mailbox overflow policy — define behavior when 64KB ring buffer fills (block sender / return error / drop oldest), add backpressure signaling
+- [x] Mailbox overflow policy — configurable [mailbox: N] per process, error on full, tell returns Result<void>
 - [ ] Send timeout language syntax — `match counter.Inc() timeout 5000 { ... }`
 - [ ] Process worker pool — `ProcessPool.create(Handler, size)`, fetch/release
 - [x] `tell` handlers with `-> void` return type (no meaningless return 0)

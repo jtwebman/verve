@@ -118,8 +118,8 @@ pub const Inst = union(enum) {
     process_spawn: struct { dest: Reg, process_type: u32 },
     /// Send a message to a process (synchronous call), result in dest.
     process_send: struct { dest: Reg, target: Reg, handler_index: u32, args: []const Reg },
-    /// Tell a process (fire-and-forget).
-    process_tell: struct { target: Reg, handler_index: u32, args: []const Reg },
+    /// Tell a process (fire-and-forget). Returns Result<void> tagged value.
+    process_tell: struct { dest: Reg, target: Reg, handler_index: u32, args: []const Reg },
     /// Read process state field into dest.
     process_state_get: struct { dest: Reg, struct_name: []const u8, field_name: []const u8 },
     /// Write value to process state field.
@@ -201,6 +201,7 @@ pub const ProcessInfo = struct {
     state_type: ?[]const u8 = null, // Name of the state struct type (e.g., "CounterState")
     state_fields: []const StateFieldInfo,
     handler_names: []const []const u8,
+    mailbox_size: u32 = 64, // max message count (default 64)
 };
 
 pub const StateFieldInfo = struct {

@@ -44,6 +44,7 @@ pub const MemoryBudget = union(enum) {
 pub const ProcessDecl = struct {
     name: []const u8,
     memory: ?MemoryBudget,
+    mailbox_size: ?i64 = null, // max message count, null = default (64)
     state_type: ?[]const u8, // struct name for process state (new syntax)
     receive_handlers: []const ReceiveDecl,
     invariants: []const Expr,
@@ -257,6 +258,7 @@ pub const Expr = union(enum) {
     struct_literal: StructLiteral,
     string_interp: StringInterp,
     match_expr: *const MatchStmt,
+    tell_expr: *const TellStmt, // tell as expression, returns Result<void>
     none_literal: void,
     void_literal: void,
 };

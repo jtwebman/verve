@@ -756,6 +756,10 @@ pub const Checker = struct {
                 for (sl.fields) |f| try self.checkExpr(f.value);
             },
             .match_expr => {},
+            .tell_expr => |t| {
+                try self.checkExpr(t.target);
+                for (t.args) |arg| try self.checkExpr(arg);
+            },
         }
     }
 
@@ -1206,6 +1210,7 @@ pub const Checker = struct {
                 }
                 return null;
             },
+            .tell_expr => return self.makeResultType("void"),
             else => return null,
         }
     }

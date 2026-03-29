@@ -185,6 +185,9 @@ pub const ZigBackend = struct {
                     .process_send => |ps| {
                         types[ps.dest] = .pointer;
                     },
+                    .process_tell => |pt| {
+                        types[pt.dest] = .pointer;
+                    },
                     .process_send_timeout => |ps| {
                         types[ps.dest] = .pointer;
                     },
@@ -1171,6 +1174,9 @@ pub const ZigBackend = struct {
                         // We need it from the IR — look up via the process name's struct_decl
                         self.emitStateInit(pd.name, self.regName(ps.dest));
                     }
+                    if (pd.mailbox_size != 64) {
+                        self.lineFmt("rt.process.verve_set_mailbox_size({s}, {d});", .{ self.regName(ps.dest), pd.mailbox_size });
+                    }
                 }
             },
             .process_send => |ps| {
@@ -1200,9 +1206,9 @@ pub const ZigBackend = struct {
                 if (pt.args.len > 0) {
                     self.line("var _mpos: usize = 2;");
                     for (pt.args) |arg| self.emitMsgEncode(arg, reg_types);
-                    self.lineFmt("rt.process.verve_tell({s}, &_msg_buf, _mpos);", .{self.regName(pt.target)});
+                    self.lineFmt("{s} = rt.process.verve_tell({s}, &_msg_buf, _mpos);", .{ self.regName(pt.dest), self.regName(pt.target) });
                 } else {
-                    self.lineFmt("rt.process.verve_tell({s}, &_msg_buf, 2);", .{self.regName(pt.target)});
+                    self.lineFmt("{s} = rt.process.verve_tell({s}, &_msg_buf, 2);", .{ self.regName(pt.dest), self.regName(pt.target) });
                 }
                 self.indent -= 1;
                 self.line("}");
@@ -1581,6 +1587,7 @@ pub const ZigBackend = struct {
             .string_eq => |se| se.dest,
             .process_spawn => |ps| ps.dest,
             .process_send => |ps| ps.dest,
+            .process_tell => |pt| pt.dest,
             .process_send_timeout => |ps| ps.dest,
             .process_state_get => |sg| sg.dest,
             else => null,

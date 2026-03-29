@@ -289,6 +289,7 @@ pub const Validator = struct {
             .string_eq => |se| se.dest,
             .process_spawn => |ps| ps.dest,
             .process_send => |ps| ps.dest,
+            .process_tell => |pt| pt.dest,
             .process_send_timeout => |ps| ps.dest,
             .process_state_get => |sg| sg.dest,
             else => null,

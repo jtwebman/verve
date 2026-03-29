@@ -643,3 +643,67 @@ test "compile: void handler with params" {
     try testing.expectEqual(@as(u8, 0), r.exit);
     try testing.expectEqualStrings("42\n", r.stdout);
 }
+
+test "compile: mailbox overflow returns error on send" {
+    const r = try compileAndCapture(
+        \\struct CS { count: int = 0; }
+        \\process Counter<CS> [mailbox: 2] {
+        \\    receive Inc(state: CS) -> void {
+        \\        state.count = state.count + 1;
+        \\    }
+        \\    receive GetCount(state: CS) -> int {
+        \\        return state.count;
+        \\    }
+        \\}
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        c: int = spawn Counter();
+        \\        match c.Inc() {
+        \\            :ok{v} => Stdio.println("ok1");
+        \\            :error{e} => Stdio.println(e);
+        \\        }
+        \\        match c.Inc() {
+        \\            :ok{v} => Stdio.println("ok2");
+        \\            :error{e} => Stdio.println(e);
+        \\        }
+        \\        match c.GetCount() {
+        \\            :ok{val} => Stdio.println(val);
+        \\            :error{e} => Stdio.println(e);
+        \\        }
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("ok1\nok2\n2\n", r.stdout);
+}
+
+test "compile: match tell returns Result" {
+    const r = try compileAndCapture(
+        \\struct CS { count: int = 0; }
+        \\process Counter<CS> {
+        \\    receive Inc(state: CS) -> void {
+        \\        state.count = state.count + 1;
+        \\    }
+        \\    receive GetCount(state: CS) -> int {
+        \\        return state.count;
+        \\    }
+        \\}
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        c: int = spawn Counter();
+        \\        match tell c.Inc() {
+        \\            :ok{v} => Stdio.println("sent");
+        \\            :error{e} => Stdio.println(e);
+        \\        }
+        \\        match c.GetCount() {
+        \\            :ok{val} => Stdio.println(val);
+        \\            :error{e} => Stdio.println(e);
+        \\        }
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("sent\n1\n", r.stdout);
+}

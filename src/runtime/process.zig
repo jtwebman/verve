@@ -57,6 +57,7 @@ pub const VerveProcess = struct {
     alive: bool,
     process_type: usize,
     state_ptr: usize = 0, // Pointer to typed state struct (arena-allocated)
+    max_messages: usize = 64, // configurable per-process mailbox limit
     mailbox: Mailbox,
     watcher_pids: [rt.MAX_WATCHERS]usize,
     watcher_count: usize,
@@ -239,12 +240,13 @@ pub fn verve_drain(target_pid: usize) void {
 pub fn verve_send(target_pid: usize, msg_ptr: [*]const u8, msg_len: usize) usize {
     const idx = pidx(target_pid);
     const proc = &process_table[idx];
-    if (!proc.alive) return rt.makeTagged(1, 0);
+    if (!proc.alive) return rt.makeTaggedStr(1, "process_dead");
+    if (proc.mailbox.count >= proc.max_messages) return rt.makeTaggedStr(1, "mailbox_full");
     var result: usize = 0;
     proc.mailbox.reply_slot = &result;
     if (!proc.mailbox.push(msg_ptr, msg_len)) {
         proc.mailbox.reply_slot = null;
-        return rt.makeTagged(1, 0);
+        return rt.makeTaggedStr(1, "mailbox_full");
     }
     // Always drain synchronously for send (caller needs the result)
     verve_drain(target_pid);
@@ -254,18 +256,28 @@ pub fn verve_send(target_pid: usize, msg_ptr: [*]const u8, msg_len: usize) usize
 }
 
 /// Fire-and-forget tell: push message to mailbox.
+/// Returns tagged value: :ok{0} on success, :error{"mailbox_full"} or :error{"process_dead"} on failure.
 /// When scheduler is running, message is deferred to scheduler.
 /// When scheduler is not running, drains immediately (legacy behavior).
-pub fn verve_tell(target_pid: usize, msg_ptr: [*]const u8, msg_len: usize) void {
+pub fn verve_tell(target_pid: usize, msg_ptr: [*]const u8, msg_len: usize) usize {
     const idx = pidx(target_pid);
-    if (idx >= process_table.len) return;
+    if (idx >= process_table.len) return rt.makeTaggedStr(1, "process_dead");
     const proc = &process_table[idx];
-    if (!proc.alive) return;
-    if (!proc.mailbox.push(msg_ptr, msg_len)) return;
+    if (!proc.alive) return rt.makeTaggedStr(1, "process_dead");
+    if (proc.mailbox.count >= proc.max_messages) return rt.makeTaggedStr(1, "mailbox_full");
+    if (!proc.mailbox.push(msg_ptr, msg_len)) return rt.makeTaggedStr(1, "mailbox_full");
     if (!scheduler_running) {
         verve_drain(target_pid);
     }
     // When scheduler_running, message stays in mailbox — scheduler will drain it
+    return rt.makeTagged(0, 0);
+}
+
+/// Set the maximum message count for a process mailbox.
+pub fn verve_set_mailbox_size(target_pid: usize, max_messages: usize) void {
+    const idx = pidx(target_pid);
+    if (idx >= process_table.len) return;
+    process_table[idx].max_messages = max_messages;
 }
 
 /// Send with timeout (timeout not enforced in single-threaded runtime).

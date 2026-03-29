@@ -696,6 +696,24 @@ pub const Parser = struct {
                     },
                 } };
             }
+            if (self.matchKeyword("tell")) {
+                // tell process.Handler(args) as expression — returns Result<void>
+                const tell_start = self.pos;
+                const target_expr = try self.parseExpr();
+                if (target_expr == .call) {
+                    if (target_expr.call.target.* == .field_access) {
+                        const tell_ptr = try self.alloc.create(ast.TellStmt);
+                        tell_ptr.* = .{
+                            .target = target_expr.call.target.field_access.target.*,
+                            .handler = target_expr.call.target.field_access.field,
+                            .args = target_expr.call.args,
+                            .span = .{ .start = tell_start, .end = self.pos },
+                        };
+                        return .{ .tell_expr = tell_ptr };
+                    }
+                }
+                return target_expr;
+            }
             if (self.matchKeyword("send")) {
                 // send process.Handler(args, timeout) — parse the expression after send
                 const expr = try self.parsePrimary();
@@ -1217,16 +1235,26 @@ pub const Parser = struct {
             try self.expectChar('>');
         }
 
-        // Parse optional memory budget: [memory: 64MB] or [memory: unbounded]
+        // Parse optional annotations: [memory: N] [mailbox: N]
         var memory: ?ast.MemoryBudget = null;
-        if (self.peekChar('[')) {
+        var mailbox_size: ?i64 = null;
+        while (self.peekChar('[')) {
             try self.expectChar('[');
-            try self.expect("memory");
-            try self.expectChar(':');
-            if (self.matchKeyword("unbounded")) {
-                memory = .unbounded;
+            if (self.matchKeyword("memory")) {
+                try self.expectChar(':');
+                if (self.matchKeyword("unbounded")) {
+                    memory = .unbounded;
+                } else {
+                    memory = .{ .sized = try self.parseExpr() };
+                }
+            } else if (self.matchKeyword("mailbox")) {
+                try self.expectChar(':');
+                const size_expr = try self.parseExpr();
+                if (size_expr == .int_literal) {
+                    mailbox_size = size_expr.int_literal;
+                }
             } else {
-                memory = .{ .sized = try self.parseExpr() };
+                return self.fail("expected 'memory' or 'mailbox' in process annotation but found '{s}'", .{self.peekSnippet()});
             }
             try self.expectChar(']');
         }
@@ -1256,6 +1284,7 @@ pub const Parser = struct {
         return .{
             .name = name,
             .memory = memory,
+            .mailbox_size = mailbox_size,
             .state_type = state_type,
             .receive_handlers = try receive_handlers.toOwnedSlice(self.alloc),
             .invariants = try invariants.toOwnedSlice(self.alloc),
