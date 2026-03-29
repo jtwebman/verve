@@ -1,17 +1,20 @@
-/// HTTP/1.1 server with cooperative scheduling.
-/// Spawn-per-connection, single request per connection (no keep-alive).
-/// Optimized for benchmark throughput.
+/// HTTP/1.1 server with keep-alive. Process main is a process,
+/// so it runs inside the scheduler. Accept loop uses io_yield for
+/// proper cooperative scheduling with keep-alive connections.
 
 struct HandlerState {
 	id: int = 0;
 }
 
-/// Handle one request per connection.
+/// Handle multiple requests per connection (keep-alive).
 process ConnectionHandler<HandlerState> {
-	/// Handle a single HTTP request then close.
+	/// Handle connection with keep-alive loop.
 	receive Handle(state: HandlerState, client_fd: stream) -> void {
-		data: string = Http.read_request(client_fd);
-		if String.len(data) > 0 {
+		while true {
+			data: string = Http.read_request(client_fd);
+			if String.len(data) == 0 {
+				break;
+			}
 			req: int = Http.parse_request(data);
 			path: string = Http.req_path(req);
 			response: string = "";
@@ -33,42 +36,32 @@ process ConnectionHandler<HandlerState> {
 	}
 }
 
-struct AcceptState {
+struct AppState {
 	listener: stream = 0;
 }
 
-/// Accept loop.
-process Acceptor<AcceptState> {
-	/// Accept connections and dispatch to handlers.
-	receive Start(state: AcceptState, listener_fd: stream) -> int {
-		state.listener = listener_fd;
-		i: int = 0;
-		while i < 10000000 {
-			match Tcp.accept(listener_fd) {
-				:ok{client_fd} => {
-					handler: int = spawn ConnectionHandler();
-					Process.tell(handler.Handle, client_fd);
-				}
-				:error{e} => {
-					i = i;
-				}
-			}
-			Process.yield();
-			i = i + 1;
-		}
-		Stream.close(listener_fd);
-		return 0;
-	}
-}
-
-module Main {
-	fn main() -> int {
+/// Main server process — runs inside scheduler.
+process App<AppState> {
+	/// Entry point — accept loop runs under scheduler for proper keep-alive.
+	receive main(state: AppState) -> int {
 		match Tcp.listen("127.0.0.1", 8080) {
 			:ok{listener} => {
-				Stdio.println("HTTP server on http://127.0.0.1:8080");
-				acceptor: int = spawn Acceptor();
-				Process.tell(acceptor.Start, listener);
-				Process.run();
+				Stdio.println("HTTP server on http://127.0.0.1:8080 (keep-alive)");
+				state.listener = listener;
+				i: int = 0;
+				while i < 10000000 {
+					match Tcp.accept(listener) {
+						:ok{client_fd} => {
+							handler: int = spawn ConnectionHandler();
+							Process.tell(handler.Handle, client_fd);
+						}
+						:error{e} => {
+							i = i;
+						}
+					}
+					i = i + 1;
+				}
+				Stream.close(listener);
 			}
 			:error{e} => Stdio.println("Listen failed");
 		}

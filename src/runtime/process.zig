@@ -301,9 +301,7 @@ fn drain_one(target_pid: usize) bool {
     current_process_id = saved;
 
     if (reply_slot) |slot| {
-        table_lock.lockShared();
-        process_table[idx].mailbox.reply_slot = null;
-        table_lock.unlockShared();
+        // Write result but DON'T null reply_slot — verve_send does that after drain
         slot.* = result;
     }
     return true;
