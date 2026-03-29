@@ -815,6 +815,47 @@ test "compile: thread_id returns a value" {
     try testing.expectEqualStrings("0\n", r.stdout);
 }
 
+// ── Yield + send/tell interaction tests ──────────────────
+
+test "compile: tell with yield handler then send" {
+    // Tests: tell Inc (3x), tell Save (handler yields), tell Inc, send GetTotal
+    // Save handler calls Process.yield() — tests that yield during tell dispatch works.
+    // GetTotal is a send — tests that send after yields returns correct result.
+    // Expected: 3 incs + save(yields) + 1 inc = 4 total
+    const r = try compileAndCapture(
+        \\struct CS { count: int = 0; saved: int = 0; }
+        \\process Counter<CS> {
+        \\    receive Inc(state: CS) -> void {
+        \\        state.count = state.count + 1;
+        \\    }
+        \\    receive Save(state: CS) -> void {
+        \\        state.saved = state.count;
+        \\        Process.yield();
+        \\    }
+        \\    receive GetTotal(state: CS) -> int {
+        \\        return state.count;
+        \\    }
+        \\}
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        c: int = spawn Counter();
+        \\        Process.tell(c.Inc);
+        \\        Process.tell(c.Inc);
+        \\        Process.tell(c.Inc);
+        \\        Process.tell(c.Save);
+        \\        Process.tell(c.Inc);
+        \\        match Process.send(c.GetTotal) {
+        \\            :ok{val} => Stdio.println(val);
+        \\            :error{e} => Stdio.println(e);
+        \\        }
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("4\n", r.stdout);
+}
+
 test "compile: mailbox full returns error string" {
     const r = try compileAndCapture(
         \\struct CS { count: int = 0; }

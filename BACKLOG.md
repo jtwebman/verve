@@ -63,7 +63,8 @@ The benchmark apps need real concurrency to show Verve's advantage.
 ### Process Improvements
 - [x] Mailbox overflow policy — configurable [mailbox: N] per process, error on full, tell returns Result<void>
 - [x] Send timeout language syntax — `Process.send_timeout(counter.Inc, 5, 5000)`, explicit Process.send/tell/send_timeout API
-- [ ] Async send — caller yields fiber, target gets priority, reply wakes caller with priority. Per-message sender_pid. Sync fallback for module main.
+- [ ] Always-scheduler — every program runs under scheduler. Module main wrapped in synthetic process. Process.run() becomes automatic. Prerequisite for async send.
+- [ ] Async send — caller yields fiber, target gets priority, reply wakes caller with priority. Per-message sender_pid.
 - [ ] Compile-time deadlock detection — checker analyzes Process.send call graph across handlers to detect mutual send cycles (A sends to B, B sends to A). Verve innovation — BEAM can't do this because communication is dynamic.
 - [ ] Process worker pool — `ProcessPool.create(Handler, size)`, fetch/release
 - [x] `tell` handlers with `-> void` return type (no meaningless return 0)
