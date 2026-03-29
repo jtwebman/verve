@@ -585,3 +585,61 @@ test "compile: mixed typed struct fields" {
     try testing.expectEqual(@as(u8, 0), r.exit);
     try testing.expectEqualStrings("Alice\n10\n30\n", r.stdout);
 }
+
+test "compile: void handler with tell" {
+    const r = try compileAndCapture(
+        \\struct LogState { count: int = 0; }
+        \\process Logger<LogState> {
+        \\    receive Log(state: LogState) -> void {
+        \\        state.count = state.count + 1;
+        \\    }
+        \\    receive GetCount(state: LogState) -> int {
+        \\        return state.count;
+        \\    }
+        \\}
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        logger: int = spawn Logger();
+        \\        tell logger.Log();
+        \\        tell logger.Log();
+        \\        tell logger.Log();
+        \\        match logger.GetCount() {
+        \\            :ok{val} => Stdio.println(val);
+        \\            :error{e} => Stdio.println("err");
+        \\        }
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("3\n", r.stdout);
+}
+
+test "compile: void handler with params" {
+    const r = try compileAndCapture(
+        \\struct AccState { total: int = 0; }
+        \\process Acc<AccState> {
+        \\    receive Add(state: AccState, n: int) -> void {
+        \\        state.total = state.total + n;
+        \\    }
+        \\    receive GetTotal(state: AccState) -> int {
+        \\        return state.total;
+        \\    }
+        \\}
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        acc: int = spawn Acc();
+        \\        tell acc.Add(10);
+        \\        tell acc.Add(20);
+        \\        tell acc.Add(12);
+        \\        match acc.GetTotal() {
+        \\            :ok{val} => Stdio.println(val);
+        \\            :error{e} => Stdio.println("err");
+        \\        }
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("42\n", r.stdout);
+}

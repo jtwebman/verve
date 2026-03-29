@@ -512,8 +512,13 @@ pub const ZigBackend = struct {
                         }
                     }
                     if (handler_func) |hf| {
+                        const is_void = hf.return_type == .void;
                         if (hf.params.len == 0) {
-                            self.lineFmt("{d} => verve_{s}_{s}(),", .{ hi, pd.name, hname });
+                            if (is_void) {
+                                self.lineFmt("{d} => {{ verve_{s}_{s}(); return 0; }},", .{ hi, pd.name, hname });
+                            } else {
+                                self.lineFmt("{d} => verve_{s}_{s}(),", .{ hi, pd.name, hname });
+                            }
                         } else {
                             self.lineFmt("{d} => blk: {{", .{hi});
                             self.indent += 1;
@@ -524,12 +529,19 @@ pub const ZigBackend = struct {
                             }
                             // Call handler with decoded params
                             self.writeIndent();
-                            self.writeFmt("break :blk verve_{s}_{s}(", .{ pd.name, hname });
+                            if (is_void) {
+                                self.writeFmt("verve_{s}_{s}(", .{ pd.name, hname });
+                            } else {
+                                self.writeFmt("break :blk verve_{s}_{s}(", .{ pd.name, hname });
+                            }
                             for (hf.params, 0..) |param, pi| {
                                 if (pi > 0) self.write(", ");
                                 self.writeFmt("_p_{s}", .{param.name});
                             }
                             self.write(");\n");
+                            if (is_void) {
+                                self.line("break :blk 0;");
+                            }
                             self.indent -= 1;
                             self.line("},");
                         }
@@ -769,7 +781,9 @@ pub const ZigBackend = struct {
                 }
             }
             // Return type
-            if (func.return_type == .f64) {
+            if (func.return_type == .void) {
+                self.write(") void {\n");
+            } else if (func.return_type == .f64) {
                 self.write(") f64 {\n");
             } else if (func.return_type == .bool) {
                 self.write(") bool {\n");
@@ -872,7 +886,7 @@ pub const ZigBackend = struct {
             for (block.insts.items) |inst| {
                 if (terminated) break;
                 const fn_returns_ptr = !is_entry and (self.isProcessHandler(func) or self.returnsPointer(func, reg_types));
-                self.emitInst(inst, &local_names, &local_count, &local_types, reg_types, is_entry, fn_returns_ptr);
+                self.emitInst(inst, &local_names, &local_count, &local_types, reg_types, is_entry, fn_returns_ptr, func.return_type);
                 if (isTerminator(inst)) terminated = true;
             }
 
@@ -891,7 +905,9 @@ pub const ZigBackend = struct {
         self.line("}");
 
         if (!is_entry) {
-            if (func.return_type == .f64) {
+            if (func.return_type == .void) {
+                self.line("return;");
+            } else if (func.return_type == .f64) {
                 self.line("return 0.0;");
             } else if (func.return_type == .bool) {
                 self.line("return false;");
@@ -939,7 +955,7 @@ pub const ZigBackend = struct {
         return .int;
     }
 
-    fn emitInst(self: *ZigBackend, inst: ir.Inst, local_names: *[128][]const u8, local_count: *usize, local_types: *[128]RegType, reg_types: []const RegType, is_entry: bool, fn_returns_ptr: bool) void {
+    fn emitInst(self: *ZigBackend, inst: ir.Inst, local_names: *[128][]const u8, local_count: *usize, local_types: *[128]RegType, reg_types: []const RegType, is_entry: bool, fn_returns_ptr: bool, fn_return_type: ir.Type) void {
         switch (inst) {
             .const_int => |c| self.lineFmt("{s} = {d};", .{ self.regName(c.dest), c.value }),
             .const_bool => |c| self.lineFmt("{s} = {s};", .{ self.regName(c.dest), if (c.value) "true" else "false" }),
@@ -1056,7 +1072,11 @@ pub const ZigBackend = struct {
                             self.lineFmt("return {s};", .{self.regName(reg)});
                         }
                     } else {
-                        self.line("return 0;");
+                        if (fn_return_type == .void) {
+                            self.line("return;");
+                        } else {
+                            self.line("return 0;");
+                        }
                     }
                 }
             },

@@ -61,7 +61,7 @@ The benchmark apps need real concurrency to show Verve's advantage.
 - [ ] Mailbox overflow policy — define behavior when 64KB ring buffer fills (block sender / return error / drop oldest), add backpressure signaling
 - [ ] Send timeout language syntax — `match counter.Inc() timeout 5000 { ... }`
 - [ ] Process worker pool — `ProcessPool.create(Handler, size)`, fetch/release
-- [ ] `tell` handlers with `-> void` return type (no meaningless return 0)
+- [x] `tell` handlers with `-> void` return type (no meaningless return 0)
 - [ ] Per-process memory budgets from `memory` declaration
 - [ ] Idle-thread GC — compact dormant process arenas on idle threads
 
