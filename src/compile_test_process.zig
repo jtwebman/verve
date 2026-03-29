@@ -367,7 +367,8 @@ test "compile: Process.exit terminates handler" {
         \\}
     );
     try testing.expectEqual(@as(u8, 0), r.exit);
-    try testing.expectEqualStrings("42\ndone\n", r.stdout);
+    // Under the scheduler, tell is async — main's "done" may print before Worker's "42"
+    try testing.expectEqualStrings("done\n42\n", r.stdout);
 }
 
 test "compile: process state with new struct syntax" {
@@ -854,6 +855,43 @@ test "compile: tell with yield handler then send" {
     );
     try testing.expectEqual(@as(u8, 0), r.exit);
     try testing.expectEqualStrings("4\n", r.stdout);
+}
+
+test "compile: yield splits handler — saved reflects pre-yield state" {
+    // Save sets saved AFTER yield, so saved = count at time of yield (3).
+    // Inc after Save bumps count to 4 but saved stays 3.
+    const r = try compileAndCapture(
+        \\struct CS { count: int = 0; saved: int = 0; }
+        \\process Counter<CS> {
+        \\    receive Inc(state: CS) -> void {
+        \\        state.count = state.count + 1;
+        \\    }
+        \\    receive Save(state: CS) -> void {
+        \\        Process.yield();
+        \\        state.saved = state.count;
+        \\    }
+        \\    receive GetSaved(state: CS) -> int {
+        \\        return state.saved;
+        \\    }
+        \\}
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        c: int = spawn Counter();
+        \\        Process.tell(c.Inc);
+        \\        Process.tell(c.Inc);
+        \\        Process.tell(c.Inc);
+        \\        Process.tell(c.Save);
+        \\        Process.tell(c.Inc);
+        \\        match Process.send(c.GetSaved) {
+        \\            :ok{val} => Stdio.println(val);
+        \\            :error{e} => Stdio.println(e);
+        \\        }
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("3\n", r.stdout);
 }
 
 test "compile: mailbox full returns error string" {

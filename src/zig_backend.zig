@@ -598,6 +598,11 @@ pub const ZigBackend = struct {
             if (std.mem.eql(u8, func.name, "main")) {
                 if (main_is_process) {
                     self.emitProcessMainWrapper(func);
+                } else if (program.process_decls.items.len > 0) {
+                    // Has processes: emit main as regular function, wrap in scheduler
+                    self.emitFunction(func, false);
+                    self.line("");
+                    self.emitSchedulerMainWrapper(func);
                 } else {
                     self.emitFunction(func, true);
                 }
@@ -950,6 +955,47 @@ pub const ZigBackend = struct {
         self.line("std.posix.exit(@intCast(result));");
         self.indent -= 1;
         self.line("}");
+        self.indent -= 1;
+        self.line("}");
+    }
+
+    /// Emit a scheduler-wrapped main entry point for module mains that use processes.
+    /// The user's main runs as a fiber under the scheduler so tell/yield/send work correctly.
+    fn emitSchedulerMainWrapper(self: *ZigBackend, func: ir.Function) void {
+        // Emit wrapper function that the scheduler calls via main fiber
+        self.writeFmt("fn verve_main_wrapper(_: usize) usize {{\n", .{});
+        self.indent += 1;
+        self.line("var verve_args_list = rt.List.init();");
+        self.line("var proc_args = std.process.argsWithAllocator(std.heap.page_allocator) catch return 0;");
+        self.line("_ = proc_args.skip();");
+        self.line("while (proc_args.next()) |arg| {");
+        self.indent += 1;
+        self.line("verve_args_list.append(@intCast(@intFromPtr(arg.ptr)));");
+        self.indent -= 1;
+        self.line("}");
+        self.writeIndent();
+        self.writeFmt("return @intCast(@as(u64, @bitCast(verve_{s}_{s}(", .{ func.module, func.name });
+        for (func.params, 0..) |param, i| {
+            if (i > 0) self.write(", ");
+            if (std.mem.eql(u8, param.name, "args")) {
+                self.write("@intCast(@intFromPtr(&verve_args_list))");
+            } else {
+                self.write("0");
+            }
+        }
+        self.write("))));\n");
+        self.indent -= 1;
+        self.line("}");
+        self.line("");
+        // Emit pub fn main() — starts scheduler with main as a synthetic process
+        self.line("pub fn main() void {");
+        self.indent += 1;
+        self.line("rt.verve_runtime_init();");
+        self.line("verve_init_dispatch();");
+        self.line("_ = rt.process.verve_spawn_main(&verve_main_wrapper);");
+        self.line("_ = rt.process.verve_scheduler_run_threaded(1);");
+        self.line("const exit_code = rt.process.program_exit_code.load(.acquire);");
+        self.line("if (exit_code != 0) std.posix.exit(@intCast(@as(u64, @bitCast(exit_code))));");
         self.indent -= 1;
         self.line("}");
     }

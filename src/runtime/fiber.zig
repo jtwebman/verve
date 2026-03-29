@@ -30,9 +30,14 @@ pub const Fiber = struct {
 
 /// Allocate a fiber with its own stack. Sets up the initial stack frame so the
 /// first context_switch into this fiber calls entry_fn(arg).
-pub fn fiber_init(fiber: *Fiber, entry_fn: *const fn (usize) void, arg: usize) !void {
+pub fn fiber_init(f: *Fiber, entry_fn: *const fn (usize) void, arg: usize) !void {
+    return fiber_init_sized(f, entry_fn, arg, FIBER_STACK_SIZE);
+}
+
+/// Allocate a fiber with a custom stack size.
+pub fn fiber_init_sized(fiber: *Fiber, entry_fn: *const fn (usize) void, arg: usize, stack_size: usize) !void {
     // Allocate stack + guard page (PROT_NONE at bottom to catch overflow)
-    const total = FIBER_STACK_SIZE + 4096;
+    const total = stack_size + 4096;
     const page_align: std.mem.Alignment = @enumFromInt(12); // 2^12 = 4096
     const mem = try std.heap.page_allocator.alignedAlloc(u8, page_align, total);
 
@@ -126,27 +131,33 @@ fn fiber_trampoline() callconv(.naked) void {
     unreachable;
 }
 
-/// Switch execution from one context to another.
-/// Saves callee-saved registers to `from`, restores from `to`.
-/// When this function "returns", it returns on the `to` stack.
+// context_switch_asm: standalone assembly routine (no compiler prologue/epilogue).
+// Expects: rdi = pointer to from.rsp, rsi = pointer to to.rsp
+comptime {
+    asm (
+        \\.globl context_switch_asm
+        \\.type context_switch_asm, @function
+        \\context_switch_asm:
+        \\    push %rbx
+        \\    push %rbp
+        \\    push %r12
+        \\    push %r13
+        \\    push %r14
+        \\    push %r15
+        \\    mov %rsp, (%rdi)
+        \\    mov (%rsi), %rsp
+        \\    pop %r15
+        \\    pop %r14
+        \\    pop %r13
+        \\    pop %r12
+        \\    pop %rbp
+        \\    pop %rbx
+        \\    ret
+    );
+}
+
+extern fn context_switch_asm(from_rsp: *usize, to_rsp: *usize) void;
+
 pub fn context_switch(from: *Context, to: *Context) void {
-    asm volatile (
-        \\ push %%rbx
-        \\ push %%rbp
-        \\ push %%r12
-        \\ push %%r13
-        \\ push %%r14
-        \\ push %%r15
-        \\ mov %%rsp, (%[from_rsp])
-        \\ mov (%[to_rsp]), %%rsp
-        \\ pop %%r15
-        \\ pop %%r14
-        \\ pop %%r13
-        \\ pop %%r12
-        \\ pop %%rbp
-        \\ pop %%rbx
-        :
-        : [from_rsp] "r" (&from.rsp),
-          [to_rsp] "r" (&to.rsp),
-        : .{ .memory = true });
+    context_switch_asm(&from.rsp, &to.rsp);
 }

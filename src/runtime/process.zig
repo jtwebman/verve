@@ -13,6 +13,8 @@ pub const Mailbox = struct {
     used: usize = 0, // bytes used in buffer
     count: usize = 0, // number of messages
     reply_slot: ?*usize = null, // for synchronous send
+    reply_waiter_pid: usize = 0, // PID waiting for send reply
+    send_result_ready: bool = false, // flag: reply has been written
     mutex: std.Thread.Mutex = .{}, // thread-safe push/pop
 
     /// Push a message (raw bytes) into the mailbox. Returns false if no room.
@@ -101,6 +103,8 @@ pub const VerveProcess = struct {
             m.used = 0;
             m.count = 0;
             m.reply_slot = null;
+            m.reply_waiter_pid = 0;
+            m.send_result_ready = false;
         }
         if (self.watcher_ptr) |w| {
             w.count = 0;
@@ -128,6 +132,8 @@ var free_slots: std.ArrayListUnmanaged(usize) = .{}; // indices of dead process 
 // ── Scheduler state ───────────────────────────────
 
 pub var scheduler_running: std.atomic.Value(bool) = std.atomic.Value(bool).init(false);
+pub var program_exit_code: std.atomic.Value(i64) = std.atomic.Value(i64).init(0);
+pub var main_fn_ptr: ?*const fn (usize) usize = null;
 
 pub const SchedulerThread = struct {
     id: usize,
@@ -231,6 +237,8 @@ pub fn verve_spawn(process_type: usize) usize {
         m.used = 0;
         m.count = 0;
         m.reply_slot = null;
+        m.reply_waiter_pid = 0;
+        m.send_result_ready = false;
     }
     if (proc.watcher_ptr) |w| w.count = 0;
     proc.yielded = false;
@@ -336,7 +344,11 @@ fn drain_one(target_pid: usize) bool {
         return true;
     }
     const dispatch_fn = dispatch_table[proc.process_type];
-    const reply_slot = proc.mailbox().reply_slot;
+    // Bit 7 of param_count byte marks this message as a send (needs reply).
+    // Clear the flag before dispatching so the handler sees the real param count.
+    const is_send_msg = msg.len >= 2 and (pop_buf[1] & 0x80) != 0;
+    if (is_send_msg) pop_buf[1] &= 0x7F;
+    const reply_slot = if (is_send_msg) proc.mailbox().reply_slot else null;
     table_lock.unlockShared();
 
     const saved = current_process_id;
@@ -345,8 +357,17 @@ fn drain_one(target_pid: usize) bool {
     current_process_id = saved;
 
     if (reply_slot) |slot| {
-        // Write result but DON'T null reply_slot — verve_send does that after drain
         slot.* = result;
+        // Wake the sender — the send message has been processed
+        const mb = process_table[idx].mailbox_ptr.?;
+        mb.send_result_ready = true;
+        if (mb.reply_waiter_pid != 0) {
+            const waiter_idx = pidx(mb.reply_waiter_pid);
+            if (waiter_idx < process_table.len) {
+                process_table[waiter_idx].yielded = true;
+            }
+            mb.reply_waiter_pid = 0;
+        }
     }
     return true;
 }
@@ -361,7 +382,7 @@ pub fn verve_drain(target_pid: usize) void {
     }
 }
 
-/// Synchronous send: encode message, push to mailbox, drain, return result.
+/// Synchronous send: encode message, push to mailbox, drain/yield, return result.
 pub fn verve_send(target_pid: usize, msg_ptr: [*]const u8, msg_len: usize) usize {
     const idx = pidx(target_pid);
     const proc = &process_table[idx];
@@ -369,12 +390,36 @@ pub fn verve_send(target_pid: usize, msg_ptr: [*]const u8, msg_len: usize) usize
     if (proc.mailbox().count >= proc.max_messages) return rt.makeTaggedStr(1, "mailbox_full");
     var result: usize = 0;
     proc.mailbox().reply_slot = &result;
-    if (!proc.mailbox().push(msg_ptr, msg_len)) {
+    // Mark message as send (bit 7 of param_count byte) so drain_one uses reply_slot
+    var send_buf: [8192]u8 = undefined;
+    const capped = @min(msg_len, send_buf.len);
+    @memcpy(send_buf[0..capped], msg_ptr[0..capped]);
+    if (capped >= 2) send_buf[1] |= 0x80;
+    if (!proc.mailbox().push(&send_buf, capped)) {
         proc.mailbox().reply_slot = null;
         return rt.makeTaggedStr(1, "mailbox_full");
     }
-    // Always drain synchronously for send (caller needs the result)
-    verve_drain(target_pid);
+    if (!scheduler_running.load(.acquire)) {
+        // Legacy sync path (no scheduler running)
+        verve_drain(target_pid);
+    } else {
+        // Scheduler-aware: yield until target processes our message
+        proc.mailbox().send_result_ready = false;
+        proc.mailbox().reply_waiter_pid = current_process_id;
+        // Hint scheduler to run the target next
+        if (current_thread) |ct| {
+            if (proc.owner_thread == ct.id) {
+                ct.next_pid = target_pid;
+            }
+        }
+        while (!proc.mailbox().send_result_ready and proc.alive) {
+            const self_idx = pidx(current_process_id);
+            process_table[self_idx].yielded = true;
+            if (current_thread) |thread| {
+                fiber.context_switch(&process_table[self_idx].proc_fiber.?.context, &thread.scheduler_context);
+            } else break;
+        }
+    }
     proc.mailbox().reply_slot = null;
     if (result > 0x10000 and rt.getTag(result) == 1) return result;
     return rt.makeTagged(0, @intCast(result));
@@ -507,7 +552,9 @@ fn process_fiber_entry(pid_raw: usize) void {
         if (!process_table[idx].alive) break;
 
         if (had_msg) {
-            process_table[idx].yielded = (if (process_table[idx].mailbox_ptr) |m| m.count > 0 else false) or process_table[idx].yielded;
+            // Set yielded if more messages remain; clear it otherwise so the
+            // scheduler doesn't spin on an idle process.
+            process_table[idx].yielded = if (process_table[idx].mailbox_ptr) |m| m.count > 0 else false;
         }
 
         // Return to scheduler
@@ -535,6 +582,38 @@ fn ensure_fiber(proc: *VerveProcess) void {
     fiber.fiber_init(&proc.proc_fiber.?, &process_fiber_entry, proc.id) catch {
         proc.proc_fiber = null;
     };
+}
+
+/// Fiber entry for the synthetic main process. Calls the user's main function,
+/// stores its exit code, then marks itself dead and returns to the scheduler.
+fn main_process_fiber_entry(pid_raw: usize) void {
+    const pid: usize = pid_raw;
+    const result = if (main_fn_ptr) |f| f(0) else 0;
+    program_exit_code.store(@intCast(result), .release);
+    const idx = pidx(pid);
+    process_table[idx].alive = false;
+    if (process_table[idx].proc_fiber) |*f| f.state = .done;
+    if (current_thread) |thread| {
+        fiber.context_switch(&process_table[idx].proc_fiber.?.context, &thread.scheduler_context);
+    }
+}
+
+/// Spawn a synthetic process for module main. Uses main_process_fiber_entry
+/// instead of the normal message-draining fiber entry. Uses a larger stack
+/// (256KB) since user main functions have full local variable arrays.
+pub fn verve_spawn_main(main_fn: *const fn (usize) usize) usize {
+    main_fn_ptr = main_fn;
+    const pid = verve_spawn(0xFFFF);
+    const idx = pidx(pid);
+    var proc = &process_table[idx];
+    proc.yielded = true; // make it schedulable immediately
+    // Create fiber with main_process_fiber_entry and large stack
+    proc.proc_fiber = fiber.Fiber{};
+    fiber.fiber_init_sized(&proc.proc_fiber.?, &main_process_fiber_entry, pid, 256 * 1024) catch {
+        proc.proc_fiber = null;
+    };
+    if (proc.proc_fiber) |*f| f.state = .running;
+    return pid;
 }
 
 /// Run the cooperative scheduler on a single SchedulerThread.
