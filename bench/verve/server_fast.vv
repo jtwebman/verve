@@ -1,0 +1,42 @@
+/// High-performance HTTP server using Http.serve (runtime-managed connections).
+/// Runtime handles accept/read/keep-alive. Handler is a real process.
+/// Handler receives req pointer + stream, writes response, returns void.
+
+struct HandlerState {
+	count: int = 0;
+}
+
+/// Request handler — real process. Writes response to the stream.
+process RequestHandler<HandlerState> {
+	/// Handle one HTTP request.
+	receive Handle(state: HandlerState, req: stream, client: stream) -> void {
+		path: string = Http.req_path(req);
+		response: string = "";
+		if path == "/json" {
+			b: int = Json.build_object();
+			Json.build_add_string(b, "status", "ok");
+			body: string = Json.build_end(b);
+			response = Http.respond(200, "application/json", body);
+		} else {
+			if path == "/health" {
+				response = Http.respond(200, "text/plain", "ok");
+			} else {
+				response = Http.respond(200, "text/plain", "Hello from Verve!");
+			}
+		}
+		Stream.write(client, response);
+	}
+}
+
+module Main {
+	fn main() -> int {
+		match Tcp.listen("127.0.0.1", 8080) {
+			:ok{listener} => {
+				Stdio.println("HTTP server on http://127.0.0.1:8080 (Http.serve, process pool)");
+				Http.serve(listener, 0, 0);
+			}
+			:error{e} => Stdio.println("Listen failed");
+		}
+		return 0;
+	}
+}

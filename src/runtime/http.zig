@@ -363,14 +363,16 @@ pub fn http_build_response(status: i64, ct: []const u8, body: []const u8) []cons
 
 const process = @import("process.zig");
 
-/// Run an HTTP server with runtime-managed connections.
-/// The runtime owns all TCP connections and does epoll/accept/read/write.
-/// For each request, it calls the handler process's dispatch function directly
-/// with the parsed request pointer. The handler returns a response string.
-/// No per-connection process spawn. No fiber context switch for I/O.
+/// Run an HTTP server with runtime-managed connections and keep-alive.
+/// The runtime owns TCP connections (accept, read, keep-alive, write).
+/// For each request, it sends the request data to a handler process via
+/// Process.send and gets the response string back. The handler is a real
+/// Verve process with state, arena, and full language features.
+///
+/// Handler receives: (state, req: stream) -> string
+/// Returns the HTTP response string (from Http.respond).
 ///
 /// Args: listener_ptr (stream), handler_process_type (int), handler_index (int)
-/// The handler receives one i64 param: the request pointer from http_parse_request.
 pub fn http_serve(listener_ptr: usize, handler_type_i: i64, handler_index_i: i64) i64 {
     const listener = io.toStream(listener_ptr) orelse return -1;
     if (listener.closed) return -1;
@@ -378,20 +380,18 @@ pub fn http_serve(listener_ptr: usize, handler_type_i: i64, handler_index_i: i64
     const handler_type: usize = @intCast(@as(u64, @bitCast(handler_type_i)));
     const handler_index: u8 = @intCast(@as(u64, @bitCast(handler_index_i)));
 
-    const dispatch_fn = if (handler_type < process.dispatch_table.len)
-        process.dispatch_table[handler_type]
-    else
-        return -1;
+    // Spawn a pool of handler processes — one per core for parallelism
+    const pool_size: usize = 4;
+    var handler_pids: [64]usize = undefined;
+    for (0..pool_size) |i| {
+        handler_pids[i] = process.verve_spawn(handler_type);
+    }
+    var next_handler: usize = 0;
 
-    // Tight accept-read-dispatch-write loop. No epoll needed for this pattern —
-    // we block on accept, then handle the connection synchronously.
-    // For keep-alive, we loop reading on the same fd.
+    // Accept-read-send-write loop (runtime-managed)
     while (true) {
-        // Accept (blocking since listener is non-blocking, use poll)
         const client_fd = blk: {
-            // Try non-blocking accept first
             break :blk std.posix.accept(listener.fd, null, null, std.posix.SOCK.CLOEXEC) catch {
-                // No connection ready — poll until one arrives
                 var pfd = [1]std.posix.pollfd{.{
                     .fd = listener.fd,
                     .events = std.posix.POLL.IN,
@@ -402,12 +402,7 @@ pub fn http_serve(listener_ptr: usize, handler_type_i: i64, handler_index_i: i64
             };
         };
 
-        // Create stream for this connection
-        const s = std.heap.page_allocator.create(io.VerveStream) catch {
-            std.posix.close(client_fd);
-            continue;
-        };
-        s.* = .{
+        var stream = io.VerveStream{
             .kind = .tcp_client,
             .fd = client_fd,
             .read_buf = undefined,
@@ -418,48 +413,35 @@ pub fn http_serve(listener_ptr: usize, handler_type_i: i64, handler_index_i: i64
             .file_pos = 0,
             .closed = false,
         };
+        const s = &stream;
 
-        // Keep-alive loop: handle multiple requests on this connection
+        // Keep-alive loop
         while (true) {
             const req_data = http_read_request_blocking(s);
-            if (req_data.len == 0) break; // connection closed or error
+            if (req_data.len == 0) break;
 
             const req_ptr = http_parse_request(req_data);
 
-            // Build message for handler: [handler_index, 1 param, type=0 (int), req_ptr as 8 bytes]
-            var msg_buf: [11]u8 = undefined;
+            // Send to handler: (req_ptr, stream_ptr) — handler writes response directly
+            var msg_buf: [20]u8 = undefined;
             msg_buf[0] = handler_index;
-            msg_buf[1] = 1;
-            msg_buf[2] = 0; // type int
-            const ptr_bytes: [8]u8 = @bitCast(@as(i64, @intCast(req_ptr)));
-            @memcpy(msg_buf[3..11], &ptr_bytes);
+            msg_buf[1] = 2; // 2 params
+            msg_buf[2] = 0; // type: int (req_ptr)
+            const req_bytes: [8]u8 = @bitCast(@as(i64, @intCast(req_ptr)));
+            @memcpy(msg_buf[3..11], &req_bytes);
+            msg_buf[11] = 0; // type: int (stream_ptr)
+            const sp_bytes: [8]u8 = @bitCast(@as(i64, @intCast(s.streamPtr())));
+            @memcpy(msg_buf[12..20], &sp_bytes);
 
-            const result = dispatch_fn(&msg_buf, 11);
+            // Round-robin to handler pool
+            const pid = handler_pids[next_handler % pool_size];
+            next_handler +%= 1;
 
-            // Result is a tagged string (the response)
-            var response: []const u8 = "";
-            if (result > 0x10000) {
-                if (rt.getTag(result) == 0) {
-                    // :ok{value} — value is a string pair pointer
-                    const val = rt.getTagValue(result);
-                    if (val != 0) {
-                        response = rt.getTagStr(result);
-                    }
-                }
-            }
-
-            if (response.len == 0) {
-                // Handler returned non-string or error — build a 500 response
-                response = "HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
-                _ = std.posix.write(client_fd, response) catch {};
-                break;
-            }
-
-            _ = std.posix.write(client_fd, response) catch break;
+            // Synchronous send — handler writes response to stream, returns void
+            _ = process.verve_send(pid, &msg_buf, 20);
         }
 
         std.posix.close(client_fd);
-        std.heap.page_allocator.destroy(s);
     }
 
     return 0;
