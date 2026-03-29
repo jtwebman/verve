@@ -195,22 +195,24 @@ pub fn http_read_request(stream_ptr: usize) []const u8 {
     // Fast path: check if stream buffer already has data (pipelined request)
     const has_buffered = s.read_pos < s.read_len;
 
-    // If no buffered data, wait for data via scheduler or poll
+    // If no buffered data, check if data is available without blocking
     if (!has_buffered) {
-        if (rt.process.scheduler_running.load(.acquire) and rt.process.current_process_id > 0) {
-            // Scheduler mode: yield until data arrives on this socket
-            rt.process.verve_io_yield(@intCast(s.fd));
-            // Resumed — data should be ready now
-        } else {
-            // Legacy mode: non-blocking check
-            var pfd = [1]std.posix.pollfd{.{
-                .fd = s.fd,
-                .events = std.posix.POLL.IN,
-                .revents = 0,
-            }};
-            const poll_n = std.posix.poll(&pfd, 0) catch return "";
-            if (poll_n == 0) return ""; // no data ready
+        // Fast path: non-blocking poll — avoids context switch if data already on socket
+        var pfd = [1]std.posix.pollfd{.{
+            .fd = s.fd,
+            .events = std.posix.POLL.IN,
+            .revents = 0,
+        }};
+        const poll_n = std.posix.poll(&pfd, 0) catch return "";
+        if (poll_n == 0) {
+            // No data ready — yield to scheduler or return
+            if (rt.process.scheduler_running.load(.acquire) and rt.process.current_process_id > 0) {
+                rt.process.verve_io_yield(@intCast(s.fd));
+            } else {
+                return ""; // no data, no scheduler
+            }
         }
+        // Data is available (or we were woken from yield) — fall through to read
     }
 
     // Data is available — allocate a small initial buffer for headers
@@ -355,4 +357,187 @@ pub fn http_build_response(status: i64, ct: []const u8, body: []const u8) []cons
 
     const res = b.result();
     return rt.sliceFromPair(res.ptr, res.len);
+}
+
+// ── HTTP Server (runtime-managed connections) ─────────────────
+
+const process = @import("process.zig");
+
+/// Run an HTTP server with runtime-managed connections.
+/// The runtime owns all TCP connections and does epoll/accept/read/write.
+/// For each request, it calls the handler process's dispatch function directly
+/// with the parsed request pointer. The handler returns a response string.
+/// No per-connection process spawn. No fiber context switch for I/O.
+///
+/// Args: listener_ptr (stream), handler_process_type (int), handler_index (int)
+/// The handler receives one i64 param: the request pointer from http_parse_request.
+pub fn http_serve(listener_ptr: usize, handler_type_i: i64, handler_index_i: i64) i64 {
+    const listener = io.toStream(listener_ptr) orelse return -1;
+    if (listener.closed) return -1;
+
+    const handler_type: usize = @intCast(@as(u64, @bitCast(handler_type_i)));
+    const handler_index: u8 = @intCast(@as(u64, @bitCast(handler_index_i)));
+
+    const dispatch_fn = if (handler_type < process.dispatch_table.len)
+        process.dispatch_table[handler_type]
+    else
+        return -1;
+
+    // Tight accept-read-dispatch-write loop. No epoll needed for this pattern —
+    // we block on accept, then handle the connection synchronously.
+    // For keep-alive, we loop reading on the same fd.
+    while (true) {
+        // Accept (blocking since listener is non-blocking, use poll)
+        const client_fd = blk: {
+            // Try non-blocking accept first
+            break :blk std.posix.accept(listener.fd, null, null, std.posix.SOCK.CLOEXEC) catch {
+                // No connection ready — poll until one arrives
+                var pfd = [1]std.posix.pollfd{.{
+                    .fd = listener.fd,
+                    .events = std.posix.POLL.IN,
+                    .revents = 0,
+                }};
+                _ = std.posix.poll(&pfd, -1) catch return -1;
+                break :blk std.posix.accept(listener.fd, null, null, std.posix.SOCK.CLOEXEC) catch continue;
+            };
+        };
+
+        // Create stream for this connection
+        const s = std.heap.page_allocator.create(io.VerveStream) catch {
+            std.posix.close(client_fd);
+            continue;
+        };
+        s.* = .{
+            .kind = .tcp_client,
+            .fd = client_fd,
+            .read_buf = undefined,
+            .read_pos = 0,
+            .read_len = 0,
+            .file_data = null,
+            .file_len = 0,
+            .file_pos = 0,
+            .closed = false,
+        };
+
+        // Keep-alive loop: handle multiple requests on this connection
+        while (true) {
+            const req_data = http_read_request_blocking(s);
+            if (req_data.len == 0) break; // connection closed or error
+
+            const req_ptr = http_parse_request(req_data);
+
+            // Build message for handler: [handler_index, 1 param, type=0 (int), req_ptr as 8 bytes]
+            var msg_buf: [11]u8 = undefined;
+            msg_buf[0] = handler_index;
+            msg_buf[1] = 1;
+            msg_buf[2] = 0; // type int
+            const ptr_bytes: [8]u8 = @bitCast(@as(i64, @intCast(req_ptr)));
+            @memcpy(msg_buf[3..11], &ptr_bytes);
+
+            const result = dispatch_fn(&msg_buf, 11);
+
+            // Result is a tagged string (the response)
+            var response: []const u8 = "";
+            if (result > 0x10000) {
+                if (rt.getTag(result) == 0) {
+                    // :ok{value} — value is a string pair pointer
+                    const val = rt.getTagValue(result);
+                    if (val != 0) {
+                        response = rt.getTagStr(result);
+                    }
+                }
+            }
+
+            if (response.len == 0) {
+                // Handler returned non-string or error — build a 500 response
+                response = "HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+                _ = std.posix.write(client_fd, response) catch {};
+                break;
+            }
+
+            _ = std.posix.write(client_fd, response) catch break;
+        }
+
+        std.posix.close(client_fd);
+        std.heap.page_allocator.destroy(s);
+    }
+
+    return 0;
+}
+
+/// Blocking HTTP read — for use in the connection manager (no scheduler/fiber).
+/// Reads one complete HTTP request using poll() for blocking.
+fn http_read_request_blocking(s: *io.VerveStream) []const u8 {
+    const t = rt.profile.begin();
+    defer rt.profile.end(.read, t);
+
+    if (s.closed) return "";
+
+    // Check buffer first
+    if (s.read_pos >= s.read_len) {
+        // No buffered data — poll for readability
+        var pfd = [1]std.posix.pollfd{.{
+            .fd = s.fd,
+            .events = std.posix.POLL.IN,
+            .revents = 0,
+        }};
+        const poll_n = std.posix.poll(&pfd, keepalive_timeout_ms) catch return "";
+        if (poll_n == 0) return ""; // timeout — close connection
+        if (pfd[0].revents & std.posix.POLL.HUP != 0) return ""; // client closed
+    }
+
+    // Read into buffer
+    const initial_size: usize = 8192;
+    var buf_ptr: [*]u8 = rt.arena_alloc(initial_size) orelse return "";
+    var buf_cap: usize = initial_size;
+    var total: usize = 0;
+
+    // Drain buffered data
+    while (s.read_pos < s.read_len and total < buf_cap) {
+        buf_ptr[total] = s.read_buf[s.read_pos];
+        s.read_pos += 1;
+        total += 1;
+    }
+
+    // Read until headers complete
+    var header_end: ?usize = findHeaderEnd(buf_ptr[0..total]);
+    while (header_end == null and total < max_header_size) {
+        const n = std.posix.read(s.fd, buf_ptr[total..@min(total + 4096, buf_cap)]) catch return "";
+        if (n == 0) return if (total > 0) buf_ptr[0..total] else "";
+        total += n;
+        header_end = findHeaderEnd(buf_ptr[0..total]);
+    }
+
+    const hdr_end = header_end orelse return buf_ptr[0..total];
+
+    // Read body
+    const content_len = parseContentLength(buf_ptr[0..hdr_end]);
+    const needed = hdr_end + content_len;
+    const max_request = max_header_size + max_body_size;
+    if (needed > max_request) return buf_ptr[0..total];
+
+    if (needed > buf_cap) {
+        const new_buf = rt.arena_alloc(needed) orelse return buf_ptr[0..total];
+        @memcpy(new_buf[0..total], buf_ptr[0..total]);
+        buf_ptr = new_buf;
+        buf_cap = needed;
+    }
+
+    while (total < needed) {
+        const n = std.posix.read(s.fd, buf_ptr[total..@min(needed, buf_cap)]) catch break;
+        if (n == 0) break;
+        total += n;
+    }
+
+    // Stash leftover
+    if (total > needed) {
+        const leftover = total - needed;
+        const copy_len = @min(leftover, s.read_buf.len);
+        @memcpy(s.read_buf[0..copy_len], buf_ptr[needed .. needed + copy_len]);
+        s.read_pos = 0;
+        s.read_len = copy_len;
+        return buf_ptr[0..needed];
+    }
+
+    return buf_ptr[0..total];
 }

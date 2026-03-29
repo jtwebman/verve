@@ -357,6 +357,7 @@ pub const ZigBackend = struct {
         .{ "http_req_path", S{ .module = "http", .min_args = 1, .returns = .string } },
         .{ "http_req_body", S{ .module = "http", .min_args = 1, .returns = .string } },
         .{ "http_req_header", S{ .module = "http", .min_args = 2, .returns = .string } },
+        .{ "http_serve", S{ .module = "http", .min_args = 3 } },
         .{ "http_build_response", S{ .module = "http", .min_args = 3, .returns = .string } },
         // ── JSON ────────────────────────────────────
         .{ "json_get_string", S{ .module = "json", .min_args = 2, .returns = .string } },
