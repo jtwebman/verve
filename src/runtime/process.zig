@@ -303,6 +303,8 @@ pub fn verve_kill(target_pid: usize) void {
 /// Called by a handler to self-terminate (spawn-per-message pattern).
 pub fn verve_exit_self() void {
     if (current_process_id == 0) return;
+    table_lock.lock();
+    defer table_lock.unlock();
     const idx = pidx(current_process_id);
     if (idx >= process_table.len) return;
     const proc = &process_table[idx];
