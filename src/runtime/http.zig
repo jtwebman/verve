@@ -359,20 +359,201 @@ pub fn http_build_response(status: i64, ct: []const u8, body: []const u8) []cons
     return rt.sliceFromPair(res.ptr, res.len);
 }
 
-// ── HTTP Server (runtime-managed connections) ─────────────────
+// ── HTTP Server (multi-threaded epoll connection manager) ──────
 
 const process = @import("process.zig");
 
-/// Run an HTTP server with runtime-managed connections and keep-alive.
-/// The runtime owns TCP connections (accept, read, keep-alive, write).
-/// For each request, it sends the request data to a handler process via
-/// Process.send and gets the response string back. The handler is a real
-/// Verve process with state, arena, and full language features.
+const SERVE_MAX_CONNS = 256;
+const SERVE_SENTINEL: u64 = SERVE_MAX_CONNS; // epoll data sentinel for listener
+
+/// Per-connection state managed by the epoll thread.
+const ServeConn = struct {
+    stream: io.VerveStream,
+    active: bool,
+};
+
+/// Per-thread state for an epoll worker.
+const ServeThread = struct {
+    listener_fd: std.posix.fd_t,
+    epoll_fd: i32,
+    dispatch_fn: process.DispatchFn,
+    handler_index: u8,
+    handler_pids: []usize,
+    pool_size: usize,
+    next_handler: usize,
+    conns: []ServeConn, // heap-allocated
+    conn_count: usize,
+
+    fn run(self: *ServeThread) void {
+        var events: [256]std.os.linux.epoll_event = undefined;
+
+        while (true) {
+            const n = std.posix.epoll_wait(self.epoll_fd, &events, -1);
+            if (n == 0) continue;
+
+            for (events[0..n]) |ev| {
+                if (ev.data.u64 == SERVE_SENTINEL) {
+                    self.acceptAll();
+                } else {
+                    self.handleConn(@intCast(ev.data.u64));
+                }
+            }
+        }
+    }
+
+    fn acceptAll(self: *ServeThread) void {
+        while (true) {
+            const cfd = std.posix.accept(self.listener_fd, null, null, std.posix.SOCK.CLOEXEC | std.posix.SOCK.NONBLOCK) catch break;
+
+            // Find free slot
+            var slot: ?usize = null;
+            for (0..self.conn_count) |i| {
+                if (!self.conns[i].active) {
+                    slot = i;
+                    break;
+                }
+            }
+            if (slot == null and self.conn_count < SERVE_MAX_CONNS) {
+                slot = self.conn_count;
+                self.conn_count += 1;
+            }
+
+            if (slot) |si| {
+                self.conns[si] = .{
+                    .stream = .{
+                        .kind = .tcp_client,
+                        .fd = cfd,
+                        .read_buf = undefined,
+                        .read_pos = 0,
+                        .read_len = 0,
+                        .file_data = null,
+                        .file_len = 0,
+                        .file_pos = 0,
+                        .closed = false,
+                    },
+                    .active = true,
+                };
+
+                var cev = std.os.linux.epoll_event{
+                    .events = std.os.linux.EPOLL.IN | std.os.linux.EPOLL.ONESHOT,
+                    .data = .{ .u64 = @intCast(si) },
+                };
+                std.posix.epoll_ctl(self.epoll_fd, std.os.linux.EPOLL.CTL_ADD, cfd, &cev) catch {
+                    std.posix.close(cfd);
+                    self.conns[si].active = false;
+                };
+            } else {
+                std.posix.close(cfd);
+            }
+        }
+    }
+
+    fn handleConn(self: *ServeThread, idx: usize) void {
+        const conn = &self.conns[idx];
+        if (!conn.active) return;
+        const s = &conn.stream;
+
+        // Read one HTTP request (blocking read since epoll told us data is ready)
+        const req_data = http_read_request_from_stream(s);
+        if (req_data.len == 0) {
+            // Connection closed
+            std.posix.close(s.fd);
+            conn.active = false;
+            return;
+        }
+
+        const req_ptr = http_parse_request(req_data);
+
+        // Build message: handler_index, 2 params (req_ptr, stream_ptr)
+        var msg_buf: [20]u8 = undefined;
+        msg_buf[0] = self.handler_index;
+        msg_buf[1] = 2;
+        msg_buf[2] = 0; // type int
+        @memcpy(msg_buf[3..11], &@as([8]u8, @bitCast(@as(i64, @intCast(req_ptr)))));
+        msg_buf[11] = 0; // type int
+        @memcpy(msg_buf[12..20], &@as([8]u8, @bitCast(@as(i64, @intCast(s.streamPtr())))));
+
+        // Dispatch to handler process (synchronous — handler writes response)
+        const pid = self.handler_pids[self.next_handler % self.pool_size];
+        self.next_handler +%= 1;
+        _ = process.verve_send(pid, &msg_buf, 20);
+
+        // Re-arm for keep-alive
+        var cev = std.os.linux.epoll_event{
+            .events = std.os.linux.EPOLL.IN | std.os.linux.EPOLL.ONESHOT,
+            .data = .{ .u64 = @intCast(idx) },
+        };
+        std.posix.epoll_ctl(self.epoll_fd, std.os.linux.EPOLL.CTL_MOD, s.fd, &cev) catch {
+            std.posix.close(s.fd);
+            conn.active = false;
+        };
+    }
+};
+
+/// Read one HTTP request from a stream that already has data ready (epoll signaled).
+/// No poll/yield — data should be available. Returns "" on close/error.
+fn http_read_request_from_stream(s: *io.VerveStream) []const u8 {
+    if (s.closed) return "";
+
+    const initial_size: usize = 8192;
+    var buf_ptr: [*]u8 = rt.arena_alloc(initial_size) orelse return "";
+    var buf_cap: usize = initial_size;
+    var total: usize = 0;
+
+    // Drain buffered data
+    while (s.read_pos < s.read_len and total < buf_cap) {
+        buf_ptr[total] = s.read_buf[s.read_pos];
+        s.read_pos += 1;
+        total += 1;
+    }
+
+    // Read until headers complete
+    var header_end: ?usize = findHeaderEnd(buf_ptr[0..total]);
+    while (header_end == null and total < max_header_size) {
+        const n = std.posix.read(s.fd, buf_ptr[total..@min(total + 4096, buf_cap)]) catch return "";
+        if (n == 0) return if (total > 0) buf_ptr[0..total] else "";
+        total += n;
+        header_end = findHeaderEnd(buf_ptr[0..total]);
+    }
+
+    const hdr_end = header_end orelse return buf_ptr[0..total];
+    const content_len = parseContentLength(buf_ptr[0..hdr_end]);
+    const needed = hdr_end + content_len;
+
+    if (needed > buf_cap) {
+        const new_buf = rt.arena_alloc(needed) orelse return buf_ptr[0..total];
+        @memcpy(new_buf[0..total], buf_ptr[0..total]);
+        buf_ptr = new_buf;
+        buf_cap = needed;
+    }
+
+    while (total < needed) {
+        const n = std.posix.read(s.fd, buf_ptr[total..@min(needed, buf_cap)]) catch break;
+        if (n == 0) break;
+        total += n;
+    }
+
+    if (total > needed) {
+        const leftover = total - needed;
+        const copy_len = @min(leftover, s.read_buf.len);
+        @memcpy(s.read_buf[0..copy_len], buf_ptr[needed .. needed + copy_len]);
+        s.read_pos = 0;
+        s.read_len = copy_len;
+        return buf_ptr[0..needed];
+    }
+
+    return buf_ptr[0..total];
+}
+
+fn serveThreadEntry(thread: *ServeThread) void {
+    thread.run();
+}
+
+/// Run multi-threaded HTTP server with epoll connection management.
+/// N threads each run their own epoll loop with SO_REUSEPORT.
+/// Handler processes receive (req_ptr, stream_ptr) and write responses directly.
 ///
-/// Handler receives: (state, req: stream) -> string
-/// Returns the HTTP response string (from Http.respond).
-///
-/// Args: listener_ptr (stream), handler_process_type (int), handler_index (int)
+/// Args: listener_ptr, handler_process_type, handler_index
 pub fn http_serve(listener_ptr: usize, handler_type_i: i64, handler_index_i: i64) i64 {
     const listener = io.toStream(listener_ptr) orelse return -1;
     if (listener.closed) return -1;
@@ -380,68 +561,66 @@ pub fn http_serve(listener_ptr: usize, handler_type_i: i64, handler_index_i: i64
     const handler_type: usize = @intCast(@as(u64, @bitCast(handler_type_i)));
     const handler_index: u8 = @intCast(@as(u64, @bitCast(handler_index_i)));
 
-    // Spawn a pool of handler processes — one per core for parallelism
-    const pool_size: usize = 4;
-    var handler_pids: [64]usize = undefined;
-    for (0..pool_size) |i| {
-        handler_pids[i] = process.verve_spawn(handler_type);
+    // Start with single thread to verify correctness, then scale up
+    const num_threads: usize = 1;
+    const dispatch_fn = if (handler_type < process.dispatch_table.len)
+        process.dispatch_table[handler_type]
+    else
+        return -1;
+
+    // Spawn handler process pool (2 per thread)
+    const handlers_per_thread = 2;
+    const total_handlers = num_threads * handlers_per_thread;
+    var handler_pids_buf: [128]usize = undefined;
+    for (0..total_handlers) |i| {
+        handler_pids_buf[i] = process.verve_spawn(handler_type);
     }
-    var next_handler: usize = 0;
 
-    // Accept-read-send-write loop (runtime-managed)
-    while (true) {
-        const client_fd = blk: {
-            break :blk std.posix.accept(listener.fd, null, null, std.posix.SOCK.CLOEXEC) catch {
-                var pfd = [1]std.posix.pollfd{.{
-                    .fd = listener.fd,
-                    .events = std.posix.POLL.IN,
-                    .revents = 0,
-                }};
-                _ = std.posix.poll(&pfd, -1) catch return -1;
-                break :blk std.posix.accept(listener.fd, null, null, std.posix.SOCK.CLOEXEC) catch continue;
-            };
+    // Create per-thread state
+    const alloc = std.heap.page_allocator;
+    var threads: [64]ServeThread = undefined;
+    var os_threads: [64]?std.Thread = .{null} ** 64;
+
+    for (0..num_threads) |i| {
+        // Each thread gets its own epoll
+        const epoll_fd = std.posix.epoll_create1(std.os.linux.EPOLL.CLOEXEC) catch return -1;
+
+        // Register listener with this thread's epoll
+        var listen_ev = std.os.linux.epoll_event{
+            .events = std.os.linux.EPOLL.IN,
+            .data = .{ .u64 = SERVE_SENTINEL },
         };
+        std.posix.epoll_ctl(epoll_fd, std.os.linux.EPOLL.CTL_ADD, listener.fd, &listen_ev) catch return -1;
 
-        var stream = io.VerveStream{
-            .kind = .tcp_client,
-            .fd = client_fd,
-            .read_buf = undefined,
-            .read_pos = 0,
-            .read_len = 0,
-            .file_data = null,
-            .file_len = 0,
-            .file_pos = 0,
-            .closed = false,
+        const start = i * handlers_per_thread;
+        threads[i] = .{
+            .listener_fd = listener.fd,
+            .epoll_fd = epoll_fd,
+            .dispatch_fn = dispatch_fn,
+            .handler_index = handler_index,
+            .handler_pids = handler_pids_buf[start .. start + handlers_per_thread],
+            .pool_size = handlers_per_thread,
+            .next_handler = 0,
+            .conns = blk: {
+                const c = alloc.alloc(ServeConn, SERVE_MAX_CONNS) catch return -1;
+                for (c) |*conn| conn.active = false;
+                break :blk c;
+            },
+            .conn_count = 0,
         };
-        const s = &stream;
+    }
 
-        // Keep-alive loop
-        while (true) {
-            const req_data = http_read_request_blocking(s);
-            if (req_data.len == 0) break;
+    // Start N-1 worker threads
+    for (1..num_threads) |i| {
+        os_threads[i] = std.Thread.spawn(.{}, serveThreadEntry, .{&threads[i]}) catch null;
+    }
 
-            const req_ptr = http_parse_request(req_data);
+    // Run thread 0 on main thread
+    threads[0].run();
 
-            // Send to handler: (req_ptr, stream_ptr) — handler writes response directly
-            var msg_buf: [20]u8 = undefined;
-            msg_buf[0] = handler_index;
-            msg_buf[1] = 2; // 2 params
-            msg_buf[2] = 0; // type: int (req_ptr)
-            const req_bytes: [8]u8 = @bitCast(@as(i64, @intCast(req_ptr)));
-            @memcpy(msg_buf[3..11], &req_bytes);
-            msg_buf[11] = 0; // type: int (stream_ptr)
-            const sp_bytes: [8]u8 = @bitCast(@as(i64, @intCast(s.streamPtr())));
-            @memcpy(msg_buf[12..20], &sp_bytes);
-
-            // Round-robin to handler pool
-            const pid = handler_pids[next_handler % pool_size];
-            next_handler +%= 1;
-
-            // Synchronous send — handler writes response to stream, returns void
-            _ = process.verve_send(pid, &msg_buf, 20);
-        }
-
-        std.posix.close(client_fd);
+    // Join workers (unreachable in practice — server runs forever)
+    for (1..num_threads) |i| {
+        if (os_threads[i]) |t| t.join();
     }
 
     return 0;

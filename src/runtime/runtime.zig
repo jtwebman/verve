@@ -217,7 +217,7 @@ var global_arena: Arena = .{};
 pub fn currentArena() *Arena {
     if (process.current_process_id > 0) {
         const idx = process.pidx(process.current_process_id);
-        if (idx < process.process_table.len) return &process.process_table[idx].arena;
+        if (idx < process.process_table.len) return process.process_table[idx].arena();
     }
     return &global_arena;
 }

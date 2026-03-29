@@ -61,18 +61,56 @@ pub const VerveProcess = struct {
     id: usize,
     alive: bool,
     process_type: usize,
-    state_ptr: usize = 0, // Pointer to typed state struct (arena-allocated)
-    max_messages: usize = 64, // configurable per-process mailbox limit
-    mailbox: Mailbox,
-    watcher_pids: [rt.MAX_WATCHERS]usize,
-    watcher_count: usize,
-    arena: rt.Arena,
-    // Fiber support for cooperative scheduling
-    proc_fiber: ?fiber.Fiber = null, // null = legacy sync mode
-    yielded: bool = false, // true if process called yield and has more work
-    io_wait_fd: std.posix.fd_t = -1, // fd this process is waiting on (-1 = none)
-    owner_thread: usize = 0, // which scheduler thread owns this process
-    reductions: u32 = 4000, // reduction counter for cooperative preemption
+    state_ptr: usize = 0,
+    max_messages: usize = 64,
+    mailbox_ptr: ?*Mailbox = null, // heap-allocated on first push (saves 4KB per idle process)
+    watcher_ptr: ?*WatcherList = null, // heap-allocated on first watch
+    arena_ptr: ?*rt.Arena = null, // heap-allocated on first alloc
+    proc_fiber: ?fiber.Fiber = null,
+    yielded: bool = false,
+    io_wait_fd: std.posix.fd_t = -1,
+    owner_thread: usize = 0,
+    reductions: u32 = 4000,
+
+    /// Get or create mailbox (lazy allocation).
+    pub fn mailbox(self: *VerveProcess) *Mailbox {
+        if (self.mailbox_ptr) |m| return m;
+        const m = std.heap.page_allocator.create(Mailbox) catch @panic("OOM: mailbox");
+        m.* = .{};
+        self.mailbox_ptr = m;
+        return m;
+    }
+
+    /// Get or create arena (lazy allocation).
+    pub fn arena(self: *VerveProcess) *rt.Arena {
+        if (self.arena_ptr) |a| return a;
+        const a = std.heap.page_allocator.create(rt.Arena) catch @panic("OOM: arena");
+        a.* = .{};
+        self.arena_ptr = a;
+        return a;
+    }
+
+    /// Free all owned resources.
+    pub fn freeResources(self: *VerveProcess) void {
+        if (self.arena_ptr) |a| {
+            a.freeAll();
+            // Keep the arena struct for reuse
+        }
+        if (self.mailbox_ptr) |m| {
+            m.head = 0;
+            m.used = 0;
+            m.count = 0;
+            m.reply_slot = null;
+        }
+        if (self.watcher_ptr) |w| {
+            w.count = 0;
+        }
+    }
+};
+
+pub const WatcherList = struct {
+    pids: [rt.MAX_WATCHERS]usize = @splat(0),
+    count: usize = 0,
 };
 
 /// Dispatch function receives raw message bytes: (msg_ptr, msg_len) -> result usize
@@ -145,10 +183,6 @@ pub fn ensureProcessCapacity(min_count: usize) void {
             .alive = false,
             .process_type = 0,
             .state_ptr = 0,
-            .mailbox = .{},
-            .watcher_pids = @splat(0),
-            .watcher_count = 0,
-            .arena = .{},
         };
         new_dispatch[i] = &dispatch_noop;
     }
@@ -179,7 +213,7 @@ pub fn verve_spawn(process_type: usize) usize {
     if (free_slots.items.len > 0) {
         idx = free_slots.items[free_slots.items.len - 1];
         free_slots.items.len -= 1;
-        process_table[idx].arena.freeAll();
+        process_table[idx].freeResources();
     } else {
         ensureProcessCapacity(process_count + 1);
         idx = process_count;
@@ -192,11 +226,13 @@ pub fn verve_spawn(process_type: usize) usize {
     proc.alive = true;
     proc.process_type = process_type;
     proc.state_ptr = 0;
-    proc.mailbox.head = 0;
-    proc.mailbox.used = 0;
-    proc.mailbox.count = 0;
-    proc.mailbox.reply_slot = null;
-    proc.watcher_count = 0;
+    if (proc.mailbox_ptr) |m| {
+        m.head = 0;
+        m.used = 0;
+        m.count = 0;
+        m.reply_slot = null;
+    }
+    if (proc.watcher_ptr) |w| w.count = 0;
     proc.yielded = false;
     proc.io_wait_fd = -1;
     proc.reductions = 4000;
@@ -230,10 +266,16 @@ pub fn verve_state_init(ptr: usize) void {
 
 pub fn verve_watch(target_pid: usize) void {
     const idx = pidx(target_pid);
-    const wc = process_table[idx].watcher_count;
-    if (wc >= rt.MAX_WATCHERS) return;
-    process_table[idx].watcher_pids[wc] = current_process_id;
-    process_table[idx].watcher_count = wc + 1;
+    const proc = &process_table[idx];
+    // Lazy alloc watcher list
+    if (proc.watcher_ptr == null) {
+        proc.watcher_ptr = std.heap.page_allocator.create(WatcherList) catch return;
+        proc.watcher_ptr.?.* = .{};
+    }
+    const w = proc.watcher_ptr.?;
+    if (w.count >= rt.MAX_WATCHERS) return;
+    w.pids[w.count] = current_process_id;
+    w.count += 1;
 }
 
 pub fn verve_kill(target_pid: usize) void {
@@ -242,15 +284,15 @@ pub fn verve_kill(target_pid: usize) void {
     const idx = pidx(target_pid);
     const proc = &process_table[idx];
     proc.alive = false;
-    // Notify watchers before freeing arena — send a 2-byte death notification
-    // Format: [handler_id=0xFF (sentinel for death)][param_count=0]
-    for (0..proc.watcher_count) |i| {
-        const watcher_pid = proc.watcher_pids[i];
+    // Notify watchers
+    const wc = if (proc.watcher_ptr) |w| w.count else 0;
+    for (0..wc) |i| {
+        const watcher_pid = proc.watcher_ptr.?.pids[i];
         const widx = pidx(watcher_pid);
         const watcher = &process_table[widx];
         if (!watcher.alive) continue;
         const death_msg = [_]u8{ 0xFF, 0 };
-        _ = watcher.mailbox.push(&death_msg, 2);
+        _ = watcher.mailbox().push(&death_msg, 2);
     }
     // Free all memory owned by this process (deferred to spawn reuse for speed)
     // Add to free list for O(1) reuse
@@ -279,7 +321,7 @@ fn drain_one(target_pid: usize) bool {
     const idx = pidx(target_pid);
     const proc = &process_table[idx];
     var pop_buf: [8192]u8 = undefined;
-    const msg = proc.mailbox.pop(&pop_buf) orelse {
+    const msg = proc.mailbox().pop(&pop_buf) orelse {
         table_lock.unlockShared();
         return false;
     };
@@ -292,7 +334,7 @@ fn drain_one(target_pid: usize) bool {
         return true;
     }
     const dispatch_fn = dispatch_table[proc.process_type];
-    const reply_slot = proc.mailbox.reply_slot;
+    const reply_slot = proc.mailbox().reply_slot;
     table_lock.unlockShared();
 
     const saved = current_process_id;
@@ -322,16 +364,16 @@ pub fn verve_send(target_pid: usize, msg_ptr: [*]const u8, msg_len: usize) usize
     const idx = pidx(target_pid);
     const proc = &process_table[idx];
     if (!proc.alive) return rt.makeTaggedStr(1, "process_dead");
-    if (proc.mailbox.count >= proc.max_messages) return rt.makeTaggedStr(1, "mailbox_full");
+    if (proc.mailbox().count >= proc.max_messages) return rt.makeTaggedStr(1, "mailbox_full");
     var result: usize = 0;
-    proc.mailbox.reply_slot = &result;
-    if (!proc.mailbox.push(msg_ptr, msg_len)) {
-        proc.mailbox.reply_slot = null;
+    proc.mailbox().reply_slot = &result;
+    if (!proc.mailbox().push(msg_ptr, msg_len)) {
+        proc.mailbox().reply_slot = null;
         return rt.makeTaggedStr(1, "mailbox_full");
     }
     // Always drain synchronously for send (caller needs the result)
     verve_drain(target_pid);
-    proc.mailbox.reply_slot = null;
+    proc.mailbox().reply_slot = null;
     if (result > 0x10000 and rt.getTag(result) == 1) return result;
     return rt.makeTagged(0, @intCast(result));
 }
@@ -345,8 +387,8 @@ pub fn verve_tell(target_pid: usize, msg_ptr: [*]const u8, msg_len: usize) usize
     if (idx >= process_table.len) return rt.makeTaggedStr(1, "process_dead");
     const proc = &process_table[idx];
     if (!proc.alive) return rt.makeTaggedStr(1, "process_dead");
-    if (proc.mailbox.count >= proc.max_messages) return rt.makeTaggedStr(1, "mailbox_full");
-    if (!proc.mailbox.push(msg_ptr, msg_len)) return rt.makeTaggedStr(1, "mailbox_full");
+    if (proc.mailbox().count >= proc.max_messages) return rt.makeTaggedStr(1, "mailbox_full");
+    if (!proc.mailbox().push(msg_ptr, msg_len)) return rt.makeTaggedStr(1, "mailbox_full");
     if (!scheduler_running.load(.acquire)) {
         verve_drain(target_pid);
     } else {
@@ -383,7 +425,7 @@ fn any_other_runnable_on_thread(thread: *SchedulerThread) bool {
         const p = &process_table[i];
         if (!p.alive) continue;
         if (p.id == current_process_id) continue;
-        if (p.yielded or p.mailbox.count > 0) return true;
+        if (p.yielded or (if (p.mailbox_ptr) |m| m.count > 0 else false)) return true;
     }
     return false;
 }
@@ -463,7 +505,7 @@ fn process_fiber_entry(pid_raw: usize) void {
         if (!process_table[idx].alive) break;
 
         if (had_msg) {
-            process_table[idx].yielded = (process_table[idx].mailbox.count > 0) or process_table[idx].yielded;
+            process_table[idx].yielded = (if (process_table[idx].mailbox_ptr) |m| m.count > 0 else false) or process_table[idx].yielded;
         }
 
         // Return to scheduler
@@ -508,7 +550,7 @@ pub fn scheduler_run(thread: *SchedulerThread) i64 {
             const ni = pidx(npid);
             if (ni < process_table.len) {
                 const proc = &process_table[ni];
-                if (proc.alive and (proc.yielded or proc.mailbox.count > 0)) {
+                if (proc.alive and (proc.yielded or (if (proc.mailbox_ptr) |m| m.count > 0 else false))) {
                     any_ran = true;
                     ensure_fiber(proc);
                     if (proc.proc_fiber != null) {
@@ -528,7 +570,7 @@ pub fn scheduler_run(thread: *SchedulerThread) i64 {
             if (i >= process_table.len) continue;
             const proc = &process_table[i];
             if (!proc.alive) continue;
-            if (!proc.yielded and proc.mailbox.count == 0) continue;
+            if (!proc.yielded and (if (proc.mailbox_ptr) |m| m.count == 0 else true)) continue;
 
             any_ran = true;
             ensure_fiber(proc);
