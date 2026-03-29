@@ -85,6 +85,7 @@ pub var process_count: usize = 0;
 pub threadlocal var current_process_id: usize = 0;
 pub var dispatch_table: []DispatchFn = &.{};
 pub var table_lock: std.Thread.RwLock = .{};
+var free_slots: std.ArrayListUnmanaged(usize) = .{}; // indices of dead process slots for O(1) reuse
 
 // ── Scheduler state ───────────────────────────────
 
@@ -173,19 +174,14 @@ pub fn verve_spawn(process_type: usize) usize {
     defer table_lock.unlock();
 
     ensureProcessCapacity(1); // ensure table exists
-    // Find a slot: prefer recycling dead processes, then use new slot
-    var idx: usize = process_table.len; // sentinel: not found
-    for (process_table, 0..) |*p, i| {
-        if (!p.alive and p.id != 0) {
-            p.arena.freeAll();
-            // Keep fiber stack for reuse (avoid expensive mmap/mprotect)
-            idx = i;
-            break;
-        }
-    }
-    if (idx == process_table.len) {
-        // No dead slot — use next available
-        ensureProcessCapacity(process_count + 1); // grow if needed
+    // O(1) slot reuse via free list, fallback to next available
+    var idx: usize = undefined;
+    if (free_slots.items.len > 0) {
+        idx = free_slots.items[free_slots.items.len - 1];
+        free_slots.items.len -= 1;
+        process_table[idx].arena.freeAll();
+    } else {
+        ensureProcessCapacity(process_count + 1);
         idx = process_count;
         process_count += 1;
     }
@@ -252,8 +248,9 @@ pub fn verve_kill(target_pid: usize) void {
         const death_msg = [_]u8{ 0xFF, 0 };
         _ = watcher.mailbox.push(&death_msg, 2);
     }
-    // Free all memory owned by this process
-    proc.arena.freeAll();
+    // Free all memory owned by this process (deferred to spawn reuse for speed)
+    // Add to free list for O(1) reuse
+    free_slots.append(std.heap.page_allocator, idx) catch {};
 }
 
 /// Exit the current process — marks it dead and frees its arena.
@@ -265,7 +262,8 @@ pub fn verve_exit_self() void {
     const proc = &process_table[idx];
     proc.alive = false;
     proc.yielded = false;
-    // Arena freed on next spawn that recycles this slot
+    // Add to free list for O(1) reuse on next spawn
+    free_slots.append(std.heap.page_allocator, idx) catch {};
 }
 
 // ── Message passing ────────────────────────────────
@@ -273,7 +271,6 @@ pub fn verve_exit_self() void {
 /// Drain ONE message from the mailbox. Returns true if a message was dispatched.
 /// Caller must NOT hold table_lock — dispatch calls user code that may spawn.
 fn drain_one(target_pid: usize) bool {
-    // Read table under shared lock to get dispatch fn and pop message
     table_lock.lockShared();
     const idx = pidx(target_pid);
     const proc = &process_table[idx];
@@ -288,19 +285,17 @@ fn drain_one(target_pid: usize) bool {
     }
     if (msg.len >= 1 and msg[0] == 0xFF) {
         table_lock.unlockShared();
-        return true; // death notification — consumed but skip
+        return true;
     }
     const dispatch_fn = dispatch_table[proc.process_type];
     const reply_slot = proc.mailbox.reply_slot;
     table_lock.unlockShared();
 
-    // Dispatch outside lock — user code may call spawn (needs write lock)
     const saved = current_process_id;
     current_process_id = target_pid;
     const result = dispatch_fn(msg.ptr, msg.len);
     current_process_id = saved;
 
-    // Write reply under shared lock
     if (reply_slot) |slot| {
         table_lock.lockShared();
         process_table[idx].mailbox.reply_slot = null;
@@ -591,10 +586,9 @@ pub fn scheduler_run(thread: *SchedulerThread) i64 {
     return 0;
 }
 
-/// Run the cooperative scheduler until no processes are alive or runnable.
-/// Creates a single SchedulerThread (backward-compatible single-threaded mode).
+/// Run the scheduler with auto-detected CPU count.
 pub fn verve_scheduler_run() i64 {
-    return verve_scheduler_run_threaded(1);
+    return verve_scheduler_run_threaded(0); // 0 = auto-detect
 }
 
 /// Run the scheduler with N threads. N=0 means auto-detect CPU count.
