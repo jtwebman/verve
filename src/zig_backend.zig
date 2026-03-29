@@ -177,7 +177,7 @@ pub const ZigBackend = struct {
                         types[ln.dest] = .pointer;
                     },
                     .process_spawn => |ps| {
-                        types[ps.dest] = .pointer;
+                        types[ps.dest] = .int; // PIDs are plain integers
                     },
                     .process_send => |ps| {
                         types[ps.dest] = .pointer;
@@ -225,7 +225,7 @@ pub const ZigBackend = struct {
                     // Allocate typed state struct, set pointer on the process
                     self.writeIndent();
                     self.writeFmt("{{ const _sm = rt.arena_alloc(@sizeOf(VerveStruct_{s})) orelse unreachable; const _st = @as(*VerveStruct_{s}, @ptrCast(@alignCast(_sm))); _st.* = .{{}}; ", .{ st, st });
-                    self.writeFmt("rt.process.process_table[{s} - 1].state_ptr = @intFromPtr(_st); }}\n", .{pid_reg});
+                    self.writeFmt("rt.process.process_table[@intCast(@as(u64, @bitCast({s})) - 1)].state_ptr = @intFromPtr(_st); }}\n", .{pid_reg});
                 }
                 break;
             }
@@ -1164,7 +1164,7 @@ pub const ZigBackend = struct {
             },
 
             .process_spawn => |ps| {
-                self.lineFmt("{s} = rt.process.verve_spawn({d});", .{ self.regName(ps.dest), ps.process_type });
+                self.lineFmt("{s} = @intCast(rt.process.verve_spawn({d}));", .{ self.regName(ps.dest), ps.process_type });
                 // Allocate typed state struct if this process type has state
                 if (ps.process_type < self.program.process_decls.items.len) {
                     const pd = self.program.process_decls.items[ps.process_type];
@@ -1175,7 +1175,7 @@ pub const ZigBackend = struct {
                         self.emitStateInit(pd.name, self.regName(ps.dest));
                     }
                     if (pd.mailbox_size != 64) {
-                        self.lineFmt("rt.process.verve_set_mailbox_size({s}, {d});", .{ self.regName(ps.dest), pd.mailbox_size });
+                        self.lineFmt("rt.process.verve_set_mailbox_size(@intCast(@as(u64, @bitCast({s}))), {d});", .{ self.regName(ps.dest), pd.mailbox_size });
                     }
                 }
             },
@@ -1189,9 +1189,9 @@ pub const ZigBackend = struct {
                 if (ps.args.len > 0) {
                     self.line("var _mpos: usize = 2;");
                     for (ps.args) |arg| self.emitMsgEncode(arg, reg_types);
-                    self.lineFmt("{s} = rt.process.verve_send({s}, &_msg_buf, _mpos);", .{ self.regName(ps.dest), self.regName(ps.target) });
+                    self.lineFmt("{s} = rt.process.verve_send(@intCast(@as(u64, @bitCast({s}))), &_msg_buf, _mpos);", .{ self.regName(ps.dest), self.regName(ps.target) });
                 } else {
-                    self.lineFmt("{s} = rt.process.verve_send({s}, &_msg_buf, 2);", .{ self.regName(ps.dest), self.regName(ps.target) });
+                    self.lineFmt("{s} = rt.process.verve_send(@intCast(@as(u64, @bitCast({s}))), &_msg_buf, 2);", .{ self.regName(ps.dest), self.regName(ps.target) });
                 }
                 self.indent -= 1;
                 self.line("}");
@@ -1206,9 +1206,9 @@ pub const ZigBackend = struct {
                 if (pt.args.len > 0) {
                     self.line("var _mpos: usize = 2;");
                     for (pt.args) |arg| self.emitMsgEncode(arg, reg_types);
-                    self.lineFmt("{s} = rt.process.verve_tell({s}, &_msg_buf, _mpos);", .{ self.regName(pt.dest), self.regName(pt.target) });
+                    self.lineFmt("{s} = rt.process.verve_tell(@intCast(@as(u64, @bitCast({s}))), &_msg_buf, _mpos);", .{ self.regName(pt.dest), self.regName(pt.target) });
                 } else {
-                    self.lineFmt("{s} = rt.process.verve_tell({s}, &_msg_buf, 2);", .{ self.regName(pt.dest), self.regName(pt.target) });
+                    self.lineFmt("{s} = rt.process.verve_tell(@intCast(@as(u64, @bitCast({s}))), &_msg_buf, 2);", .{ self.regName(pt.dest), self.regName(pt.target) });
                 }
                 self.indent -= 1;
                 self.line("}");

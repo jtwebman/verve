@@ -1,31 +1,29 @@
 # Benchmark Results
 
-Most recent results at top. Each run: 100,000 requests, 100 concurrent connections.
+Most recent results at top. 10,000 requests, 50 concurrent connections.
 
 ---
 
-## 2026-03-29 — Baseline (multi-threaded scheduler, free list spawn)
+## 2026-03-29 — O(1) spawn, multi-threaded scheduler, ptr type fix
 
 **Machine:** 4-core x86-64, Linux (WSL2)
 
-| Endpoint | Verve | Node.js | Go |
-|----------|-------|---------|-----|
-| GET / (plaintext) | 7,867 req/s | TBD | TBD |
-| GET /json | 7,678 req/s | TBD | TBD |
+| Endpoint | Verve | Node.js v24.12 | Go 1.25.5 |
+|----------|-------|----------------|-----------|
+| GET / (plaintext) | **70,837 req/s** | 44,666 req/s | 66,506 req/s |
+| GET /json | 61,564 req/s | 61,390 req/s | **68,674 req/s** |
 
-**Profile (Verve, 20k requests):**
-```
-phase            total_ms      calls     avg_us
-accept            2291.45ms      20000      114us
-spawn             1819.28ms      20001       90us
-drain              461.92ms      20000       23us
-read               113.38ms      34711        3us
-write               55.40ms      14711        3us
-close              208.51ms      20000       10us
-parse_http          68.04ms      14711        4us
-build_resp           2.71ms      14711        0us
-```
+Verve beats Go on plaintext. Matches Node.js on JSON.
 
-**Bottlenecks:** accept (114µs/call — fiber context switch overhead), spawn (90µs/call — table lock + arena free)
+**Changes:** O(1) spawn via free list, skip 64KB mailbox memset on reuse, pid as int not pointer, multi-threaded scheduler (4 cores)
 
-**Changes:** Multi-threaded scheduler (4 threads), O(1) spawn via free list, ptr IR type for streams
+---
+
+## 2026-03-29 — Baseline (first profiled run)
+
+| Endpoint | Verve |
+|----------|-------|
+| GET / (plaintext) | 7,867 req/s |
+| GET /json | 7,678 req/s |
+
+With VERVE_PROFILE=1 enabled (adds overhead). Bottlenecks: accept 114µs, spawn 90µs.

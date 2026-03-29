@@ -186,16 +186,20 @@ pub fn verve_spawn(process_type: usize) usize {
         process_count += 1;
     }
     const pid: usize = idx + 1;
-    process_table[idx] = .{
-        .id = pid,
-        .alive = true,
-        .process_type = process_type,
-        .state_ptr = 0,
-        .mailbox = .{},
-        .watcher_pids = @splat(0),
-        .watcher_count = 0,
-        .arena = .{},
-    };
+    // Reset process fields without reinitializing the 64KB mailbox buffer
+    const proc = &process_table[idx];
+    proc.id = pid;
+    proc.alive = true;
+    proc.process_type = process_type;
+    proc.state_ptr = 0;
+    proc.mailbox.head = 0;
+    proc.mailbox.used = 0;
+    proc.mailbox.count = 0;
+    proc.mailbox.reply_slot = null;
+    proc.watcher_count = 0;
+    proc.yielded = false;
+    proc.io_wait_fd = -1;
+    proc.reductions = 4000;
 
     // Assign to scheduler thread (round-robin if multiple threads, else current)
     if (current_thread) |ct| {
