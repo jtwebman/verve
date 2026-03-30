@@ -575,7 +575,7 @@ pub const ZigBackend = struct {
         // Emit functions (non-main first, main last for Zig ordering)
         for (program.functions.items) |func| {
             if (!std.mem.eql(u8, func.name, "main")) {
-                self.emitFunction(func, false);
+                self.emitFunction(func);
                 self.line("");
             }
         }
@@ -586,25 +586,22 @@ pub const ZigBackend = struct {
                 for (program.process_decls.items) |pd| {
                     if (std.mem.eql(u8, pd.name, func.module)) {
                         main_is_process = true;
-                        self.emitFunction(func, false);
+                        self.emitFunction(func);
                         self.line("");
                         break;
                     }
                 }
             }
         }
-        // Emit main entry point
+        // Emit main entry point — always use scheduler
         for (program.functions.items) |func| {
             if (std.mem.eql(u8, func.name, "main")) {
                 if (main_is_process) {
                     self.emitProcessMainWrapper(func);
-                } else if (program.process_decls.items.len > 0) {
-                    // Has processes: emit main as regular function, wrap in scheduler
-                    self.emitFunction(func, false);
+                } else {
+                    self.emitFunction(func);
                     self.line("");
                     self.emitSchedulerMainWrapper(func);
-                } else {
-                    self.emitFunction(func, true);
                 }
             }
         }
@@ -707,7 +704,7 @@ pub const ZigBackend = struct {
 
         // Emit all functions
         for (program.functions.items) |func| {
-            self.emitFunction(func, false);
+            self.emitFunction(func);
             self.line("");
         }
 
@@ -752,26 +749,10 @@ pub const ZigBackend = struct {
         self.line("}");
     }
 
-    fn emitFunction(self: *ZigBackend, func: ir.Function, is_entry: bool) void {
+    fn emitFunction(self: *ZigBackend, func: ir.Function) void {
         const reg_types = self.buildRegTypes(func);
 
-        if (is_entry) {
-            self.line("pub fn main() void {");
-            self.indent += 1;
-            self.line("rt.verve_runtime_init();");
-            if (self.program.process_decls.items.len > 0) {
-                self.line("verve_init_dispatch();");
-            }
-            self.line("var verve_args_list = rt.List.init();");
-            self.line("var proc_args = std.process.argsWithAllocator(std.heap.page_allocator) catch return;");
-            self.line("_ = proc_args.skip();");
-            self.line("while (proc_args.next()) |arg| {");
-            self.indent += 1;
-            self.line("verve_args_list.append(@intCast(@intFromPtr(arg.ptr)));");
-            self.indent -= 1;
-            self.line("}");
-            self.indent -= 1;
-        } else {
+        {
             self.writeIndent();
             self.writeFmt("fn verve_{s}_{s}(", .{ func.module, func.name });
             for (func.params, 0..) |param, i| {
@@ -850,33 +831,22 @@ pub const ZigBackend = struct {
         @memset(&local_types, .int);
 
         // Map param names to locals
-        if (is_entry) {
-            for (func.params) |param| {
-                if (std.mem.eql(u8, param.name, "args")) {
-                    self.lineFmt("locals_int[{d}] = @intCast(@intFromPtr(&verve_args_list));", .{local_count});
-                }
-                local_names[local_count] = param.name;
-                local_types[local_count] = regTypeFromIrParam(param.type_);
-                local_count += 1;
+        for (func.params) |param| {
+            const pt = regTypeFromIrParam(param.type_);
+            if (pt == .string) {
+                self.lineFmt("locals_str[{d}] = param_{s};", .{ local_count, param.name });
+            } else if (pt == .float) {
+                self.lineFmt("locals_float[{d}] = param_{s};", .{ local_count, param.name });
+            } else if (pt == .boolean) {
+                self.lineFmt("locals_bool[{d}] = param_{s};", .{ local_count, param.name });
+            } else if (pt == .pointer) {
+                self.lineFmt("locals_ptr[{d}] = param_{s};", .{ local_count, param.name });
+            } else {
+                self.lineFmt("locals_int[{d}] = param_{s};", .{ local_count, param.name });
             }
-        } else {
-            for (func.params) |param| {
-                const pt = regTypeFromIrParam(param.type_);
-                if (pt == .string) {
-                    self.lineFmt("locals_str[{d}] = param_{s};", .{ local_count, param.name });
-                } else if (pt == .float) {
-                    self.lineFmt("locals_float[{d}] = param_{s};", .{ local_count, param.name });
-                } else if (pt == .boolean) {
-                    self.lineFmt("locals_bool[{d}] = param_{s};", .{ local_count, param.name });
-                } else if (pt == .pointer) {
-                    self.lineFmt("locals_ptr[{d}] = param_{s};", .{ local_count, param.name });
-                } else {
-                    self.lineFmt("locals_int[{d}] = param_{s};", .{ local_count, param.name });
-                }
-                local_names[local_count] = param.name;
-                local_types[local_count] = pt;
-                local_count += 1;
-            }
+            local_names[local_count] = param.name;
+            local_types[local_count] = pt;
+            local_count += 1;
         }
 
         // Emit blocks
@@ -894,8 +864,8 @@ pub const ZigBackend = struct {
             var terminated = false;
             for (block.insts.items) |inst| {
                 if (terminated) break;
-                const fn_returns_ptr = !is_entry and (self.isProcessHandler(func) or self.returnsPointer(func, reg_types));
-                self.emitInst(inst, &local_names, &local_count, &local_types, reg_types, is_entry, fn_returns_ptr, func.return_type);
+                const fn_returns_ptr = self.isProcessHandler(func) or self.returnsPointer(func, reg_types);
+                self.emitInst(inst, &local_names, &local_count, &local_types, reg_types, fn_returns_ptr, func.return_type);
                 if (isTerminator(inst)) terminated = true;
             }
 
@@ -913,16 +883,14 @@ pub const ZigBackend = struct {
         self.indent -= 1;
         self.line("}");
 
-        if (!is_entry) {
-            if (func.return_type == .void) {
-                self.line("return;");
-            } else if (func.return_type == .f64) {
-                self.line("return 0.0;");
-            } else if (func.return_type == .bool) {
-                self.line("return false;");
-            } else {
-                self.line("return 0;");
-            }
+        if (func.return_type == .void) {
+            self.line("return;");
+        } else if (func.return_type == .f64) {
+            self.line("return 0.0;");
+        } else if (func.return_type == .bool) {
+            self.line("return false;");
+        } else {
+            self.line("return 0;");
         }
 
         self.indent -= 1;
@@ -991,7 +959,9 @@ pub const ZigBackend = struct {
         self.line("pub fn main() void {");
         self.indent += 1;
         self.line("rt.verve_runtime_init();");
-        self.line("verve_init_dispatch();");
+        if (self.program.process_decls.items.len > 0) {
+            self.line("verve_init_dispatch();");
+        }
         self.line("_ = rt.process.verve_spawn_main(&verve_main_wrapper);");
         self.line("_ = rt.process.verve_scheduler_run_threaded(1);");
         self.line("const exit_code = rt.process.program_exit_code.load(.acquire);");
@@ -1005,7 +975,7 @@ pub const ZigBackend = struct {
         return .int;
     }
 
-    fn emitInst(self: *ZigBackend, inst: ir.Inst, local_names: *[128][]const u8, local_count: *usize, local_types: *[128]RegType, reg_types: []const RegType, is_entry: bool, fn_returns_ptr: bool, fn_return_type: ir.Type) void {
+    fn emitInst(self: *ZigBackend, inst: ir.Inst, local_names: *[128][]const u8, local_count: *usize, local_types: *[128]RegType, reg_types: []const RegType, fn_returns_ptr: bool, fn_return_type: ir.Type) void {
         switch (inst) {
             .const_int => |c| self.lineFmt("{s} = {d};", .{ self.regName(c.dest), c.value }),
             .const_bool => |c| self.lineFmt("{s} = {s};", .{ self.regName(c.dest), if (c.value) "true" else "false" }),
@@ -1107,26 +1077,18 @@ pub const ZigBackend = struct {
                 }
             },
             .ret => |r| {
-                if (is_entry) {
-                    if (r.value) |reg| {
-                        self.lineFmt("std.posix.exit(@intCast(@as(u64, @bitCast({s}))));", .{self.regName(reg)});
+                if (r.value) |reg| {
+                    const rt = getRegType(reg_types, reg);
+                    if (fn_returns_ptr and rt == .int) {
+                        self.lineFmt("return @intCast(@as(u64, @bitCast({s})));", .{self.regName(reg)});
                     } else {
-                        self.line("return;");
+                        self.lineFmt("return {s};", .{self.regName(reg)});
                     }
                 } else {
-                    if (r.value) |reg| {
-                        const rt = getRegType(reg_types, reg);
-                        if (fn_returns_ptr and rt == .int) {
-                            self.lineFmt("return @intCast(@as(u64, @bitCast({s})));", .{self.regName(reg)});
-                        } else {
-                            self.lineFmt("return {s};", .{self.regName(reg)});
-                        }
+                    if (fn_return_type == .void) {
+                        self.line("return;");
                     } else {
-                        if (fn_return_type == .void) {
-                            self.line("return;");
-                        } else {
-                            self.line("return 0;");
-                        }
+                        self.line("return 0;");
                     }
                 }
             },

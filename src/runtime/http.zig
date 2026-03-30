@@ -205,11 +205,11 @@ pub fn http_read_request(stream_ptr: usize) []const u8 {
         }};
         const poll_n = std.posix.poll(&pfd, 0) catch return "";
         if (poll_n == 0) {
-            // No data ready — yield to scheduler or return
-            if (rt.process.scheduler_running.load(.acquire) and rt.process.current_process_id > 0) {
+            // No data ready — yield to scheduler
+            if (rt.process.current_process_id > 0) {
                 rt.process.verve_io_yield(@intCast(s.fd));
             } else {
-                return ""; // no data, no scheduler
+                return "";
             }
         }
         // Data is available (or we were woken from yield) — fall through to read

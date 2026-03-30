@@ -372,17 +372,7 @@ fn drain_one(target_pid: usize) bool {
     return true;
 }
 
-/// Drain ALL messages (legacy sync path).
-pub fn verve_drain(target_pid: usize) void {
-    const t = rt.profile.begin();
-    defer rt.profile.end(.drain, t);
-
-    while (drain_one(target_pid)) {
-        if (!process_table[pidx(target_pid)].alive) break;
-    }
-}
-
-/// Synchronous send: encode message, push to mailbox, drain/yield, return result.
+/// Synchronous send: push message to mailbox, yield until target processes it.
 pub fn verve_send(target_pid: usize, msg_ptr: [*]const u8, msg_len: usize) usize {
     const idx = pidx(target_pid);
     const proc = &process_table[idx];
@@ -399,26 +389,20 @@ pub fn verve_send(target_pid: usize, msg_ptr: [*]const u8, msg_len: usize) usize
         proc.mailbox().reply_slot = null;
         return rt.makeTaggedStr(1, "mailbox_full");
     }
-    if (!scheduler_running.load(.acquire)) {
-        // Legacy sync path (no scheduler running)
-        verve_drain(target_pid);
-    } else {
-        // Scheduler-aware: yield until target processes our message
-        proc.mailbox().send_result_ready = false;
-        proc.mailbox().reply_waiter_pid = current_process_id;
-        // Hint scheduler to run the target next
-        if (current_thread) |ct| {
-            if (proc.owner_thread == ct.id) {
-                ct.next_pid = target_pid;
-            }
+    // Yield until target processes our message
+    proc.mailbox().send_result_ready = false;
+    proc.mailbox().reply_waiter_pid = current_process_id;
+    if (current_thread) |ct| {
+        if (proc.owner_thread == ct.id) {
+            ct.next_pid = target_pid;
         }
-        while (!proc.mailbox().send_result_ready and proc.alive) {
-            const self_idx = pidx(current_process_id);
-            process_table[self_idx].yielded = true;
-            if (current_thread) |thread| {
-                fiber.context_switch(&process_table[self_idx].proc_fiber.?.context, &thread.scheduler_context);
-            } else break;
-        }
+    }
+    while (!proc.mailbox().send_result_ready and proc.alive) {
+        const self_idx = pidx(current_process_id);
+        process_table[self_idx].yielded = true;
+        if (current_thread) |thread| {
+            fiber.context_switch(&process_table[self_idx].proc_fiber.?.context, &thread.scheduler_context);
+        } else break;
     }
     proc.mailbox().reply_slot = null;
     if (result > 0x10000 and rt.getTag(result) == 1) return result;
@@ -427,8 +411,6 @@ pub fn verve_send(target_pid: usize, msg_ptr: [*]const u8, msg_len: usize) usize
 
 /// Fire-and-forget tell: push message to mailbox.
 /// Returns tagged value: :ok{0} on success, :error{"mailbox_full"} or :error{"process_dead"} on failure.
-/// When scheduler is running, message is deferred to scheduler.
-/// When scheduler is not running, drains immediately (legacy behavior).
 pub fn verve_tell(target_pid: usize, msg_ptr: [*]const u8, msg_len: usize) usize {
     const idx = pidx(target_pid);
     if (idx >= process_table.len) return rt.makeTaggedStr(1, "process_dead");
@@ -436,14 +418,10 @@ pub fn verve_tell(target_pid: usize, msg_ptr: [*]const u8, msg_len: usize) usize
     if (!proc.alive) return rt.makeTaggedStr(1, "process_dead");
     if (proc.mailbox().count >= proc.max_messages) return rt.makeTaggedStr(1, "mailbox_full");
     if (!proc.mailbox().push(msg_ptr, msg_len)) return rt.makeTaggedStr(1, "mailbox_full");
-    if (!scheduler_running.load(.acquire)) {
-        verve_drain(target_pid);
-    } else {
-        // Set LIFO slot if target is on same thread (cache-hot optimization)
-        if (current_thread) |ct| {
-            if (proc.owner_thread == ct.id) {
-                ct.next_pid = target_pid;
-            }
+    // Hint scheduler to run the target next (LIFO cache-hot optimization)
+    if (current_thread) |ct| {
+        if (proc.owner_thread == ct.id) {
+            ct.next_pid = target_pid;
         }
     }
     return rt.makeTagged(0, 0);
@@ -480,7 +458,6 @@ fn any_other_runnable_on_thread(thread: *SchedulerThread) bool {
 /// Yield the current process. Pauses execution and returns to the scheduler.
 /// If no other process needs CPU, this is a no-op (avoids wasted context switch).
 pub fn verve_yield() i64 {
-    if (!scheduler_running.load(.acquire)) return 0;
     const thread = current_thread orelse return 0;
     if (!any_other_runnable_on_thread(thread)) return 0;
 
@@ -493,7 +470,6 @@ pub fn verve_yield() i64 {
 /// Yield until a file descriptor is readable. Registers fd with epoll,
 /// suspends the process, and resumes when data arrives.
 pub fn verve_io_yield(fd: i64) void {
-    if (!scheduler_running.load(.acquire)) return;
     const thread = current_thread orelse return;
     const idx = pidx(current_process_id);
     process_table[idx].io_wait_fd = @intCast(fd);
@@ -521,7 +497,6 @@ pub fn verve_self() usize {
 /// Decrement reduction counter. If zero, yield to scheduler and reset.
 /// Called at loop back-edges for cooperative preemption.
 pub fn verve_yield_check() void {
-    if (!scheduler_running.load(.acquire)) return;
     if (current_process_id == 0) return;
     const idx = pidx(current_process_id);
     if (process_table[idx].reductions > 0) {

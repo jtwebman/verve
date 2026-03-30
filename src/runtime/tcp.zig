@@ -122,31 +122,14 @@ pub fn tcp_accept(listener_ptr: usize) usize {
         return wrapClientFd(client_fd);
     }
 
-    // No connections queued — wait for one
-    if (rt.process.scheduler_running.load(.acquire) and rt.process.current_process_id > 0) {
-        // Scheduler mode: yield to scheduler, resume when listener is readable
+    // No connections queued — yield to scheduler, resume when listener is readable
+    if (rt.process.current_process_id > 0) {
         rt.process.verve_io_yield(@intCast(listener.fd));
-        // Resumed — accept batch
-        fillAcceptBuffer(listener.fd);
-        if (popAcceptBuffer()) |client_fd| {
-            return wrapClientFd(client_fd);
-        }
-        return rt.makeTagged(1, 0);
     }
-
-    // Legacy mode: blocking poll
-    var pfd = [1]std.posix.pollfd{.{
-        .fd = listener.fd,
-        .events = std.posix.POLL.IN,
-        .revents = 0,
-    }};
-    _ = std.posix.poll(&pfd, -1) catch return rt.makeTagged(1, 0);
-
     fillAcceptBuffer(listener.fd);
     if (popAcceptBuffer()) |client_fd| {
         return wrapClientFd(client_fd);
     }
-
     return rt.makeTagged(1, 0);
 }
 
