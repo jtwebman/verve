@@ -386,7 +386,7 @@ pub fn verve_send(target_pid: usize, msg_ptr: [*]const u8, msg_len: usize) usize
         }
     }
     // Yield until dispatch writes our result or target dies
-    while (!self_proc.send_result_ready and process_table[idx].alive) {
+    while (!@as(*volatile bool, &self_proc.send_result_ready).* and isAlive(idx)) {
         self_proc.yielded = true;
         if (current_thread) |thread| {
             fiber.context_switch(&self_proc.proc_fiber.?.context, &thread.scheduler_context);
@@ -506,15 +506,19 @@ pub fn verve_thread_id() i64 {
 
 /// Fiber entry point for each process. Drains one message at a time,
 /// yielding back to the scheduler between messages.
+fn isAlive(idx: usize) bool {
+    return @as(*volatile bool, &process_table[idx].alive).*;
+}
+
 fn process_fiber_entry(pid_raw: usize) void {
     const pid: usize = pid_raw;
     while (true) {
         const idx = pidx(pid);
-        if (!process_table[idx].alive) break;
+        if (!isAlive(idx)) break;
 
         const had_msg = drain_one(pid);
 
-        if (!process_table[idx].alive) break;
+        if (!isAlive(idx)) break;
 
         if (had_msg) {
             // Set yielded if more messages remain; clear it otherwise so the

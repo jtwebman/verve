@@ -894,6 +894,33 @@ test "compile: yield splits handler — saved reflects pre-yield state" {
     try testing.expectEqualStrings("3\n", r.stdout);
 }
 
+test "compile: send to dead process returns error" {
+    const r = try compileAndCapture(
+        \\struct WS { x: int = 0; }
+        \\process Worker<WS> {
+        \\    receive DoWork(state: WS) -> void {
+        \\        Process.exit();
+        \\    }
+        \\    receive GetResult(state: WS) -> int {
+        \\        return 42;
+        \\    }
+        \\}
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        w: int = spawn Worker();
+        \\        Process.tell(w.DoWork);
+        \\        match Process.send(w.GetResult) {
+        \\            :ok{val} => Stdio.println("ok");
+        \\            :error{e} => Stdio.println("error");
+        \\        }
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("error\n", r.stdout);
+}
+
 test "compile: tell and send to different processes interleave correctly" {
     // Validates that a tell to process A doesn't corrupt a send to process B.
     const r = try compileAndCapture(
