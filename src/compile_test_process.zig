@@ -989,6 +989,31 @@ test "compile: send returns 0 correctly (not confused with error)" {
     try testing.expectEqualStrings("0\n", r.stdout);
 }
 
+test "compile: parent death kills child processes" {
+    // Main spawns counter, counter is a child of main.
+    // When main exits, counter should be killed automatically.
+    // This is tested implicitly: if the scheduler didn't clean up,
+    // the program would hang. A clean exit proves children were killed.
+    const r = try compileAndCapture(
+        \\struct CS { count: int = 0; }
+        \\process Counter<CS> {
+        \\    receive Inc(state: CS) -> void {
+        \\        state.count = state.count + 1;
+        \\    }
+        \\}
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        c: int = spawn Counter();
+        \\        Process.tell(c.Inc);
+        \\        Stdio.println("done");
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("done\n", r.stdout);
+}
+
 test "compile: mailbox full returns error string" {
     const r = try compileAndCapture(
         \\struct CS { count: int = 0; }

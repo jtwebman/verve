@@ -73,6 +73,7 @@ pub const VerveProcess = struct {
     send_result: usize = 0, // result from send handler
     send_result_ready: bool = false, // wake flag for send
     send_slot_owner: usize = 0, // PID of target allowed to write send_result
+    parent_pid: usize = 0, // PID of spawning process (0 = top-level)
 
     /// Get or create mailbox (lazy allocation).
     pub fn mailbox(self: *VerveProcess) *Mailbox {
@@ -109,6 +110,7 @@ pub const VerveProcess = struct {
         self.send_result = 0;
         self.send_result_ready = false;
         self.send_slot_owner = 0;
+        self.parent_pid = 0;
     }
 };
 
@@ -244,6 +246,7 @@ pub fn verve_spawn(process_type: usize) usize {
     proc.send_result = 0;
     proc.send_result_ready = false;
     proc.send_slot_owner = 0;
+    proc.parent_pid = current_process_id;
 
     // Assign to scheduler thread (round-robin if multiple threads, else current)
     if (current_thread) |ct| {
@@ -286,12 +289,14 @@ pub fn verve_watch(target_pid: usize) void {
     w.count += 1;
 }
 
-pub fn verve_kill(target_pid: usize) void {
-    table_lock.lock();
-    defer table_lock.unlock();
-    const idx = pidx(target_pid);
+/// Kill a process and all its children. Caller must hold table_lock.
+fn kill_tree(pid: usize) void {
+    const idx = pidx(pid);
+    if (idx >= process_table.len) return;
     const proc = &process_table[idx];
+    if (!proc.alive) return;
     proc.alive = false;
+    proc.yielded = false;
     // Notify watchers
     const wc = if (proc.watcher_ptr) |w| w.count else 0;
     for (0..wc) |i| {
@@ -303,34 +308,31 @@ pub fn verve_kill(target_pid: usize) void {
         _ = watcher.mailbox().push(&death_msg, 2);
     }
     // Wake any process waiting on a send to this process
+    // Kill all children (parent owns children)
     for (process_table[0..process_count]) |*p| {
-        if (p.alive and p.send_slot_owner == target_pid) {
+        if (p.alive and p.send_slot_owner == pid) {
             p.yielded = true;
         }
+        if (p.alive and p.parent_pid == pid) {
+            kill_tree(p.id);
+        }
     }
-    // Add to free list for O(1) reuse
     free_slots.append(std.heap.page_allocator, idx) catch {};
 }
 
-/// Exit the current process — marks it dead and frees its arena.
+pub fn verve_kill(target_pid: usize) void {
+    table_lock.lock();
+    defer table_lock.unlock();
+    kill_tree(target_pid);
+}
+
+/// Exit the current process and all its children.
 /// Called by a handler to self-terminate (spawn-per-message pattern).
 pub fn verve_exit_self() void {
     if (current_process_id == 0) return;
     table_lock.lock();
     defer table_lock.unlock();
-    const idx = pidx(current_process_id);
-    if (idx >= process_table.len) return;
-    const proc = &process_table[idx];
-    proc.alive = false;
-    proc.yielded = false;
-    // Wake any process waiting on a send to this process
-    for (process_table[0..process_count]) |*p| {
-        if (p.alive and p.send_slot_owner == current_process_id) {
-            p.yielded = true;
-        }
-    }
-    // Add to free list for O(1) reuse on next spawn
-    free_slots.append(std.heap.page_allocator, idx) catch {};
+    kill_tree(current_process_id);
 }
 
 // ── Message passing ────────────────────────────────
@@ -559,8 +561,9 @@ fn main_process_fiber_entry(pid_raw: usize) void {
     const pid: usize = pid_raw;
     const result = if (main_fn_ptr) |f| f(0) else 0;
     program_exit_code.store(@intCast(result), .release);
+    // Kill main and all its children
+    verve_kill(pid);
     const idx = pidx(pid);
-    process_table[idx].alive = false;
     if (process_table[idx].proc_fiber) |*f| f.state = .done;
     if (current_thread) |thread| {
         fiber.context_switch(&process_table[idx].proc_fiber.?.context, &thread.scheduler_context);
