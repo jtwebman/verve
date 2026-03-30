@@ -517,38 +517,52 @@ pub const ZigBackend = struct {
                     }
                     if (handler_func) |hf| {
                         const is_void = hf.return_type == .void;
-                        if (hf.params.len == 0) {
-                            if (is_void) {
-                                self.lineFmt("{d} => {{ verve_{s}_{s}(); return 0; }},", .{ hi, pd.name, hname });
-                            } else {
-                                self.lineFmt("{d} => verve_{s}_{s}(),", .{ hi, pd.name, hname });
-                            }
-                        } else {
-                            self.lineFmt("{d} => blk: {{", .{hi});
-                            self.indent += 1;
-                            // Decode params from binary message: skip header (2 bytes: handler_id + param_count)
-                            self.line("var _pos: usize = 2;");
+                        // All handlers use a block to handle params + send reply
+                        self.lineFmt("{d} => blk: {{", .{hi});
+                        self.indent += 1;
+                        if (hf.params.len > 0) {
+                            // Decode params: skip 4-byte header (handler_id + param_count + sender_pid)
+                            self.line("var _pos: usize = 4;");
                             for (hf.params) |param| {
                                 self.emitMsgDecode(param);
                             }
-                            // Call handler with decoded params
+                        }
+                        // Call handler
+                        if (is_void) {
                             self.writeIndent();
-                            if (is_void) {
-                                self.writeFmt("verve_{s}_{s}(", .{ pd.name, hname });
-                            } else {
-                                self.writeFmt("break :blk verve_{s}_{s}(", .{ pd.name, hname });
-                            }
+                            self.writeFmt("verve_{s}_{s}(", .{ pd.name, hname });
                             for (hf.params, 0..) |param, pi| {
                                 if (pi > 0) self.write(", ");
                                 self.writeFmt("_p_{s}", .{param.name});
                             }
                             self.write(");\n");
-                            if (is_void) {
-                                self.line("break :blk 0;");
+                            self.line("break :blk 0;");
+                        } else {
+                            self.writeIndent();
+                            self.writeFmt("const _result = verve_{s}_{s}(", .{ pd.name, hname });
+                            for (hf.params, 0..) |param, pi| {
+                                if (pi > 0) self.write(", ");
+                                self.writeFmt("_p_{s}", .{param.name});
                             }
+                            self.write(");\n");
+                            // Send reply: read sender_pid, validate slot, write result
+                            self.line("const _spid: usize = @as(u16, _msg_ptr[2]) | (@as(u16, _msg_ptr[3]) << 8);");
+                            self.line("if (_spid > 0) {");
+                            self.indent += 1;
+                            self.line("const _si = _spid - 1;");
+                            self.line("if (_si < rt.process.process_table.len and rt.process.process_table[_si].send_slot_owner == rt.process.current_process_id) {");
+                            self.indent += 1;
+                            self.line("rt.process.process_table[_si].send_result = _result;");
+                            self.line("rt.process.process_table[_si].send_result_ready = true;");
+                            self.line("rt.process.process_table[_si].yielded = true;");
                             self.indent -= 1;
-                            self.line("},");
+                            self.line("}");
+                            self.indent -= 1;
+                            self.line("}");
+                            self.line("break :blk _result;");
                         }
+                        self.indent -= 1;
+                        self.line("},");
                     } else {
                         self.lineFmt("{d} => verve_{s}_{s}(),", .{ hi, pd.name, hname });
                     }
@@ -666,7 +680,7 @@ pub const ZigBackend = struct {
                         } else {
                             self.lineFmt("{d} => blk: {{", .{hi});
                             self.indent += 1;
-                            self.line("var _pos: usize = 2;");
+                            self.line("var _pos: usize = 4;");
                             for (hf.params) |param| {
                                 self.emitMsgDecode(param);
                             }
@@ -1195,12 +1209,15 @@ pub const ZigBackend = struct {
                 self.line("var _msg_buf: [8192]u8 = undefined;");
                 self.lineFmt("_msg_buf[0] = {d};", .{ps.handler_index});
                 self.lineFmt("_msg_buf[1] = {d};", .{ps.args.len});
+                self.line("const _spid: u16 = @intCast(rt.process.current_process_id);");
+                self.line("_msg_buf[2] = @truncate(_spid);");
+                self.line("_msg_buf[3] = @truncate(_spid >> 8);");
                 if (ps.args.len > 0) {
-                    self.line("var _mpos: usize = 2;");
+                    self.line("var _mpos: usize = 4;");
                     for (ps.args) |arg| self.emitMsgEncode(arg, reg_types);
                     self.lineFmt("{s} = rt.process.verve_send(@intCast(@as(u64, @bitCast({s}))), &_msg_buf, _mpos);", .{ self.regName(ps.dest), self.regName(ps.target) });
                 } else {
-                    self.lineFmt("{s} = rt.process.verve_send(@intCast(@as(u64, @bitCast({s}))), &_msg_buf, 2);", .{ self.regName(ps.dest), self.regName(ps.target) });
+                    self.lineFmt("{s} = rt.process.verve_send(@intCast(@as(u64, @bitCast({s}))), &_msg_buf, 4);", .{ self.regName(ps.dest), self.regName(ps.target) });
                 }
                 self.indent -= 1;
                 self.line("}");
@@ -1212,12 +1229,15 @@ pub const ZigBackend = struct {
                 self.line("var _msg_buf: [8192]u8 = undefined;");
                 self.lineFmt("_msg_buf[0] = {d};", .{pt.handler_index});
                 self.lineFmt("_msg_buf[1] = {d};", .{pt.args.len});
+                self.line("const _spid: u16 = @intCast(rt.process.current_process_id);");
+                self.line("_msg_buf[2] = @truncate(_spid);");
+                self.line("_msg_buf[3] = @truncate(_spid >> 8);");
                 if (pt.args.len > 0) {
-                    self.line("var _mpos: usize = 2;");
+                    self.line("var _mpos: usize = 4;");
                     for (pt.args) |arg| self.emitMsgEncode(arg, reg_types);
                     self.lineFmt("{s} = rt.process.verve_tell(@intCast(@as(u64, @bitCast({s}))), &_msg_buf, _mpos);", .{ self.regName(pt.dest), self.regName(pt.target) });
                 } else {
-                    self.lineFmt("{s} = rt.process.verve_tell(@intCast(@as(u64, @bitCast({s}))), &_msg_buf, 2);", .{ self.regName(pt.dest), self.regName(pt.target) });
+                    self.lineFmt("{s} = rt.process.verve_tell(@intCast(@as(u64, @bitCast({s}))), &_msg_buf, 4);", .{ self.regName(pt.dest), self.regName(pt.target) });
                 }
                 self.indent -= 1;
                 self.line("}");
@@ -1246,12 +1266,15 @@ pub const ZigBackend = struct {
                 self.line("var _msg_buf: [8192]u8 = undefined;");
                 self.lineFmt("_msg_buf[0] = {d};", .{ps.handler_index});
                 self.lineFmt("_msg_buf[1] = {d};", .{ps.args.len});
+                self.line("const _spid: u16 = @intCast(rt.process.current_process_id);");
+                self.line("_msg_buf[2] = @truncate(_spid);");
+                self.line("_msg_buf[3] = @truncate(_spid >> 8);");
                 if (ps.args.len > 0) {
-                    self.line("var _mpos: usize = 2;");
+                    self.line("var _mpos: usize = 4;");
                     for (ps.args) |arg| self.emitMsgEncode(arg, reg_types);
                     self.lineFmt("{s} = rt.process.verve_send_timeout({s}, &_msg_buf, _mpos, {s});", .{ self.regName(ps.dest), self.regName(ps.target), self.regName(ps.timeout_ms) });
                 } else {
-                    self.lineFmt("{s} = rt.process.verve_send_timeout({s}, &_msg_buf, 2, {s});", .{ self.regName(ps.dest), self.regName(ps.target), self.regName(ps.timeout_ms) });
+                    self.lineFmt("{s} = rt.process.verve_send_timeout({s}, &_msg_buf, 4, {s});", .{ self.regName(ps.dest), self.regName(ps.target), self.regName(ps.timeout_ms) });
                 }
                 self.indent -= 1;
                 self.line("}");

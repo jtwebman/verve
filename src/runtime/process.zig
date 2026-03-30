@@ -12,9 +12,6 @@ pub const Mailbox = struct {
     head: usize = 0,
     used: usize = 0, // bytes used in buffer
     count: usize = 0, // number of messages
-    reply_slot: ?*usize = null, // for synchronous send
-    reply_waiter_pid: usize = 0, // PID waiting for send reply
-    send_result_ready: bool = false, // flag: reply has been written
     mutex: std.Thread.Mutex = .{}, // thread-safe push/pop
 
     /// Push a message (raw bytes) into the mailbox. Returns false if no room.
@@ -73,6 +70,9 @@ pub const VerveProcess = struct {
     io_wait_fd: std.posix.fd_t = -1,
     owner_thread: usize = 0,
     reductions: u32 = 4000,
+    send_result: usize = 0, // result from send handler
+    send_result_ready: bool = false, // wake flag for send
+    send_slot_owner: usize = 0, // PID of target allowed to write send_result
 
     /// Get or create mailbox (lazy allocation).
     pub fn mailbox(self: *VerveProcess) *Mailbox {
@@ -102,13 +102,13 @@ pub const VerveProcess = struct {
             m.head = 0;
             m.used = 0;
             m.count = 0;
-            m.reply_slot = null;
-            m.reply_waiter_pid = 0;
-            m.send_result_ready = false;
         }
         if (self.watcher_ptr) |w| {
             w.count = 0;
         }
+        self.send_result = 0;
+        self.send_result_ready = false;
+        self.send_slot_owner = 0;
     }
 };
 
@@ -236,14 +236,14 @@ pub fn verve_spawn(process_type: usize) usize {
         m.head = 0;
         m.used = 0;
         m.count = 0;
-        m.reply_slot = null;
-        m.reply_waiter_pid = 0;
-        m.send_result_ready = false;
     }
     if (proc.watcher_ptr) |w| w.count = 0;
     proc.yielded = false;
     proc.io_wait_fd = -1;
     proc.reductions = 4000;
+    proc.send_result = 0;
+    proc.send_result_ready = false;
+    proc.send_slot_owner = 0;
 
     // Assign to scheduler thread (round-robin if multiple threads, else current)
     if (current_thread) |ct| {
@@ -302,7 +302,12 @@ pub fn verve_kill(target_pid: usize) void {
         const death_msg = [_]u8{ 0xFF, 0 };
         _ = watcher.mailbox().push(&death_msg, 2);
     }
-    // Free all memory owned by this process (deferred to spawn reuse for speed)
+    // Wake any process waiting on a send to this process
+    for (process_table[0..process_count]) |*p| {
+        if (p.alive and p.send_slot_owner == target_pid) {
+            p.yielded = true;
+        }
+    }
     // Add to free list for O(1) reuse
     free_slots.append(std.heap.page_allocator, idx) catch {};
 }
@@ -318,6 +323,12 @@ pub fn verve_exit_self() void {
     const proc = &process_table[idx];
     proc.alive = false;
     proc.yielded = false;
+    // Wake any process waiting on a send to this process
+    for (process_table[0..process_count]) |*p| {
+        if (p.alive and p.send_slot_owner == current_process_id) {
+            p.yielded = true;
+        }
+    }
     // Add to free list for O(1) reuse on next spawn
     free_slots.append(std.heap.page_allocator, idx) catch {};
 }
@@ -344,67 +355,46 @@ fn drain_one(target_pid: usize) bool {
         return true;
     }
     const dispatch_fn = dispatch_table[proc.process_type];
-    // Bit 7 of param_count byte marks this message as a send (needs reply).
-    // Clear the flag before dispatching so the handler sees the real param count.
-    const is_send_msg = msg.len >= 2 and (pop_buf[1] & 0x80) != 0;
-    if (is_send_msg) pop_buf[1] &= 0x7F;
-    const reply_slot = if (is_send_msg) proc.mailbox().reply_slot else null;
     table_lock.unlockShared();
 
     const saved = current_process_id;
     current_process_id = target_pid;
-    const result = dispatch_fn(msg.ptr, msg.len);
+    // Dispatch handles reply writing for send handlers via generated code
+    _ = dispatch_fn(msg.ptr, msg.len);
     current_process_id = saved;
-
-    if (reply_slot) |slot| {
-        slot.* = result;
-        // Wake the sender — the send message has been processed
-        const mb = process_table[idx].mailbox_ptr.?;
-        mb.send_result_ready = true;
-        if (mb.reply_waiter_pid != 0) {
-            const waiter_idx = pidx(mb.reply_waiter_pid);
-            if (waiter_idx < process_table.len) {
-                process_table[waiter_idx].yielded = true;
-            }
-            mb.reply_waiter_pid = 0;
-        }
-    }
     return true;
 }
 
 /// Synchronous send: push message to mailbox, yield until target processes it.
+/// The generated send dispatch function writes the result to our send_result field.
 pub fn verve_send(target_pid: usize, msg_ptr: [*]const u8, msg_len: usize) usize {
     const idx = pidx(target_pid);
     const proc = &process_table[idx];
     if (!proc.alive) return rt.makeTaggedStr(1, "process_dead");
     if (proc.mailbox().count >= proc.max_messages) return rt.makeTaggedStr(1, "mailbox_full");
-    var result: usize = 0;
-    proc.mailbox().reply_slot = &result;
-    // Mark message as send (bit 7 of param_count byte) so drain_one uses reply_slot
-    var send_buf: [8192]u8 = undefined;
-    const capped = @min(msg_len, send_buf.len);
-    @memcpy(send_buf[0..capped], msg_ptr[0..capped]);
-    if (capped >= 2) send_buf[1] |= 0x80;
-    if (!proc.mailbox().push(&send_buf, capped)) {
-        proc.mailbox().reply_slot = null;
-        return rt.makeTaggedStr(1, "mailbox_full");
-    }
-    // Yield until target processes our message
-    proc.mailbox().send_result_ready = false;
-    proc.mailbox().reply_waiter_pid = current_process_id;
+    if (!proc.mailbox().push(msg_ptr, msg_len)) return rt.makeTaggedStr(1, "mailbox_full");
+    // Set up sender's reply slot
+    const self_idx = pidx(current_process_id);
+    const self_proc = &process_table[self_idx];
+    self_proc.send_result = 0;
+    self_proc.send_result_ready = false;
+    self_proc.send_slot_owner = target_pid;
+    // Hint scheduler to run the target next
     if (current_thread) |ct| {
         if (proc.owner_thread == ct.id) {
             ct.next_pid = target_pid;
         }
     }
-    while (!proc.mailbox().send_result_ready and proc.alive) {
-        const self_idx = pidx(current_process_id);
-        process_table[self_idx].yielded = true;
+    // Yield until dispatch writes our result or target dies
+    while (!self_proc.send_result_ready and process_table[idx].alive) {
+        self_proc.yielded = true;
         if (current_thread) |thread| {
-            fiber.context_switch(&process_table[self_idx].proc_fiber.?.context, &thread.scheduler_context);
+            fiber.context_switch(&self_proc.proc_fiber.?.context, &thread.scheduler_context);
         } else break;
     }
-    proc.mailbox().reply_slot = null;
+    self_proc.send_slot_owner = 0;
+    if (!self_proc.send_result_ready) return rt.makeTaggedStr(1, "process_dead");
+    const result = self_proc.send_result;
     if (result > 0x10000 and rt.getTag(result) == 1) return result;
     return rt.makeTagged(0, @intCast(result));
 }

@@ -894,6 +894,74 @@ test "compile: yield splits handler — saved reflects pre-yield state" {
     try testing.expectEqualStrings("3\n", r.stdout);
 }
 
+test "compile: tell and send to different processes interleave correctly" {
+    // Validates that a tell to process A doesn't corrupt a send to process B.
+    const r = try compileAndCapture(
+        \\struct CS { count: int = 0; }
+        \\process Counter<CS> {
+        \\    receive Inc(state: CS) -> void {
+        \\        state.count = state.count + 1;
+        \\    }
+        \\    receive GetCount(state: CS) -> int {
+        \\        return state.count;
+        \\    }
+        \\}
+        \\struct CS2 { count: int = 0; }
+        \\process Counter2<CS2> {
+        \\    receive Inc(state: CS2) -> void {
+        \\        state.count = state.count + 10;
+        \\    }
+        \\    receive GetCount(state: CS2) -> int {
+        \\        return state.count;
+        \\    }
+        \\}
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        c1: int = spawn Counter();
+        \\        c2: int = spawn Counter2();
+        \\        Process.tell(c1.Inc);
+        \\        Process.tell(c1.Inc);
+        \\        Process.tell(c1.Inc);
+        \\        Process.tell(c2.Inc);
+        \\        match Process.send(c2.GetCount) {
+        \\            :ok{val} => Stdio.println(val);
+        \\            :error{e} => Stdio.println(e);
+        \\        }
+        \\        match Process.send(c1.GetCount) {
+        \\            :ok{val} => Stdio.println(val);
+        \\            :error{e} => Stdio.println(e);
+        \\        }
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("10\n3\n", r.stdout);
+}
+
+test "compile: send returns 0 correctly (not confused with error)" {
+    const r = try compileAndCapture(
+        \\struct CS { count: int = 0; }
+        \\process Counter<CS> {
+        \\    receive GetCount(state: CS) -> int {
+        \\        return state.count;
+        \\    }
+        \\}
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        c: int = spawn Counter();
+        \\        match Process.send(c.GetCount) {
+        \\            :ok{val} => Stdio.println(val);
+        \\            :error{e} => Stdio.println(e);
+        \\        }
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("0\n", r.stdout);
+}
+
 test "compile: mailbox full returns error string" {
     const r = try compileAndCapture(
         \\struct CS { count: int = 0; }
