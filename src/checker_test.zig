@@ -1172,6 +1172,40 @@ test "error: wrong pid type passed to function" {
     , "expected pid<ProcA>, got pid<ProcB>");
 }
 
+test "valid: Process.self returns typed pid in handler" {
+    try expectNoErrors(
+        \\struct CounterState { count: int = 0; }
+        \\process Counter<CounterState> {
+        \\    receive GetSelf(state: CounterState) -> int {
+        \\        me: pid<Counter> = Process.self();
+        \\        return 0;
+        \\    }
+        \\}
+        \\module Main {
+        \\    fn main() -> int { return 0; }
+        \\}
+    );
+}
+
+test "error: Process.self wrong pid type in handler" {
+    try expectError(
+        \\struct AState { x: int = 0; }
+        \\struct BState { y: int = 0; }
+        \\process ProcA<AState> {
+        \\    receive GetSelf(state: AState) -> int {
+        \\        me: pid<ProcB> = Process.self();
+        \\        return 0;
+        \\    }
+        \\}
+        \\process ProcB<BState> {
+        \\    receive Noop(state: BState) -> int { return 0; }
+        \\}
+        \\module Main {
+        \\    fn main() -> int { return 0; }
+        \\}
+    , "cannot assign pid<ProcA> to pid<ProcB>");
+}
+
 // ── Built-in module function return types ─────────────────
 
 test "error: String.len assigned to string" {

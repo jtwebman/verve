@@ -16,6 +16,7 @@ pub const Checker = struct {
     struct_decls: std.StringHashMapUnmanaged(ast.StructDecl),
     type_decls: std.StringHashMapUnmanaged(ast.TypeDecl),
     in_receive_handler: bool,
+    current_process_name: ?[]const u8,
     current_scope: std.StringHashMapUnmanaged(?ast.TypeExpr), // name -> type (null = unknown)
     current_module_name: ?[]const u8,
     current_fn_name: ?[]const u8,
@@ -43,6 +44,7 @@ pub const Checker = struct {
             .struct_decls = .{},
             .type_decls = .{},
             .in_receive_handler = false,
+            .current_process_name = null,
             .current_scope = .{},
             .current_module_name = null,
             .current_fn_name = null,
@@ -196,6 +198,8 @@ pub const Checker = struct {
 
         self.in_receive_handler = true;
         defer self.in_receive_handler = false;
+        self.current_process_name = p.name;
+        defer self.current_process_name = null;
 
         self.current_scope = .{};
         self.current_fn_name = handler.name;
@@ -1216,7 +1220,14 @@ pub const Checker = struct {
         if (std.mem.eql(u8, mod, "Convert")) return inferConvertFn(func);
         if (std.mem.eql(u8, mod, "Math")) return .{ .simple = "int" };
         // Process.send/tell/send_timeout handled at call site with proper return types
-        if (std.mem.eql(u8, mod, "Process")) return null;
+        if (std.mem.eql(u8, mod, "Process")) {
+            if (std.mem.eql(u8, func, "self")) {
+                if (self.current_process_name) |pname| return self.makePidType(pname);
+                return .{ .simple = "int" }; // outside handler, untyped fallback
+            }
+            if (std.mem.eql(u8, func, "exit")) return .{ .simple = "void" };
+            return null;
+        }
         return null;
     }
 
