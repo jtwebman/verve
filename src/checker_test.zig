@@ -1152,8 +1152,8 @@ test "error: wrong pid type" {
     , "cannot assign pid<ProcB> to pid<ProcA>");
 }
 
-test "valid: multiple pid types" {
-    try expectNoErrors(
+test "error: wrong pid type passed to function" {
+    try expectError(
         \\struct AState { x: int = 0; }
         \\struct BState { y: int = 0; }
         \\process ProcA<AState> {
@@ -1163,13 +1163,13 @@ test "valid: multiple pid types" {
         \\    receive GetY(state: BState) -> int { return state.y; }
         \\}
         \\module Main {
+        \\    fn use_a(a: pid<ProcA>) -> int { return 0; }
         \\    fn main() -> int {
-        \\        a: pid<ProcA> = spawn ProcA();
         \\        b: pid<ProcB> = spawn ProcB();
-        \\        return 0;
+        \\        return use_a(b);
         \\    }
         \\}
-    );
+    , "expected pid<ProcA>, got pid<ProcB>");
 }
 
 // ── Built-in module function return types ─────────────────
