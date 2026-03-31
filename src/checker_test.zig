@@ -1025,6 +1025,153 @@ test "valid: spawn assigned to pid" {
     );
 }
 
+// ── Typed PID tests ─────────────────────────────────────
+
+test "error: pid with unknown process type" {
+    try expectError(
+        \\module Main {
+        \\    fn main() -> int {
+        \\        w: pid<NonExistent> = spawn Worker();
+        \\        return 0;
+        \\    }
+        \\}
+    , "unknown process type 'NonExistent'");
+}
+
+test "error: spawn pid assigned to int" {
+    try expectError(
+        \\struct WorkerState { value: int = 0; }
+        \\process Worker<WorkerState> {
+        \\    receive Get(state: WorkerState) -> int { return state.value; }
+        \\}
+        \\module Main {
+        \\    fn main() -> int {
+        \\        w: int = spawn Worker();
+        \\        return 0;
+        \\    }
+        \\}
+    , "cannot assign pid<Worker> to int");
+}
+
+test "error: spawn pid assigned to string" {
+    try expectError(
+        \\struct WorkerState { value: int = 0; }
+        \\process Worker<WorkerState> {
+        \\    receive Get(state: WorkerState) -> int { return state.value; }
+        \\}
+        \\module Main {
+        \\    fn main() -> int {
+        \\        w: string = spawn Worker();
+        \\        return 0;
+        \\    }
+        \\}
+    , "cannot assign pid<Worker> to string");
+}
+
+test "valid: pid as function parameter" {
+    try expectNoErrors(
+        \\struct CounterState { count: int = 0; }
+        \\process Counter<CounterState> {
+        \\    receive Increment(state: CounterState) -> int {
+        \\        state.count = state.count + 1;
+        \\        return state.count;
+        \\    }
+        \\}
+        \\module Main {
+        \\    fn send_increment(c: pid<Counter>) -> int {
+        \\        match Process.send(c.Increment) {
+        \\            :ok{val} => return val;
+        \\            :error{e} => return 0;
+        \\        }
+        \\    }
+        \\    fn main() -> int {
+        \\        c: pid<Counter> = spawn Counter();
+        \\        return send_increment(c);
+        \\    }
+        \\}
+    );
+}
+
+test "valid: pid type inferred from spawn" {
+    try expectNoErrors(
+        \\struct CounterState { count: int = 0; }
+        \\process Counter<CounterState> {
+        \\    receive Inc(state: CounterState) -> int {
+        \\        state.count = state.count + 1;
+        \\        return state.count;
+        \\    }
+        \\}
+        \\module Main {
+        \\    fn main() -> int {
+        \\        c: pid<Counter> = spawn Counter();
+        \\        match Process.send(c.Inc) {
+        \\            :ok{val} => return val;
+        \\            :error{e} => return 0;
+        \\        }
+        \\    }
+        \\}
+    );
+}
+
+test "valid: pid with tell" {
+    try expectNoErrors(
+        \\struct WorkerState { value: int = 0; }
+        \\process Worker<WorkerState> {
+        \\    receive SetValue(state: WorkerState, v: int) -> void {
+        \\        state.value = v;
+        \\    }
+        \\}
+        \\module Main {
+        \\    fn main() -> int {
+        \\        w: pid<Worker> = spawn Worker();
+        \\        match Process.tell(w.SetValue, 42) {
+        \\            :ok{val} => return 0;
+        \\            :error{e} => return 1;
+        \\        }
+        \\    }
+        \\}
+    );
+}
+
+test "error: wrong pid type" {
+    try expectError(
+        \\struct AState { x: int = 0; }
+        \\struct BState { y: int = 0; }
+        \\process ProcA<AState> {
+        \\    receive GetX(state: AState) -> int { return state.x; }
+        \\}
+        \\process ProcB<BState> {
+        \\    receive GetY(state: BState) -> int { return state.y; }
+        \\}
+        \\module Main {
+        \\    fn main() -> int {
+        \\        a: pid<ProcA> = spawn ProcB();
+        \\        return 0;
+        \\    }
+        \\}
+    , "cannot assign pid<ProcB> to pid<ProcA>");
+}
+
+test "valid: multiple pid types" {
+    try expectNoErrors(
+        \\struct AState { x: int = 0; }
+        \\struct BState { y: int = 0; }
+        \\process ProcA<AState> {
+        \\    receive GetX(state: AState) -> int { return state.x; }
+        \\}
+        \\process ProcB<BState> {
+        \\    receive GetY(state: BState) -> int { return state.y; }
+        \\}
+        \\module Main {
+        \\    fn main() -> int {
+        \\        a: pid<ProcA> = spawn ProcA();
+        \\        b: pid<ProcB> = spawn ProcB();
+        \\        return 0;
+        \\    }
+        \\}
+    );
+}
+
 // ── Built-in module function return types ─────────────────
 
 test "error: String.len assigned to string" {
