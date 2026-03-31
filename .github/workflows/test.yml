@@ -23,8 +23,14 @@ jobs:
       - name: Build
         run: zig build
 
-      - name: Run tests
+      - name: Run fast tests
         run: zig build test
+
+      - name: Run compile tests
+        run: zig build test-compile
+
+      - name: Run network tests
+        run: zig build test-slow
 
       - name: Type check examples
         run: |

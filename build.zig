@@ -65,15 +65,17 @@ pub fn build(b: *std.Build) void {
     });
     test_step.dependOn(&b.addRunArtifact(ir_tests).step);
 
-    // Compile pipeline tests — fast (parallel, ~15s)
-    const fast_compile_tests = [_][]const u8{
+    // Compile pipeline tests (each invokes zig build-exe, ~7 min total)
+    // Run with: zig build test-compile
+    const compile_test_step = b.step("test-compile", "Run compile pipeline tests");
+    const compile_tests = [_][]const u8{
         "src/compile_test_basic.zig",
         "src/compile_test_string.zig",
         "src/compile_test_process.zig",
         "src/compile_test_math.zig",
         "src/compile_test_json.zig",
     };
-    for (fast_compile_tests) |file| {
+    for (compile_tests) |file| {
         const ct = b.addTest(.{
             .root_module = b.createModule(.{
                 .root_source_file = b.path(file),
@@ -81,11 +83,11 @@ pub fn build(b: *std.Build) void {
                 .optimize = optimize,
             }),
         });
-        test_step.dependOn(&b.addRunArtifact(ct).step);
+        compile_test_step.dependOn(&b.addRunArtifact(ct).step);
     }
 
-    // Network tests — slow (~2 min, TCP/HTTP with socket ops)
-    // Run with: zig build test-net
+    // Network tests (TCP/HTTP with socket ops, ~2 min)
+    // Run with: zig build test-slow
     const net_test_step = b.step("test-slow", "Run slow tests (TCP/HTTP, socket ops)");
     const net_tests = b.addTest(.{
         .root_module = b.createModule(.{
