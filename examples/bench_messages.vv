@@ -19,7 +19,7 @@ process Counter<CounterState> {
 /// Benchmark: send 10000 tell messages and verify final count.
 module App {
 	fn main() -> int {
-		c: int = spawn Counter();
+		c: pid<Counter> = spawn Counter();
 		i: int = 0;
 		while i < 10000 {
 			Process.tell(c.Increment);

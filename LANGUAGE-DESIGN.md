@@ -84,7 +84,7 @@ The compiler generates Zig code that links against `verve_runtime.zig` — a rea
 
 Based on Erlang/BEAM but simpler:
 
-- **Spawn**: `handler: int = spawn ConnectionHandler();` — creates a lightweight process
+- **Spawn**: `handler: pid<ConnectionHandler> = spawn ConnectionHandler();` — creates a lightweight process
 - **Send**: `match counter.Increment() { :ok{v} => ... }` — synchronous, returns Result
 - **Tell**: `tell handler.Handle(fd, n);` — fire-and-forget, process executes asynchronously
 - **Exit**: `Process.exit();` — handler self-terminates, slot recycled

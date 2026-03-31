@@ -66,7 +66,7 @@ The benchmark apps need real concurrency to show Verve's advantage.
 - [x] Always-scheduler — every program runs under scheduler. Module main wrapped in synthetic process. Process.run() becomes automatic. Prerequisite for async send.
 - [x] Per-message reply slots — sender-side reply slots, dispatch handles send replies, sender_pid in all messages
 - [x] Parent-child process ownership — parent death kills children recursively, no orphans
-- [ ] Typed PID — `pid<Counter>` type in the language. Compiler knows available handlers. Struct internally: `{ node_id: u16, process_id: u16 }` for clustering readiness. Touches type system, checker, IR, backend.
+- [x] Typed PID — `pid<Counter>` type in the language. Compiler knows available handlers. Packed `[node_id: 12 bits | process_id: 36 bits]` in i64, monotonic IDs never reused.
 - [ ] Main as real process — make module main a real process at the language level instead of synthetic wrapper
 - [ ] Async send — caller yields fiber, target gets priority, reply wakes caller with priority.
 - [ ] Compile-time deadlock detection — checker analyzes Process.send call graph across handlers to detect mutual send cycles (A sends to B, B sends to A). Verve innovation — BEAM can't do this because communication is dynamic.
@@ -110,6 +110,17 @@ What's needed to build the 20 benchmark apps.
 - [ ] Project index (`verve index`) — AI-optimized codebase navigation
 - [ ] `verve doc` — generate reference docs from doc comments
 - [ ] vervelang.org website
+
+## Memory Safety — Runtime Hardening
+
+Make the "memory safe by construction" claim defensible. The language design eliminates unsafe operations; these items harden the runtime to match.
+
+- [ ] List bounds checking — `List.append` has no cap check, writes past capacity. Grow backing array or return poison on overflow.
+- [ ] Arena exhaustion → poison — when `arena_alloc` returns null, propagate poison values instead of silent 0/null. Use existing poison pattern (`:overflow`, `:div_zero`).
+- [ ] Struct boundary validation — `sliceFromPair` reconstructs slices from raw usize pairs. Add sanity checks (null ptr, max length cap) to turn wild reads into safe empty values.
+- [ ] Mailbox message validation — validate length prefix against `MAILBOX_BUF_SIZE` before using it in `pop`. A corrupted length causes out-of-bounds ring buffer reads.
+- [ ] Fuzz the compiler output — property-based / fuzz testing of compiler pipeline (random AST → IR → Zig source). Verify invariants: every sliceFromPair comes from a matching pair, every list access is bounded, etc.
+- [ ] ReleaseSafe test suite — run all tests with Zig ReleaseSafe build mode (bounds, overflow, null unwrap checks) to catch runtime safety regressions. Production builds stay ReleaseFast.
 
 ## Priority 5 — Future / Optimization
 

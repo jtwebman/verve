@@ -245,7 +245,9 @@ pub const Lower = struct {
                     self.var_types.put(self.alloc, p.name, tn) catch {};
                 },
                 .generic => |g| {
-                    if (self.generic_struct_decls.get(g.name) != null) {
+                    if (std.mem.eql(u8, g.name, "pid") and g.args.len == 1 and g.args[0] == .simple) {
+                        self.process_vars.put(self.alloc, p.name, g.args[0].simple) catch {};
+                    } else if (self.generic_struct_decls.get(g.name) != null) {
                         const mono_name = self.instantiateGenericStruct(g.name, g.args) catch g.name;
                         self.var_types.put(self.alloc, p.name, mono_name) catch {};
                     }
@@ -358,7 +360,9 @@ pub const Lower = struct {
                 if (a.type_expr) |te| {
                     if (te == .generic) {
                         const g = te.generic;
-                        if (self.generic_struct_decls.get(g.name) != null) {
+                        if (std.mem.eql(u8, g.name, "pid") and g.args.len == 1 and g.args[0] == .simple) {
+                            self.process_vars.put(self.alloc, a.name, g.args[0].simple) catch {};
+                        } else if (self.generic_struct_decls.get(g.name) != null) {
                             const mono_name = self.instantiateGenericStruct(g.name, g.args) catch g.name;
                             self.pending_generic_name = mono_name;
                             self.var_types.put(self.alloc, a.name, mono_name) catch {};
@@ -1526,6 +1530,10 @@ pub const Lower = struct {
                 if (self.enum_decls.contains(name)) return .i64;
                 // Structs/unions are pointer-backed
                 if (self.struct_decls.get(name) != null) return .ptr;
+                return .void;
+            },
+            .generic => |g| {
+                if (std.mem.eql(u8, g.name, "pid")) return .pid;
                 return .void;
             },
             else => return .void,

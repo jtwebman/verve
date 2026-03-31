@@ -87,6 +87,7 @@ pub const ZigBackend = struct {
             .bool => .boolean,
             .string => .string,
             .ptr => .pointer,
+            .pid => .int, // PIDs are packed i64 at runtime
             .void => .int,
         };
     }

@@ -52,7 +52,7 @@ process App<AppState> {
 				while i < 10000000 {
 					match Tcp.accept(listener) {
 						:ok{client_fd} => {
-							handler: int = spawn ConnectionHandler();
+							handler: pid<ConnectionHandler> = spawn ConnectionHandler();
 							Process.tell(handler.Handle, client_fd);
 						}
 						:error{e} => {

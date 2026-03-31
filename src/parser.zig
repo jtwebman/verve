@@ -165,7 +165,7 @@ pub const Parser = struct {
         "connect", "append",   "use",     "invariant",
         "enum",    "union",    "import",  "export",
         "break",   "continue", "if",      "else",
-        "assert",  "test",
+        "assert",  "test",     "pid",
     };
 
     fn isReserved(word: []const u8) bool {
@@ -383,9 +383,11 @@ pub const Parser = struct {
             return try self.parseUnionType();
         }
 
-        // 'process' is reserved but valid as a type name (process<T>)
+        // 'process' and 'pid' are reserved but valid as type names
         const name = if (self.matchKeyword("process"))
             @as([]const u8, "process")
+        else if (self.matchKeyword("pid"))
+            @as([]const u8, "pid")
         else
             try self.parseIdentifier();
 

@@ -67,7 +67,7 @@ test "compile: many tagged results dont crash (arena allocation)" {
         \\}
         \\module App {
         \\    fn main(args: list<string>) -> int {
-        \\        c: int = spawn Counter();
+        \\        c: pid<Counter> = spawn Counter();
         \\        i: int = 0;
         \\        while i < 1000 {
         \\            match Process.send(c.Inc) {

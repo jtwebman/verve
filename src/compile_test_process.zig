@@ -115,7 +115,7 @@ test "compile: spawn and send" {
         \\}
         \\module App {
         \\    fn main(args: list<string>) -> int {
-        \\        counter: int = spawn Counter();
+        \\        counter: pid<Counter> = spawn Counter();
         \\        match Process.send(counter.Increment) {
         \\            :ok{val} => Stdio.println(val);
         \\            :error{e} => Stdio.println("err");
@@ -150,7 +150,7 @@ test "compile: spawn and tell" {
         \\}
         \\module App {
         \\    fn main(args: list<string>) -> int {
-        \\        counter: int = spawn Counter();
+        \\        counter: pid<Counter> = spawn Counter();
         \\        Process.tell(counter.Increment);
         \\        Process.tell(counter.Increment);
         \\        Process.tell(counter.Increment);
@@ -178,7 +178,7 @@ test "compile: guard failure" {
         \\}
         \\module App {
         \\    fn main(args: list<string>) -> int {
-        \\        counter: int = spawn Counter();
+        \\        counter: pid<Counter> = spawn Counter();
         \\        match Process.send(counter.Add, 5) {
         \\            :ok{val} => Stdio.println(val);
         \\            :error{e} => Stdio.println("guard failed");
@@ -213,7 +213,7 @@ test "compile: multiple state fields" {
         \\}
         \\module App {
         \\    fn main(args: list<string>) -> int {
-        \\        p: int = spawn Pair();
+        \\        p: pid<Pair> = spawn Pair();
         \\        match Process.send(p.SetX, 10) {
         \\            :ok{v} => Stdio.println(v);
         \\            :error{e} => Stdio.println("err");
@@ -248,8 +248,8 @@ test "compile: multi-process interaction" {
         \\}
         \\module App {
         \\    fn main(args: list<string>) -> int {
-        \\        a1: int = spawn Adder();
-        \\        a2: int = spawn Adder();
+        \\        a1: pid<Adder> = spawn Adder();
+        \\        a2: pid<Adder> = spawn Adder();
         \\        match Process.send(a1.Add, 10) {
         \\            :ok{v} => Stdio.println(v);
         \\            :error{e} => Stdio.println("err");
@@ -292,7 +292,7 @@ test "compile: message throughput via tell" {
         \\}
         \\module App {
         \\    fn main(args: list<string>) -> int {
-        \\        c: int = spawn Counter();
+        \\        c: pid<Counter> = spawn Counter();
         \\        i: int = 0;
         \\        while i < 50 {
         \\            Process.tell(c.Increment);
@@ -330,7 +330,7 @@ test "compile: process state with string field" {
         \\}
         \\module App {
         \\    fn main(args: list<string>) -> int {
-        \\        k: int = spawn NameKeeper();
+        \\        k: pid<NameKeeper> = spawn NameKeeper();
         \\        match Process.send(k.SetName, "alice") {
         \\            :ok{v} => Stdio.println(v);
         \\            :error{e} => Stdio.println("err");
@@ -359,7 +359,7 @@ test "compile: Process.exit terminates handler" {
         \\}
         \\module App {
         \\    fn main(args: list<string>) -> int {
-        \\        w: int = spawn Worker();
+        \\        w: pid<Worker> = spawn Worker();
         \\        Process.tell(w.DoWork, 42);
         \\        Stdio.println("done");
         \\        return 0;
@@ -395,7 +395,7 @@ test "compile: process state with new struct syntax" {
         \\}
         \\module App {
         \\    fn main(args: list<string>) -> int {
-        \\        p: int = spawn Point();
+        \\        p: pid<Point> = spawn Point();
         \\        match Process.send(p.MoveX, 10) {
         \\            :ok{v} => Stdio.println(v);
         \\            :error{e} => Stdio.println("err");
@@ -443,7 +443,7 @@ test "compile: process handler with string param" {
         \\}
         \\module App {
         \\    fn main(args: list<string>) -> int {
-        \\        g: int = spawn Greeter();
+        \\        g: pid<Greeter> = spawn Greeter();
         \\        Process.tell(g.SetName, "world");
         \\        match Process.send(g.Greet) {
         \\            :ok{v} => Stdio.println("ok");
@@ -470,7 +470,7 @@ test "compile: process handler with float param" {
         \\}
         \\module App {
         \\    fn main(args: list<string>) -> int {
-        \\        a: int = spawn Accumulator();
+        \\        a: pid<Accumulator> = spawn Accumulator();
         \\        match Process.send(a.Add, 1.5) {
         \\            :ok{v} => Stdio.println(v);
         \\            :error{e} => Stdio.println("err");
@@ -506,7 +506,7 @@ test "compile: process handler with bool param" {
         \\}
         \\module App {
         \\    fn main(args: list<string>) -> int {
-        \\        f: int = spawn Flag();
+        \\        f: pid<Flag> = spawn Flag();
         \\        match Process.send(f.IsActive) {
         \\            :ok{v} => Stdio.println(v);
         \\            :error{e} => Stdio.println("err");
@@ -600,7 +600,7 @@ test "compile: void handler with tell" {
         \\}
         \\module App {
         \\    fn main(args: list<string>) -> int {
-        \\        logger: int = spawn Logger();
+        \\        logger: pid<Logger> = spawn Logger();
         \\        Process.tell(logger.Log);
         \\        Process.tell(logger.Log);
         \\        Process.tell(logger.Log);
@@ -629,7 +629,7 @@ test "compile: void handler with params" {
         \\}
         \\module App {
         \\    fn main(args: list<string>) -> int {
-        \\        acc: int = spawn Acc();
+        \\        acc: pid<Acc> = spawn Acc();
         \\        Process.tell(acc.Add, 10);
         \\        Process.tell(acc.Add, 20);
         \\        Process.tell(acc.Add, 12);
@@ -658,7 +658,7 @@ test "compile: mailbox overflow returns error on send" {
         \\}
         \\module App {
         \\    fn main(args: list<string>) -> int {
-        \\        c: int = spawn Counter();
+        \\        c: pid<Counter> = spawn Counter();
         \\        match Process.send(c.Inc) {
         \\            :ok{v} => Stdio.println("ok1");
         \\            :error{e} => Stdio.println(e);
@@ -692,7 +692,7 @@ test "compile: match tell returns Result" {
         \\}
         \\module App {
         \\    fn main(args: list<string>) -> int {
-        \\        c: int = spawn Counter();
+        \\        c: pid<Counter> = spawn Counter();
         \\        match Process.tell(c.Inc) {
         \\            :ok{v} => Stdio.println("sent");
         \\            :error{e} => Stdio.println(e);
@@ -724,7 +724,7 @@ test "compile: scheduler runs with single thread" {
         \\}
         \\module App {
         \\    fn main(args: list<string>) -> int {
-        \\        c: int = spawn Counter();
+        \\        c: pid<Counter> = spawn Counter();
         \\        Process.tell(c.Inc);
         \\        Process.tell(c.Inc);
         \\        Process.tell(c.Inc);
@@ -753,8 +753,8 @@ test "compile: multiple processes communicate" {
         \\}
         \\module App {
         \\    fn main(args: list<string>) -> int {
-        \\        a1: int = spawn Adder();
-        \\        a2: int = spawn Adder();
+        \\        a1: pid<Adder> = spawn Adder();
+        \\        a2: pid<Adder> = spawn Adder();
         \\        Process.tell(a1.Add, 10);
         \\        Process.tell(a2.Add, 20);
         \\        Process.tell(a1.Add, 5);
@@ -789,7 +789,7 @@ test "compile: process with tight loop yields (reduction counting)" {
         \\}
         \\module App {
         \\    fn main(args: list<string>) -> int {
-        \\        w: int = spawn Worker();
+        \\        w: pid<Worker> = spawn Worker();
         \\        match Process.send(w.Compute, 10000) {
         \\            :ok{val} => Stdio.println(val);
         \\            :error{e} => Stdio.println("err");
@@ -839,7 +839,7 @@ test "compile: tell with yield handler then send" {
         \\}
         \\module App {
         \\    fn main(args: list<string>) -> int {
-        \\        c: int = spawn Counter();
+        \\        c: pid<Counter> = spawn Counter();
         \\        Process.tell(c.Inc);
         \\        Process.tell(c.Inc);
         \\        Process.tell(c.Inc);
@@ -876,7 +876,7 @@ test "compile: yield splits handler — saved reflects pre-yield state" {
         \\}
         \\module App {
         \\    fn main(args: list<string>) -> int {
-        \\        c: int = spawn Counter();
+        \\        c: pid<Counter> = spawn Counter();
         \\        Process.tell(c.Inc);
         \\        Process.tell(c.Inc);
         \\        Process.tell(c.Inc);
@@ -907,7 +907,7 @@ test "compile: send to dead process returns error" {
         \\}
         \\module App {
         \\    fn main(args: list<string>) -> int {
-        \\        w: int = spawn Worker();
+        \\        w: pid<Worker> = spawn Worker();
         \\        Process.tell(w.DoWork);
         \\        match Process.send(w.GetResult) {
         \\            :ok{val} => Stdio.println("ok");
@@ -944,8 +944,8 @@ test "compile: tell and send to different processes interleave correctly" {
         \\}
         \\module App {
         \\    fn main(args: list<string>) -> int {
-        \\        c1: int = spawn Counter();
-        \\        c2: int = spawn Counter2();
+        \\        c1: pid<Counter> = spawn Counter();
+        \\        c2: pid<Counter2> = spawn Counter2();
         \\        Process.tell(c1.Inc);
         \\        Process.tell(c1.Inc);
         \\        Process.tell(c1.Inc);
@@ -976,7 +976,7 @@ test "compile: send returns 0 correctly (not confused with error)" {
         \\}
         \\module App {
         \\    fn main(args: list<string>) -> int {
-        \\        c: int = spawn Counter();
+        \\        c: pid<Counter> = spawn Counter();
         \\        match Process.send(c.GetCount) {
         \\            :ok{val} => Stdio.println(val);
         \\            :error{e} => Stdio.println(e);
@@ -1003,7 +1003,7 @@ test "compile: parent death kills child processes" {
         \\}
         \\module App {
         \\    fn main(args: list<string>) -> int {
-        \\        c: int = spawn Counter();
+        \\        c: pid<Counter> = spawn Counter();
         \\        Process.tell(c.Inc);
         \\        Stdio.println("done");
         \\        return 0;
@@ -1027,7 +1027,7 @@ test "compile: mailbox full returns error string" {
         \\}
         \\module App {
         \\    fn main(args: list<string>) -> int {
-        \\        c: int = spawn Counter();
+        \\        c: pid<Counter> = spawn Counter();
         \\        match Process.send(c.GetCount) {
         \\            :ok{val} => Stdio.println(val);
         \\            :error{e} => Stdio.println(e);

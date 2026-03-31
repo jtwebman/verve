@@ -18,6 +18,11 @@ Verve is a process-oriented compiled language with no exceptions, no recursion, 
 ### Queue
 - `queue<T>` — mutable FIFO queue. Create with `queue()` or `queue(1, 2, 3)`.
 
+### Process IDs
+- `pid<T>` — typed process identifier. `spawn Counter()` returns `pid<Counter>`.
+- Packed as `[node_id: 12 bits | process_id: 36 bits]` in i64. Monotonic, never reused.
+- Compiler validates handler calls: `counter.Increment()` only works if `Counter` has `Increment`.
+
 ### Other
 - `stream` — opaque IO handle (stdout, stderr, stdin, file)
 - Tags: `:ok`, `:error`, `:eof` — lightweight labels
@@ -136,7 +141,7 @@ export process Counter<CounterState> {
 
 ### Process communication
 ```
-counter: int = spawn Counter();
+counter: pid<Counter> = spawn Counter();
 
 // Synchronous send — blocks until handler returns
 match Process.send(counter.Increment, 5) {

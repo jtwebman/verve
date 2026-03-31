@@ -20,7 +20,6 @@ pub const Checker = struct {
     current_module_name: ?[]const u8,
     current_fn_name: ?[]const u8,
     current_return_type: ?ast.TypeExpr,
-    process_var_types: std.StringHashMapUnmanaged([]const u8), // var name -> process decl name
     source: []const u8,
     file_path: []const u8,
 
@@ -48,7 +47,6 @@ pub const Checker = struct {
             .current_module_name = null,
             .current_fn_name = null,
             .current_return_type = null,
-            .process_var_types = .{},
             .source = source,
             .file_path = file_path,
         };
@@ -347,15 +345,6 @@ pub const Checker = struct {
                             try std.fmt.allocPrint(self.alloc, "{s}: type mismatch in '{s}' — cannot assign {s} to {s}", .{ self.locationPrefix(), a.name, self.formatTypeExpr(inferred), self.typeExprName(te) }),
                             a.span,
                         );
-                    }
-
-                    // Track spawn process types
-                    if (a.value == .call) {
-                        if (a.value.call.target.* == .identifier and std.mem.eql(u8, a.value.call.target.identifier, "spawn")) {
-                            if (a.value.call.args.len > 0 and a.value.call.args[0] == .string_literal) {
-                                try self.process_var_types.put(self.alloc, a.name, a.value.call.args[0].string_literal);
-                            }
-                        }
                     }
                 } else {
                     // Reassignment: x = 43;
@@ -950,6 +939,7 @@ pub const Checker = struct {
                 // User-defined types
                 if (self.type_decls.get(name) != null) return;
                 if (self.struct_decls.get(name) != null) return;
+                if (self.process_decls.get(name) != null) return;
                 // Type params (single uppercase letter or generic param)
                 if (name.len == 1 and std.ascii.isUpper(name[0])) return;
 
@@ -960,7 +950,7 @@ pub const Checker = struct {
             },
             .generic => |g| {
                 // Check base type and args
-                const known_generics = [_][]const u8{ "list", "map", "set", "stack", "queue", "process", "Result" };
+                const known_generics = [_][]const u8{ "list", "map", "set", "stack", "queue", "process", "pid", "Result" };
                 var found = false;
                 for (known_generics) |kg| {
                     if (std.mem.eql(u8, g.name, kg)) {
@@ -973,6 +963,17 @@ pub const Checker = struct {
                         try std.fmt.allocPrint(self.alloc, "unknown generic type '{s}'", .{g.name}),
                         .{ .start = 0, .end = 0 },
                     );
+                }
+                // Validate pid<T> refers to a known process declaration
+                if (std.mem.eql(u8, g.name, "pid")) {
+                    if (g.args.len == 1 and g.args[0] == .simple) {
+                        if (self.process_decls.get(g.args[0].simple) == null) {
+                            try self.addError(
+                                try std.fmt.allocPrint(self.alloc, "unknown process type '{s}' in pid<{s}>", .{ g.args[0].simple, g.args[0].simple }),
+                                .{ .start = 0, .end = 0 },
+                            );
+                        }
+                    }
                 }
                 for (g.args) |arg| try self.checkTypeExists(arg);
             },
@@ -991,7 +992,29 @@ pub const Checker = struct {
     }
 
     fn typeExprName(self: *Checker, t: ast.TypeExpr) []const u8 {
-        _ = self;
+        return switch (t) {
+            .simple => |name| name,
+            .generic => |g| {
+                // Show pid<Counter>, Result<int>, etc. for display
+                if (g.args.len > 0) {
+                    var buf = std.ArrayListUnmanaged(u8){};
+                    buf.appendSlice(self.alloc, g.name) catch return g.name;
+                    buf.append(self.alloc, '<') catch return g.name;
+                    for (g.args, 0..) |arg, i| {
+                        if (i > 0) buf.appendSlice(self.alloc, ", ") catch {};
+                        buf.appendSlice(self.alloc, self.typeExprName(arg)) catch {};
+                    }
+                    buf.append(self.alloc, '>') catch return g.name;
+                    return buf.toOwnedSlice(self.alloc) catch g.name;
+                }
+                return g.name;
+            },
+            else => "unknown",
+        };
+    }
+
+    /// Returns just the base type name (no generics) for internal matching.
+    fn typeBaseName(_: *Checker, t: ast.TypeExpr) []const u8 {
         return switch (t) {
             .simple => |name| name,
             .generic => |g| g.name,
@@ -1086,26 +1109,33 @@ pub const Checker = struct {
                 if (c.target.* == .identifier) {
                     const name = c.target.identifier;
                     if (std.mem.eql(u8, name, "spawn")) {
+                        // spawn ProcessName() → pid<ProcessName>
+                        if (c.args.len > 0 and c.args[0] == .string_literal) {
+                            return self.makePidType(c.args[0].string_literal);
+                        }
                         return .{ .simple = "int" };
                     }
                 }
                 // Process sends: counter.Increment() → Result<T>
+                // Also handle Process.send/tell/send_timeout with proper return types
                 if (c.target.* == .field_access) {
                     const fa = c.target.field_access;
+                    // Direct handler call: counter.Increment(args)
                     if (fa.target.* == .identifier) {
-                        if (self.process_var_types.get(fa.target.identifier)) |proc_name| {
-                            if (self.process_decls.get(proc_name)) |pdecl| {
-                                for (pdecl.receive_handlers) |h| {
-                                    if (std.mem.eql(u8, h.name, fa.field)) {
-                                        // Wrap handler return type in Result<T>
-                                        const inner = self.alloc.create(ast.TypeExpr) catch return null;
-                                        inner.* = h.return_type;
-                                        const args = self.alloc.alloc(ast.TypeExpr, 1) catch return null;
-                                        args[0] = inner.*;
-                                        return .{ .generic = .{ .name = "Result", .args = args } };
-                                    }
-                                }
+                        if (self.resolveProcessHandler(fa.target.identifier, fa.field)) |h| {
+                            return self.makeResultTypeExpr(h.return_type);
+                        }
+                    }
+                    // Process.send(counter.Handler, ...) / Process.tell / Process.send_timeout
+                    if (fa.target.* == .identifier and std.mem.eql(u8, fa.target.identifier, "Process")) {
+                        if (std.mem.eql(u8, fa.field, "send") or std.mem.eql(u8, fa.field, "send_timeout")) {
+                            if (self.resolveHandlerFromCallArgs(c.args)) |h| {
+                                return self.makeResultTypeExpr(h.return_type);
                             }
+                            return self.makeResultType("int");
+                        }
+                        if (std.mem.eql(u8, fa.field, "tell")) {
+                            return self.makeResultType("void");
                         }
                     }
                     // Built-in module function calls (String.len, Map.has, etc.)
@@ -1117,7 +1147,7 @@ pub const Checker = struct {
             .field_access => |fa| {
                 const target_type = self.inferExprType(fa.target.*);
                 if (target_type) |tt| {
-                    const type_name = self.typeExprName(tt);
+                    const type_name = self.typeBaseName(tt);
                     // .len on collections and strings
                     if (std.mem.eql(u8, fa.field, "len")) {
                         if (std.mem.eql(u8, type_name, "string") or
@@ -1185,12 +1215,8 @@ pub const Checker = struct {
         if (std.mem.eql(u8, mod, "Http")) return self.inferHttpFn(func);
         if (std.mem.eql(u8, mod, "Convert")) return inferConvertFn(func);
         if (std.mem.eql(u8, mod, "Math")) return .{ .simple = "int" };
-        if (std.mem.eql(u8, mod, "Process")) {
-            if (std.mem.eql(u8, func, "send") or std.mem.eql(u8, func, "send_timeout"))
-                return self.makeResultType("int"); // Result<T> — simplified to Result<int> for now
-            if (std.mem.eql(u8, func, "tell"))
-                return self.makeResultType("void");
-        }
+        // Process.send/tell/send_timeout handled at call site with proper return types
+        if (std.mem.eql(u8, mod, "Process")) return null;
         return null;
     }
 
@@ -1220,6 +1246,49 @@ pub const Checker = struct {
         if (std.mem.eql(u8, func, "to_int") or std.mem.eql(u8, func, "to_int_f")) return .{ .simple = "int" };
         if (std.mem.eql(u8, func, "to_float") or std.mem.eql(u8, func, "string_to_float")) return .{ .simple = "float" };
         return null;
+    }
+
+    /// Look up a variable's type from scope and resolve it as a pid<T> to find a handler.
+    fn resolveProcessHandler(self: *Checker, var_name: []const u8, handler_name: []const u8) ?ast.ReceiveDecl {
+        const maybe_type = self.current_scope.get(var_name) orelse return null;
+        const var_type = maybe_type orelse return null;
+        const proc_name = self.extractPidProcessName(var_type) orelse return null;
+        const pdecl = self.process_decls.get(proc_name) orelse return null;
+        for (pdecl.receive_handlers) |h| {
+            if (std.mem.eql(u8, h.name, handler_name)) return h;
+        }
+        return null;
+    }
+
+    /// Extract handler from Process.send/tell call args: first arg is counter.Handler
+    fn resolveHandlerFromCallArgs(self: *Checker, args: []const ast.Expr) ?ast.ReceiveDecl {
+        if (args.len == 0) return null;
+        if (args[0] != .field_access) return null;
+        const fa = args[0].field_access;
+        if (fa.target.* != .identifier) return null;
+        return self.resolveProcessHandler(fa.target.identifier, fa.field);
+    }
+
+    fn extractPidProcessName(_: *Checker, t: ast.TypeExpr) ?[]const u8 {
+        if (t == .generic) {
+            const g = t.generic;
+            if (std.mem.eql(u8, g.name, "pid") and g.args.len == 1 and g.args[0] == .simple) {
+                return g.args[0].simple;
+            }
+        }
+        return null;
+    }
+
+    fn makePidType(self: *Checker, proc_name: []const u8) ast.TypeExpr {
+        const args = self.alloc.alloc(ast.TypeExpr, 1) catch return .{ .simple = "unknown" };
+        args[0] = .{ .simple = proc_name };
+        return .{ .generic = .{ .name = "pid", .args = args } };
+    }
+
+    fn makeResultTypeExpr(self: *Checker, inner: ast.TypeExpr) ast.TypeExpr {
+        const args = self.alloc.alloc(ast.TypeExpr, 1) catch return .{ .simple = "unknown" };
+        args[0] = inner;
+        return .{ .generic = .{ .name = "Result", .args = args } };
     }
 
     fn makeResultType(self: *Checker, inner_name: []const u8) ast.TypeExpr {

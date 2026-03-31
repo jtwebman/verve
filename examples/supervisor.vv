@@ -22,7 +22,7 @@ struct AppState {
 process App<AppState> {
 	receive main(state: AppState) -> int {
 		// Spawn and watch a worker
-		worker: int = spawn Worker();
+		worker: pid<Worker> = spawn Worker();
 		watch worker;
 
 		// Send some messages to the worker

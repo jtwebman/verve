@@ -215,9 +215,9 @@ var global_arena: Arena = .{};
 
 /// Get the current arena: process-local if in a process, global otherwise.
 pub fn currentArena() *Arena {
-    if (process.current_process_id > 0) {
+    if (process.current_process_id > 0 and process.pidValid(process.current_process_id)) {
         const idx = process.pidx(process.current_process_id);
-        if (idx < process.process_table.len) return process.process_table[idx].arena();
+        return process.process_table[idx].arena();
     }
     return &global_arena;
 }

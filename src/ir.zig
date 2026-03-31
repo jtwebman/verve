@@ -10,6 +10,7 @@ pub const Type = enum {
     bool,
     string,
     ptr, // opaque pointer — streams, struct refs, tagged values (platform-sized)
+    pid, // process ID — packed { node_id: u12, process_id: u36 } in i64
     void,
 };
 

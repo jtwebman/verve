@@ -22,7 +22,7 @@ process Counter<CounterState> {
 module Main {
 	fn main() -> int {
 		Stdio.println("=== Verve Process Test ===");
-		counter: int = spawn Counter();
+		counter: pid<Counter> = spawn Counter();
 		Stdio.println("Spawned counter process");
 		match Process.send(counter.Increment) {
 			:ok{val} => Stdio.println("After increment: ", val);

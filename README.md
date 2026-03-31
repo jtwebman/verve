@@ -67,7 +67,7 @@ module Main {
                 while i < 100000 {
                     match Tcp.accept(listener) {
                         :ok{client_fd} => {
-                            handler: int = spawn ConnectionHandler();
+                            handler: pid<ConnectionHandler> = spawn ConnectionHandler();
                             tell handler.Handle(client_fd, i);
                         }
                         :error{e} => { i = i; }

@@ -52,7 +52,7 @@ process Acceptor<AcceptState> {
 		while i < 1000000 {
 			match Tcp.accept(listener_fd) {
 				:ok{client_fd} => {
-					handler: int = spawn ConnectionHandler();
+					handler: pid<ConnectionHandler> = spawn ConnectionHandler();
 					Process.tell(handler.Handle, client_fd, i);
 				}
 				:error{e} => {
@@ -73,7 +73,7 @@ module Main {
 		match Tcp.listen("127.0.0.1", 8080) {
 			:ok{listener} => {
 				Stdio.println("HTTP server on http://127.0.0.1:8080 (keep-alive, cooperative scheduler)");
-				acceptor: int = spawn Acceptor();
+				acceptor: pid<Acceptor> = spawn Acceptor();
 				Process.tell(acceptor.Start, listener);
 				Process.run();
 			}

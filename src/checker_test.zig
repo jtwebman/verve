@@ -457,7 +457,7 @@ test "valid: Result match with ok and error is exhaustive" {
         \\}
         \\module Main {
         \\    fn main() -> int {
-        \\        c: int = spawn Counter();
+        \\        c: pid<Counter> = spawn Counter();
         \\        match Process.send(c.Get) {
         \\            :ok{val} => return val;
         \\            :error{reason} => return 1;
@@ -979,7 +979,7 @@ test "valid: correct tell" {
         \\}
         \\module Main {
         \\    fn main() -> int {
-        \\        w: int = spawn Worker();
+        \\        w: pid<Worker> = spawn Worker();
         \\        Process.tell(w.SetValue, 42);
         \\        return 0;
         \\    }
@@ -1010,7 +1010,7 @@ test "error: return Stdio.println from int function" {
     , "Main.main: return type mismatch");
 }
 
-test "valid: spawn assigned to int" {
+test "valid: spawn assigned to pid" {
     try expectNoErrors(
         \\struct WorkerState { value: int = 0; }
         \\process Worker<WorkerState> {
@@ -1018,7 +1018,7 @@ test "valid: spawn assigned to int" {
         \\}
         \\module Main {
         \\    fn main() -> int {
-        \\        w: int = spawn Worker();
+        \\        w: pid<Worker> = spawn Worker();
         \\        return 0;
         \\    }
         \\}
@@ -1273,7 +1273,7 @@ test "error: spawn assigned to string" {
         \\        return 0;
         \\    }
         \\}
-    , "cannot assign int to string");
+    , "cannot assign pid<Worker> to string");
 }
 
 test "error: print assigned to string" {
@@ -1601,7 +1601,7 @@ test "checker: Result type accepted on match" {
         \\}
         \\module App {
         \\    fn main() -> int {
-        \\        c: int = spawn Counter();
+        \\        c: pid<Counter> = spawn Counter();
         \\        match Process.send(c.Increment) {
         \\            :ok{val} => return val;
         \\            :error{e} => return 0;

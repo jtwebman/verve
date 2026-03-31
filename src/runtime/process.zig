@@ -131,6 +131,23 @@ pub var dispatch_table: []DispatchFn = &.{};
 pub var table_lock: std.Thread.RwLock = .{};
 var free_slots: std.ArrayListUnmanaged(usize) = .{}; // indices of dead process slots for O(1) reuse
 
+/// PID layout: [ node_id: 12 bits | process_id: 36 bits ] = 48 bits in i64
+/// node_id 0 = local, 1-4095 = remote. process_id is monotonic, never reused.
+var next_pid_counter: u64 = 1; // monotonic counter, starts at 1 (0 = invalid)
+var pid_to_idx: std.AutoHashMapUnmanaged(usize, usize) = .{}; // packed PID → table index
+
+pub fn packPid(node_id: u12, process_id: u64) usize {
+    return (@as(usize, node_id) << 36) | @as(usize, @truncate(process_id & 0xFFFFFFFFF));
+}
+
+pub fn unpackProcessId(pid: usize) u64 {
+    return pid & 0xFFFFFFFFF;
+}
+
+pub fn unpackNodeId(pid: usize) u12 {
+    return @truncate(pid >> 36);
+}
+
 // ── Scheduler state ───────────────────────────────
 
 pub var scheduler_running: std.atomic.Value(bool) = std.atomic.Value(bool).init(false);
@@ -203,7 +220,12 @@ fn dispatch_noop(_: [*]const u8, _: usize) usize {
 }
 
 pub fn pidx(pid: usize) usize {
-    return pid - 1;
+    return pid_to_idx.get(pid) orelse return 0;
+}
+
+/// Returns true if the pid is a known, valid process (may be alive or dead).
+pub fn pidValid(pid: usize) bool {
+    return pid_to_idx.contains(pid);
 }
 
 // ── Process operations ─────────────────────────────
@@ -227,7 +249,11 @@ pub fn verve_spawn(process_type: usize) usize {
         idx = process_count;
         process_count += 1;
     }
-    const pid: usize = idx + 1;
+    // Monotonic PID: pack as (node_id=0 << 36) | next_pid_counter
+    const pid = packPid(0, next_pid_counter);
+    next_pid_counter += 1;
+    pid_to_idx.put(std.heap.page_allocator, pid, idx) catch {};
+
     // Reset process fields without reinitializing the 64KB mailbox buffer
     const proc = &process_table[idx];
     proc.id = pid;
@@ -291,8 +317,8 @@ pub fn verve_watch(target_pid: usize) void {
 
 /// Kill a process and all its children. Caller must hold table_lock.
 fn kill_tree(pid: usize) void {
+    if (!pidValid(pid)) return;
     const idx = pidx(pid);
-    if (idx >= process_table.len) return;
     const proc = &process_table[idx];
     if (!proc.alive) return;
     proc.alive = false;
@@ -318,6 +344,7 @@ fn kill_tree(pid: usize) void {
         }
     }
     free_slots.append(std.heap.page_allocator, idx) catch {};
+    _ = pid_to_idx.remove(pid);
 }
 
 pub fn verve_kill(target_pid: usize) void {
@@ -404,8 +431,8 @@ pub fn verve_send(target_pid: usize, msg_ptr: [*]const u8, msg_len: usize) usize
 /// Fire-and-forget tell: push message to mailbox.
 /// Returns tagged value: :ok{0} on success, :error{"mailbox_full"} or :error{"process_dead"} on failure.
 pub fn verve_tell(target_pid: usize, msg_ptr: [*]const u8, msg_len: usize) usize {
+    if (!pidValid(target_pid)) return rt.makeTaggedStr(1, "process_dead");
     const idx = pidx(target_pid);
-    if (idx >= process_table.len) return rt.makeTaggedStr(1, "process_dead");
     const proc = &process_table[idx];
     if (!proc.alive) return rt.makeTaggedStr(1, "process_dead");
     if (proc.mailbox().count >= proc.max_messages) return rt.makeTaggedStr(1, "mailbox_full");
@@ -421,8 +448,8 @@ pub fn verve_tell(target_pid: usize, msg_ptr: [*]const u8, msg_len: usize) usize
 
 /// Set the maximum message count for a process mailbox.
 pub fn verve_set_mailbox_size(target_pid: usize, max_messages: usize) void {
+    if (!pidValid(target_pid)) return;
     const idx = pidx(target_pid);
-    if (idx >= process_table.len) return;
     process_table[idx].max_messages = max_messages;
 }
 
@@ -437,8 +464,8 @@ pub fn verve_send_timeout(target_pid: usize, msg_ptr: [*]const u8, msg_len: usiz
 /// Returns true if any process on this thread (other than current) needs CPU time.
 fn any_other_runnable_on_thread(thread: *SchedulerThread) bool {
     for (thread.local_pids.items) |pid| {
+        if (!pidValid(pid)) continue;
         const i = pidx(pid);
-        if (i >= process_table.len) continue;
         const p = &process_table[i];
         if (!p.alive) continue;
         if (p.id == current_process_id) continue;
@@ -600,8 +627,8 @@ pub fn scheduler_run(thread: *SchedulerThread) i64 {
         // LIFO slot: run hot process first (Tokio optimization)
         if (thread.next_pid) |npid| {
             thread.next_pid = null;
-            const ni = pidx(npid);
-            if (ni < process_table.len) {
+            if (pidValid(npid)) {
+                const ni = pidx(npid);
                 const proc = &process_table[ni];
                 if (proc.alive and (proc.yielded or (if (proc.mailbox_ptr) |m| m.count > 0 else false))) {
                     any_ran = true;
@@ -619,8 +646,8 @@ pub fn scheduler_run(thread: *SchedulerThread) i64 {
 
         // Round-robin through local processes
         for (thread.local_pids.items) |pid| {
+            if (!pidValid(pid)) continue;
             const i = pidx(pid);
-            if (i >= process_table.len) continue;
             const proc = &process_table[i];
             if (!proc.alive) continue;
             if (!proc.yielded and (if (proc.mailbox_ptr) |m| m.count == 0 else true)) continue;
@@ -640,8 +667,7 @@ pub fn scheduler_run(thread: *SchedulerThread) i64 {
         var j: usize = 0;
         while (j < thread.local_pids.items.len) {
             const pid = thread.local_pids.items[j];
-            const pi = pidx(pid);
-            if (pi < process_table.len and !process_table[pi].alive) {
+            if (!pidValid(pid) or !process_table[pidx(pid)].alive) {
                 _ = thread.local_pids.swapRemove(j);
             } else {
                 j += 1;
@@ -652,8 +678,8 @@ pub fn scheduler_run(thread: *SchedulerThread) i64 {
             var any_alive = false;
             var any_io_wait = false;
             for (thread.local_pids.items) |pid| {
+                if (!pidValid(pid)) continue;
                 const pi = pidx(pid);
-                if (pi >= process_table.len) continue;
                 if (process_table[pi].alive) {
                     any_alive = true;
                     if (process_table[pi].io_wait_fd >= 0) any_io_wait = true;
@@ -671,10 +697,12 @@ pub fn scheduler_run(thread: *SchedulerThread) i64 {
 
             for (events[0..n]) |ev| {
                 const pid: usize = @intCast(ev.data.u64);
-                const pidx_val = pidx(pid);
-                if (pidx_val < process_table.len and process_table[pidx_val].alive) {
-                    process_table[pidx_val].yielded = true;
-                    process_table[pidx_val].io_wait_fd = -1;
+                if (pidValid(pid)) {
+                    const pidx_val = pidx(pid);
+                    if (process_table[pidx_val].alive) {
+                        process_table[pidx_val].yielded = true;
+                        process_table[pidx_val].io_wait_fd = -1;
+                    }
                 }
             }
         }
