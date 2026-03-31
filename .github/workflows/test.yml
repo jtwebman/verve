@@ -7,9 +7,9 @@ on:
     branches: [main]
 
 jobs:
-  test:
+  fast:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 10
     env:
       VERVE_ZIG: zig
     steps:
@@ -26,12 +26,6 @@ jobs:
       - name: Run fast tests
         run: zig build test
 
-      - name: Run compile tests
-        run: zig build test-compile
-
-      - name: Run network tests
-        run: zig build test-slow
-
       - name: Type check examples
         run: |
           for f in examples/*.vv; do
@@ -41,3 +35,35 @@ jobs:
 
       - name: Run verifier
         run: ./zig-out/bin/verve test examples/tested.vv
+
+  compile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      VERVE_ZIG: zig
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Zig
+        uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: 0.15.2
+
+      - name: Run compile tests
+        run: zig build test-compile
+
+  network:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      VERVE_ZIG: zig
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Zig
+        uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: 0.15.2
+
+      - name: Run network tests
+        run: zig build test-slow
