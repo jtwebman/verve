@@ -44,6 +44,14 @@ pub const Mailbox = struct {
         const lo: u16 = self.buf[self.head % rt.MAILBOX_BUF_SIZE];
         const hi: u16 = self.buf[(self.head + 1) % rt.MAILBOX_BUF_SIZE];
         const msg_len: usize = lo | (hi << 8);
+        // Validate: msg_len + 2 (header) must fit within used bytes
+        if (msg_len + 2 > self.used) {
+            // Corrupted length — reset mailbox to safe empty state
+            self.head = 0;
+            self.used = 0;
+            self.count = 0;
+            return null;
+        }
         // Copy message into out_buf (handles ring buffer wrap-around)
         const capped = @min(msg_len, out_buf.len);
         for (0..capped) |i| {
@@ -541,28 +549,28 @@ fn isAlive(idx: usize) bool {
 
 fn process_fiber_entry(pid_raw: usize) void {
     const pid: usize = pid_raw;
+    // Cache table index at entry — pidx() may return wrong value after kill_tree removes PID
+    const cached_idx = pidx(pid);
     while (true) {
-        const idx = pidx(pid);
-        if (!isAlive(idx)) break;
+        if (!isAlive(cached_idx)) break;
 
         const had_msg = drain_one(pid);
 
-        if (!isAlive(idx)) break;
+        if (!isAlive(cached_idx)) break;
 
         if (had_msg) {
             // Set yielded if more messages remain; clear it otherwise so the
             // scheduler doesn't spin on an idle process.
-            process_table[idx].yielded = if (process_table[idx].mailbox_ptr) |m| m.count > 0 else false;
+            process_table[cached_idx].yielded = if (process_table[cached_idx].mailbox_ptr) |m| m.count > 0 else false;
         }
 
         // Return to scheduler
         const thread = current_thread orelse break;
-        fiber.context_switch(&process_table[idx].proc_fiber.?.context, &thread.scheduler_context);
+        fiber.context_switch(&process_table[cached_idx].proc_fiber.?.context, &thread.scheduler_context);
     }
-    const idx = pidx(pid_raw);
-    if (process_table[idx].proc_fiber) |*f| f.state = .done;
+    if (process_table[cached_idx].proc_fiber) |*f| f.state = .done;
     if (current_thread) |thread| {
-        fiber.context_switch(&process_table[idx].proc_fiber.?.context, &thread.scheduler_context);
+        fiber.context_switch(&process_table[cached_idx].proc_fiber.?.context, &thread.scheduler_context);
     }
 }
 
@@ -586,14 +594,14 @@ fn ensure_fiber(proc: *VerveProcess) void {
 /// stores its exit code, then marks itself dead and returns to the scheduler.
 fn main_process_fiber_entry(pid_raw: usize) void {
     const pid: usize = pid_raw;
+    const main_idx = pidx(pid);
     const result = if (main_fn_ptr) |f| f(0) else 0;
     program_exit_code.store(@intCast(result), .release);
     // Kill main and all its children
     verve_kill(pid);
-    const idx = pidx(pid);
-    if (process_table[idx].proc_fiber) |*f| f.state = .done;
+    if (process_table[main_idx].proc_fiber) |*f| f.state = .done;
     if (current_thread) |thread| {
-        fiber.context_switch(&process_table[idx].proc_fiber.?.context, &thread.scheduler_context);
+        fiber.context_switch(&process_table[main_idx].proc_fiber.?.context, &thread.scheduler_context);
     }
 }
 
@@ -775,4 +783,34 @@ pub fn verve_io_wait(fd: i64) void {
     if (current_process_id == 0) return;
     const idx = pidx(current_process_id);
     process_table[idx].io_wait_fd = @intCast(fd);
+}
+
+// ── Tests ─────────────────────────────────────────
+
+test "mailbox pop validates corrupted length" {
+    var mbox = Mailbox{};
+    // Push a valid 2-byte message
+    const msg = [_]u8{ 0x01, 0x00 };
+    _ = mbox.push(&msg, 2);
+    // Corrupt the length prefix to a huge value
+    mbox.buf[mbox.head % rt.MAILBOX_BUF_SIZE] = 0xFF;
+    mbox.buf[(mbox.head + 1) % rt.MAILBOX_BUF_SIZE] = 0xFF;
+    // Pop should detect corruption and reset
+    var out: [256]u8 = undefined;
+    const result = mbox.pop(&out);
+    try std.testing.expect(result == null);
+    // Mailbox should be reset to empty
+    try std.testing.expectEqual(@as(usize, 0), mbox.count);
+    try std.testing.expectEqual(@as(usize, 0), mbox.used);
+}
+
+test "mailbox push and pop roundtrip" {
+    var mbox = Mailbox{};
+    const msg = [_]u8{ 0x01, 0x02, 0x03 };
+    try std.testing.expect(mbox.push(&msg, 3));
+    var out: [256]u8 = undefined;
+    const result = mbox.pop(&out);
+    try std.testing.expect(result != null);
+    try std.testing.expectEqualSlices(u8, &msg, result.?);
+    try std.testing.expectEqual(@as(usize, 0), mbox.count);
 }

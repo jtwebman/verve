@@ -9,6 +9,7 @@ pub const ZigBackend = struct {
     out: std.ArrayListUnmanaged(u8),
     indent: usize,
     program: ir.Program,
+    optimize_mode: []const u8 = "-OReleaseFast",
 
     pub fn init(alloc: std.mem.Allocator) ZigBackend {
         return .{
@@ -226,7 +227,7 @@ pub const ZigBackend = struct {
                     // Allocate typed state struct, set pointer on the process
                     self.writeIndent();
                     self.writeFmt("{{ const _sm = rt.arena_alloc(@sizeOf(VerveStruct_{s})) orelse unreachable; const _st = @as(*VerveStruct_{s}, @ptrCast(@alignCast(_sm))); _st.* = .{{}}; ", .{ st, st });
-                    self.writeFmt("rt.process.process_table[@intCast(@as(u64, @bitCast({s})) - 1)].state_ptr = @intFromPtr(_st); }}\n", .{pid_reg});
+                    self.writeFmt("rt.process.process_table[rt.process.pidx(@intCast(@as(u64, @bitCast({s}))))].state_ptr = @intFromPtr(_st); }}\n", .{pid_reg});
                 }
                 break;
             }
@@ -537,6 +538,20 @@ pub const ZigBackend = struct {
                                 self.writeFmt("_p_{s}", .{param.name});
                             }
                             self.write(");\n");
+                            // Wake sender if called via Process.send (sender PID > 0)
+                            self.line("const _spid: usize = @as(u16, _msg_ptr[2]) | (@as(u16, _msg_ptr[3]) << 8);");
+                            self.line("if (_spid > 0 and rt.process.pidValid(_spid)) {");
+                            self.indent += 1;
+                            self.line("const _si = rt.process.pidx(_spid);");
+                            self.line("if (_si < rt.process.process_table.len and rt.process.process_table[_si].send_slot_owner == rt.process.current_process_id) {");
+                            self.indent += 1;
+                            self.line("rt.process.process_table[_si].send_result = 0;");
+                            self.line("rt.process.process_table[_si].send_result_ready = true;");
+                            self.line("rt.process.process_table[_si].yielded = true;");
+                            self.indent -= 1;
+                            self.line("}");
+                            self.indent -= 1;
+                            self.line("}");
                             self.line("break :blk 0;");
                         } else {
                             self.writeIndent();
@@ -548,9 +563,9 @@ pub const ZigBackend = struct {
                             self.write(");\n");
                             // Send reply: read sender_pid, validate slot, write result
                             self.line("const _spid: usize = @as(u16, _msg_ptr[2]) | (@as(u16, _msg_ptr[3]) << 8);");
-                            self.line("if (_spid > 0) {");
+                            self.line("if (_spid > 0 and rt.process.pidValid(_spid)) {");
                             self.indent += 1;
-                            self.line("const _si = _spid - 1;");
+                            self.line("const _si = rt.process.pidx(_spid);");
                             self.line("if (_si < rt.process.process_table.len and rt.process.process_table[_si].send_slot_owner == rt.process.current_process_id) {");
                             self.indent += 1;
                             self.line("rt.process.process_table[_si].send_result = _result;");
@@ -922,7 +937,7 @@ pub const ZigBackend = struct {
                 self.lineFmt("const pid = rt.process.verve_spawn({d});", .{pdi});
                 self.line("rt.process.current_process_id = pid;");
                 if (pd.state_type) |st| {
-                    self.lineFmt("{{ const _sm = rt.arena_alloc(@sizeOf(VerveStruct_{s})) orelse unreachable; const _st = @as(*VerveStruct_{s}, @ptrCast(@alignCast(_sm))); _st.* = .{{}}; rt.process.process_table[pid - 1].state_ptr = @intFromPtr(_st); }}", .{ st, st });
+                    self.lineFmt("{{ const _sm = rt.arena_alloc(@sizeOf(VerveStruct_{s})) orelse unreachable; const _st = @as(*VerveStruct_{s}, @ptrCast(@alignCast(_sm))); _st.* = .{{}}; rt.process.process_table[rt.process.pidx(pid)].state_ptr = @intFromPtr(_st); }}", .{ st, st });
                 }
                 break;
             }
@@ -1230,9 +1245,9 @@ pub const ZigBackend = struct {
                 self.line("var _msg_buf: [8192]u8 = undefined;");
                 self.lineFmt("_msg_buf[0] = {d};", .{pt.handler_index});
                 self.lineFmt("_msg_buf[1] = {d};", .{pt.args.len});
-                self.line("const _spid: u16 = @intCast(rt.process.current_process_id);");
-                self.line("_msg_buf[2] = @truncate(_spid);");
-                self.line("_msg_buf[3] = @truncate(_spid >> 8);");
+                // tell is fire-and-forget: sender PID = 0 (no reply)
+                self.line("_msg_buf[2] = 0;");
+                self.line("_msg_buf[3] = 0;");
                 if (pt.args.len > 0) {
                     self.line("var _mpos: usize = 4;");
                     for (pt.args) |arg| self.emitMsgEncode(arg, reg_types);
@@ -1690,7 +1705,7 @@ pub const ZigBackend = struct {
         const emit_flag = try std.fmt.allocPrint(self.alloc, "-femit-bin={s}", .{output_path});
         const cache_dir = try std.fmt.allocPrint(self.alloc, "{s}_cache", .{output_path});
         var child = std.process.Child.init(
-            &.{ zig_path, "build-exe", "-OReleaseFast", src_path, emit_flag, "--cache-dir", cache_dir },
+            &.{ zig_path, "build-exe", self.optimize_mode, src_path, emit_flag, "--cache-dir", cache_dir },
             self.alloc,
         );
         child.stderr_behavior = .Pipe;

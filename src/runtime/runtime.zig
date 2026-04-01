@@ -50,9 +50,12 @@ pub fn verve_runtime_init() void {
     std.posix.sigaction(std.posix.SIG.INT, &term_act, null);
 }
 
+const MAX_SLICE_LEN: usize = 16 * 1024 * 1024; // 16MB — arena max
+
 /// Convert (ptr, len) pair back to []const u8 — used at struct boundaries.
 pub fn sliceFromPair(ptr_val: usize, len_val: usize) []const u8 {
-    if (ptr_val == 0) return "";
+    if (ptr_val == 0 or len_val == 0) return "";
+    if (len_val > MAX_SLICE_LEN) return "";
     return @as([*]const u8, @ptrFromInt(ptr_val))[0..len_val];
 }
 
@@ -110,18 +113,21 @@ pub const List = struct {
     }
 
     pub fn append(self: *List, val: i64) void {
+        if (self.len >= self.cap) return;
         const idx: usize = @intCast(@as(u64, @bitCast(self.len)));
         self.items[idx] = val;
         self.len += 1;
     }
 
     pub fn appendPtr(self: *List, val: usize) void {
+        if (self.len >= self.cap) return;
         const idx: usize = @intCast(@as(u64, @bitCast(self.len)));
         self.items[idx] = @intCast(val);
         self.len += 1;
     }
 
     pub fn get(self: *const List, idx: i64) i64 {
+        if (idx < 0 or idx >= self.len) return @import("checked.zig").POISON_OUT_OF_BOUNDS;
         return self.items[@intCast(@as(u64, @bitCast(idx)))];
     }
 };
@@ -225,4 +231,55 @@ pub fn currentArena() *Arena {
 /// Allocate from the current arena. Drop-in replacement for page_allocator.alloc.
 pub fn arena_alloc(size: usize) ?[*]u8 {
     return currentArena().alloc(size);
+}
+
+// ── Tests ─────────────────────────────────────────
+
+test "list append respects capacity" {
+    var list = List.init();
+    // Fill to capacity
+    for (0..256) |i| {
+        list.append(@intCast(i));
+    }
+    try std.testing.expectEqual(@as(i64, 256), list.len);
+    // Append past capacity — should be silently dropped
+    list.append(999);
+    try std.testing.expectEqual(@as(i64, 256), list.len);
+}
+
+test "list appendPtr respects capacity" {
+    var list = List.init();
+    for (0..256) |i| {
+        list.appendPtr(i);
+    }
+    try std.testing.expectEqual(@as(i64, 256), list.len);
+    list.appendPtr(999);
+    try std.testing.expectEqual(@as(i64, 256), list.len);
+}
+
+test "list get out of bounds returns poison" {
+    var list = List.init();
+    list.append(42);
+    // Valid access
+    try std.testing.expectEqual(@as(i64, 42), list.get(0));
+    // Negative index
+    try std.testing.expectEqual(@import("checked.zig").POISON_OUT_OF_BOUNDS, list.get(-1));
+    // Past end
+    try std.testing.expectEqual(@import("checked.zig").POISON_OUT_OF_BOUNDS, list.get(1));
+    try std.testing.expectEqual(@import("checked.zig").POISON_OUT_OF_BOUNDS, list.get(100));
+}
+
+test "sliceFromPair null ptr returns empty" {
+    const s = sliceFromPair(0, 10);
+    try std.testing.expectEqual(@as(usize, 0), s.len);
+}
+
+test "sliceFromPair zero len returns empty" {
+    const s = sliceFromPair(0xDEAD, 0);
+    try std.testing.expectEqual(@as(usize, 0), s.len);
+}
+
+test "sliceFromPair huge len returns empty" {
+    const s = sliceFromPair(0xDEAD, MAX_SLICE_LEN + 1);
+    try std.testing.expectEqual(@as(usize, 0), s.len);
 }

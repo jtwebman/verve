@@ -9,6 +9,10 @@ fn getZigPath() []const u8 {
     return std.posix.getenv("VERVE_ZIG") orelse "/home/jt/.local/zig/zig";
 }
 
+fn getOptimizeMode() []const u8 {
+    return std.posix.getenv("VERVE_OPTIMIZE") orelse "-OReleaseFast";
+}
+
 /// Compile Verve source to native binary, run it, return exit code.
 fn compileAndRun(source: []const u8) !u8 {
     var parser = Parser.init(source, alloc);
@@ -17,6 +21,7 @@ fn compileAndRun(source: []const u8) !u8 {
     const program = try lower.lowerFile(file);
     var backend = ZigBackend.init(alloc);
     backend.emit(program);
+    backend.optimize_mode = getOptimizeMode();
     const path = "/tmp/verve_ct_basic";
     try backend.build(path, getZigPath());
     var child = std.process.Child.init(&.{path}, alloc);
@@ -35,6 +40,7 @@ fn compileAndCapture(source: []const u8) !struct { exit: u8, stdout: []const u8 
     const program = try lower.lowerFile(file);
     var backend = ZigBackend.init(alloc);
     backend.emit(program);
+    backend.optimize_mode = getOptimizeMode();
     const path = "/tmp/verve_ct_basic_cap";
     try backend.build(path, getZigPath());
     var child = std.process.Child.init(&.{path}, alloc);
@@ -743,5 +749,68 @@ test "compile: optional bool" {
         \\    x: bool? = true;
         \\    match x { :some{val} => { if val { return 1; } return 0; } none => return 2; }
         \\} }
+    ));
+}
+
+// ════════════════════════════════════════════════════════════
+// List safety — bounds checking
+// ════════════════════════════════════════════════════════════
+
+test "compile: list get out of bounds returns poison" {
+    const r = try compileAndCapture(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        l: list<int> = list();
+        \\        append l { 10; }
+        \\        append l { 20; }
+        \\        x: int = l[5];
+        \\        if x > 0 {
+        \\            Stdio.println("wrong: positive");
+        \\        } else {
+        \\            Stdio.println("poison");
+        \\        }
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("poison\n", r.stdout);
+}
+
+test "compile: list get negative index returns poison" {
+    const r = try compileAndCapture(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        l: list<int> = list();
+        \\        append l { 10; }
+        \\        x: int = l[0 - 1];
+        \\        if x > 0 {
+        \\            Stdio.println("wrong: positive");
+        \\        } else {
+        \\            Stdio.println("poison");
+        \\        }
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("poison\n", r.stdout);
+}
+
+test "compile: list append past capacity is safe" {
+    // Append 260 items (cap=256), should not crash, len should not exceed 256
+    try testing.expectEqual(@as(u8, 0), try compileAndRun(
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        l: list<int> = list();
+        \\        i: int = 0;
+        \\        while i < 260 {
+        \\            append l { i; }
+        \\            i = i + 1;
+        \\        }
+        \\        if l.len > 256 { return 1; }
+        \\        return 0;
+        \\    }
+        \\}
     ));
 }

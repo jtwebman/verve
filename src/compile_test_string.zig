@@ -9,6 +9,10 @@ fn getZigPath() []const u8 {
     return std.posix.getenv("VERVE_ZIG") orelse "/home/jt/.local/zig/zig";
 }
 
+fn getOptimizeMode() []const u8 {
+    return std.posix.getenv("VERVE_OPTIMIZE") orelse "-OReleaseFast";
+}
+
 /// Compile Verve source to native binary, run it, return exit code.
 fn compileAndRun(source: []const u8) !u8 {
     var parser = Parser.init(source, alloc);
@@ -17,6 +21,7 @@ fn compileAndRun(source: []const u8) !u8 {
     const program = try lower.lowerFile(file);
     var backend = ZigBackend.init(alloc);
     backend.emit(program);
+    backend.optimize_mode = getOptimizeMode();
     const path = "/tmp/verve_ct_str";
     try backend.build(path, getZigPath());
     defer std.fs.cwd().deleteFile(path) catch {};
@@ -36,6 +41,7 @@ fn compileAndCapture(source: []const u8) !struct { exit: u8, stdout: []const u8 
     const program = try lower.lowerFile(file);
     var backend = ZigBackend.init(alloc);
     backend.emit(program);
+    backend.optimize_mode = getOptimizeMode();
     const path = "/tmp/verve_ct_str_cap";
     try backend.build(path, getZigPath());
     defer std.fs.cwd().deleteFile(path) catch {};

@@ -65,6 +65,25 @@ pub fn build(b: *std.Build) void {
     });
     test_step.dependOn(&b.addRunArtifact(ir_tests).step);
 
+    // Runtime unit tests (List, sliceFromPair, Mailbox safety checks)
+    const runtime_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/runtime/runtime.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    test_step.dependOn(&b.addRunArtifact(runtime_tests).step);
+
+    const process_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/runtime/process.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    test_step.dependOn(&b.addRunArtifact(process_tests).step);
+
     // Compile pipeline tests (each invokes zig build-exe, ~7 min total)
     // Run with: zig build test-compile
     const compile_test_step = b.step("test-compile", "Run compile pipeline tests");
@@ -84,6 +103,23 @@ pub fn build(b: *std.Build) void {
             }),
         });
         compile_test_step.dependOn(&b.addRunArtifact(ct).step);
+    }
+
+    // Compile pipeline tests with ReleaseSafe (catches runtime safety violations)
+    // Run with: zig build test-compile-safe
+    const compile_safe_step = b.step("test-compile-safe", "Run compile tests with ReleaseSafe");
+    for (compile_tests) |file| {
+        const ct = b.addTest(.{
+            .root_module = b.createModule(.{
+                .root_source_file = b.path(file),
+                .target = target,
+                .optimize = optimize,
+            }),
+        });
+        ct.root_module.resolved_target = target;
+        const run = b.addRunArtifact(ct);
+        run.setEnvironmentVariable("VERVE_OPTIMIZE", "-OReleaseSafe");
+        compile_safe_step.dependOn(&run.step);
     }
 
     // Network tests (TCP/HTTP with socket ops, ~2 min)
