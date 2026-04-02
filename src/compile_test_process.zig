@@ -1041,3 +1041,70 @@ test "compile: mailbox full returns error string" {
     try testing.expectEqual(@as(u8, 0), r.exit);
     try testing.expectEqualStrings("0\n", r.stdout);
 }
+
+test "compile: send retries on full mailbox instead of failing" {
+    // With [mailbox: 2], flood tells then send — send should still succeed
+    // because verve_send now yields and retries when mailbox is full.
+    const r = try compileAndCapture(
+        \\struct CS { count: int = 0; }
+        \\process Counter<CS> [mailbox: 2] {
+        \\    receive Inc(state: CS) -> int {
+        \\        state.count = state.count + 1;
+        \\        return state.count;
+        \\    }
+        \\}
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        c: pid<Counter> = spawn Counter();
+        \\        i: int = 0;
+        \\        while i < 20 {
+        \\            match Process.tell(c.Inc) {
+        \\                :ok{v} => { i = i + 1; }
+        \\                :error{e} => { Process.yield(); }
+        \\            }
+        \\        }
+        \\        match Process.send(c.Inc) {
+        \\            :ok{val} => Stdio.println(val);
+        \\            :error{e} => Stdio.println(e);
+        \\        }
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("21\n", r.stdout);
+}
+
+test "compile: send_timeout returns timeout on unresponsive process" {
+    // Block handler loops long enough that 1ms timeout expires before
+    // the Fast handler gets a chance to run. 10M iterations with yield_check
+    // every 4000 = 2500 yields + loop time, well over 1ms even in ReleaseFast.
+    const r = try compileAndCapture(
+        \\struct CS { val: int = 0; }
+        \\process Slow<CS> {
+        \\    receive Block(state: CS) -> int {
+        \\        i: int = 0;
+        \\        while i < 10000000 {
+        \\            i = i + 1;
+        \\        }
+        \\        return state.val;
+        \\    }
+        \\    receive Fast(state: CS) -> int {
+        \\        return 42;
+        \\    }
+        \\}
+        \\module App {
+        \\    fn main(args: list<string>) -> int {
+        \\        s: pid<Slow> = spawn Slow();
+        \\        Process.tell(s.Block);
+        \\        match Process.send_timeout(s.Fast, 1) {
+        \\            :ok{val} => Stdio.println("ok");
+        \\            :error{e} => Stdio.println("timeout");
+        \\        }
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("timeout\n", r.stdout);
+}

@@ -547,7 +547,22 @@ pub const ZigBackend = struct {
                             self.indent += 1;
                             self.line("rt.process.process_table[_si].send_result = 0;");
                             self.line("rt.process.process_table[_si].send_result_ready = true;");
+                            self.line("rt.process.process_table[_si].send_waiting = false;");
                             self.line("rt.process.process_table[_si].yielded = true;");
+                            // Priority wake: LIFO hint (same thread) or eventfd (cross-thread)
+                            self.line("if (rt.process.current_thread) |_ct| {");
+                            self.indent += 1;
+                            self.line("if (rt.process.process_table[_si].owner_thread == _ct.id) {");
+                            self.indent += 1;
+                            self.line("_ct.next_pid = _spid;");
+                            self.indent -= 1;
+                            self.line("} else {");
+                            self.indent += 1;
+                            self.line("rt.process.wakeThread(rt.process.process_table[_si].owner_thread);");
+                            self.indent -= 1;
+                            self.line("}");
+                            self.indent -= 1;
+                            self.line("}");
                             self.indent -= 1;
                             self.line("}");
                             self.indent -= 1;
@@ -570,7 +585,22 @@ pub const ZigBackend = struct {
                             self.indent += 1;
                             self.line("rt.process.process_table[_si].send_result = _result;");
                             self.line("rt.process.process_table[_si].send_result_ready = true;");
+                            self.line("rt.process.process_table[_si].send_waiting = false;");
                             self.line("rt.process.process_table[_si].yielded = true;");
+                            // Priority wake: LIFO hint (same thread) or eventfd (cross-thread)
+                            self.line("if (rt.process.current_thread) |_ct| {");
+                            self.indent += 1;
+                            self.line("if (rt.process.process_table[_si].owner_thread == _ct.id) {");
+                            self.indent += 1;
+                            self.line("_ct.next_pid = _spid;");
+                            self.indent -= 1;
+                            self.line("} else {");
+                            self.indent += 1;
+                            self.line("rt.process.wakeThread(rt.process.process_table[_si].owner_thread);");
+                            self.indent -= 1;
+                            self.line("}");
+                            self.indent -= 1;
+                            self.line("}");
                             self.indent -= 1;
                             self.line("}");
                             self.indent -= 1;
@@ -1288,9 +1318,9 @@ pub const ZigBackend = struct {
                 if (ps.args.len > 0) {
                     self.line("var _mpos: usize = 4;");
                     for (ps.args) |arg| self.emitMsgEncode(arg, reg_types);
-                    self.lineFmt("{s} = rt.process.verve_send_timeout({s}, &_msg_buf, _mpos, {s});", .{ self.regName(ps.dest), self.regName(ps.target), self.regName(ps.timeout_ms) });
+                    self.lineFmt("{s} = rt.process.verve_send_timeout(@intCast(@as(u64, @bitCast({s}))), &_msg_buf, _mpos, {s});", .{ self.regName(ps.dest), self.regName(ps.target), self.regName(ps.timeout_ms) });
                 } else {
-                    self.lineFmt("{s} = rt.process.verve_send_timeout({s}, &_msg_buf, 4, {s});", .{ self.regName(ps.dest), self.regName(ps.target), self.regName(ps.timeout_ms) });
+                    self.lineFmt("{s} = rt.process.verve_send_timeout(@intCast(@as(u64, @bitCast({s}))), &_msg_buf, 4, {s});", .{ self.regName(ps.dest), self.regName(ps.target), self.regName(ps.timeout_ms) });
                 }
                 self.indent -= 1;
                 self.line("}");

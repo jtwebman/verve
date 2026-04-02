@@ -16,18 +16,22 @@ process Counter<CounterState> {
 	}
 }
 
-/// Benchmark: send 10000 tell messages and verify final count.
+/// Benchmark: send 10000 tell messages with backpressure and verify final count.
 module App {
 	fn main() -> int {
 		c: pid<Counter> = spawn Counter();
-		i: int = 0;
-		while i < 10000 {
-			Process.tell(c.Increment);
-			i = i + 1;
+		sent: int = 0;
+		while sent < 10000 {
+			match Process.tell(c.Increment) {
+				:ok{v} => { sent = sent + 1; }
+				:error{e} => {
+					Process.yield();
+				}
+			}
 		}
 		match Process.send(c.GetCount) {
 			:ok{val} => Stdio.println("Messages delivered: ", val);
-			:error{e} => Stdio.println("Error");
+			:error{e} => Stdio.println("Error: ", e);
 		}
 		return 0;
 	}

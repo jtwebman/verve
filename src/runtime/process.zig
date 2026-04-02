@@ -81,6 +81,8 @@ pub const VerveProcess = struct {
     send_result: usize = 0, // result from send handler
     send_result_ready: bool = false, // wake flag for send
     send_slot_owner: usize = 0, // PID of target allowed to write send_result
+    send_waiting: bool = false, // true while blocked in verve_send/verve_send_timeout
+    send_deadline_ns: i128 = 0, // nanosecond deadline for send_timeout (0 = no deadline)
     parent_pid: usize = 0, // PID of spawning process (0 = top-level)
 
     /// Get or create mailbox (lazy allocation).
@@ -118,6 +120,8 @@ pub const VerveProcess = struct {
         self.send_result = 0;
         self.send_result_ready = false;
         self.send_slot_owner = 0;
+        self.send_waiting = false;
+        self.send_deadline_ns = 0;
         self.parent_pid = 0;
     }
 };
@@ -166,6 +170,7 @@ pub const SchedulerThread = struct {
     id: usize,
     scheduler_context: fiber.Context = .{},
     epoll_fd: i32 = -1,
+    wake_fd: i32 = -1, // eventfd for cross-thread wake
     local_pids: std.ArrayListUnmanaged(usize) = .{},
     next_pid: ?usize = null, // LIFO slot: hot process to run next
     alloc: std.mem.Allocator,
@@ -177,6 +182,22 @@ pub const SchedulerThread = struct {
     pub fn ensureEpoll(self: *SchedulerThread) void {
         if (self.epoll_fd >= 0) return;
         self.epoll_fd = std.posix.epoll_create1(std.os.linux.EPOLL.CLOEXEC) catch -1;
+    }
+
+    /// Create eventfd for cross-thread wake and register it with epoll.
+    pub fn initWakeFd(self: *SchedulerThread) void {
+        if (self.wake_fd >= 0) return;
+        const raw = std.os.linux.eventfd(0, std.os.linux.EFD.NONBLOCK | std.os.linux.EFD.CLOEXEC);
+        if (raw > 0xFFFF_FFFF_FFFF_F000) return; // syscall error
+        self.wake_fd = @intCast(raw);
+        self.ensureEpoll();
+        if (self.epoll_fd >= 0) {
+            var ev = std.os.linux.epoll_event{
+                .events = std.os.linux.EPOLL.IN,
+                .data = .{ .u64 = 0 }, // sentinel: PID 0 = wake signal
+            };
+            std.posix.epoll_ctl(self.epoll_fd, std.os.linux.EPOLL.CTL_ADD, @intCast(self.wake_fd), &ev) catch {};
+        }
     }
 
     pub fn addProcess(self: *SchedulerThread, pid: usize) void {
@@ -195,6 +216,16 @@ pub const SchedulerThread = struct {
 
 const MAX_THREADS = 64;
 pub var scheduler_threads: [MAX_THREADS]?*SchedulerThread = .{null} ** MAX_THREADS;
+
+/// Wake a scheduler thread from epoll_wait via eventfd.
+/// Called from handler dispatch or kill_tree when the sender is on a different thread.
+pub fn wakeThread(thread_id: usize) void {
+    if (thread_id >= MAX_THREADS) return;
+    const st = scheduler_threads[thread_id] orelse return;
+    if (st.wake_fd < 0) return;
+    const val: u64 = 1;
+    _ = std.posix.write(@intCast(st.wake_fd), std.mem.asBytes(&val)) catch {};
+}
 pub var thread_count: usize = 0;
 pub threadlocal var current_thread: ?*SchedulerThread = null;
 var next_thread_idx: usize = 0; // round-robin assignment
@@ -280,6 +311,8 @@ pub fn verve_spawn(process_type: usize) usize {
     proc.send_result = 0;
     proc.send_result_ready = false;
     proc.send_slot_owner = 0;
+    proc.send_waiting = false;
+    proc.send_deadline_ns = 0;
     proc.parent_pid = current_process_id;
 
     // Assign to scheduler thread (round-robin if multiple threads, else current)
@@ -345,7 +378,12 @@ fn kill_tree(pid: usize) void {
     // Kill all children (parent owns children)
     for (process_table[0..process_count]) |*p| {
         if (p.alive and p.send_slot_owner == pid) {
+            p.send_waiting = false;
             p.yielded = true;
+            // Cross-thread wake if sender is on a different thread
+            if (current_thread) |ct| {
+                if (p.owner_thread != ct.id) wakeThread(p.owner_thread);
+            }
         }
         if (p.alive and p.parent_pid == pid) {
             kill_tree(p.id);
@@ -404,12 +442,22 @@ fn drain_one(target_pid: usize) bool {
 
 /// Synchronous send: push message to mailbox, yield until target processes it.
 /// The generated send dispatch function writes the result to our send_result field.
+/// If the mailbox is full, yields to let the target drain before retrying.
 pub fn verve_send(target_pid: usize, msg_ptr: [*]const u8, msg_len: usize) usize {
     const idx = pidx(target_pid);
     const proc = &process_table[idx];
     if (!proc.alive) return rt.makeTaggedStr(1, "process_dead");
-    if (proc.mailbox().count >= proc.max_messages) return rt.makeTaggedStr(1, "mailbox_full");
-    if (!proc.mailbox().push(msg_ptr, msg_len)) return rt.makeTaggedStr(1, "mailbox_full");
+    // Yield-retry loop: if mailbox is full, give target a chance to drain
+    while (proc.mailbox().count >= proc.max_messages or !proc.mailbox().push(msg_ptr, msg_len)) {
+        if (!proc.alive) return rt.makeTaggedStr(1, "process_dead");
+        // Hint scheduler to drain the target
+        if (current_thread) |ct| {
+            if (proc.owner_thread == ct.id) ct.next_pid = target_pid;
+            const self_idx = pidx(current_process_id);
+            process_table[self_idx].yielded = true;
+            fiber.context_switch(&process_table[self_idx].proc_fiber.?.context, &ct.scheduler_context);
+        } else return rt.makeTaggedStr(1, "mailbox_full");
+    }
     // Set up sender's reply slot
     const self_idx = pidx(current_process_id);
     const self_proc = &process_table[self_idx];
@@ -422,13 +470,16 @@ pub fn verve_send(target_pid: usize, msg_ptr: [*]const u8, msg_len: usize) usize
             ct.next_pid = target_pid;
         }
     }
+    // True suspension: mark as waiting, don't set yielded.
+    // The handler dispatch or kill_tree will set yielded=true to wake us.
+    @as(*volatile bool, &self_proc.send_waiting).* = true;
     // Yield until dispatch writes our result or target dies
     while (!@as(*volatile bool, &self_proc.send_result_ready).* and isAlive(idx)) {
-        self_proc.yielded = true;
         if (current_thread) |thread| {
             fiber.context_switch(&self_proc.proc_fiber.?.context, &thread.scheduler_context);
         } else break;
     }
+    self_proc.send_waiting = false;
     self_proc.send_slot_owner = 0;
     if (!self_proc.send_result_ready) return rt.makeTaggedStr(1, "process_dead");
     const result = self_proc.send_result;
@@ -461,10 +512,68 @@ pub fn verve_set_mailbox_size(target_pid: usize, max_messages: usize) void {
     process_table[idx].max_messages = max_messages;
 }
 
-/// Send with timeout (timeout not enforced in single-threaded runtime).
+/// Send with timeout: like verve_send but returns :error{"timeout"} after deadline.
+/// Timeouts are best-effort: checked when the scheduler runs, not at exact ms.
+/// Actual wait may exceed the deadline by up to one scheduling quantum.
 pub fn verve_send_timeout(target_pid: usize, msg_ptr: [*]const u8, msg_len: usize, timeout_ms: i64) usize {
-    _ = timeout_ms;
-    return verve_send(target_pid, msg_ptr, msg_len);
+    if (timeout_ms <= 0) return verve_send(target_pid, msg_ptr, msg_len);
+
+    const idx = pidx(target_pid);
+    const proc = &process_table[idx];
+    if (!proc.alive) return rt.makeTaggedStr(1, "process_dead");
+    // Set deadline early so mailbox-full retry also respects it
+    const self_idx = pidx(current_process_id);
+    const self_proc = &process_table[self_idx];
+    const now = std.time.nanoTimestamp();
+    self_proc.send_deadline_ns = now + @as(i128, timeout_ms) * 1_000_000;
+    // Yield-retry loop: if mailbox is full, give target a chance to drain
+    while (proc.mailbox().count >= proc.max_messages or !proc.mailbox().push(msg_ptr, msg_len)) {
+        if (!proc.alive) {
+            self_proc.send_deadline_ns = 0;
+            return rt.makeTaggedStr(1, "process_dead");
+        }
+        if (std.time.nanoTimestamp() >= self_proc.send_deadline_ns) {
+            self_proc.send_deadline_ns = 0;
+            return rt.makeTaggedStr(1, "timeout");
+        }
+        if (current_thread) |ct| {
+            if (proc.owner_thread == ct.id) ct.next_pid = target_pid;
+            self_proc.yielded = true;
+            fiber.context_switch(&self_proc.proc_fiber.?.context, &ct.scheduler_context);
+        } else {
+            self_proc.send_deadline_ns = 0;
+            return rt.makeTaggedStr(1, "mailbox_full");
+        }
+    }
+    // Set up sender's reply slot
+    self_proc.send_result = 0;
+    self_proc.send_result_ready = false;
+    self_proc.send_slot_owner = target_pid;
+    // Hint scheduler to run the target next
+    if (current_thread) |ct| {
+        if (proc.owner_thread == ct.id) {
+            ct.next_pid = target_pid;
+        }
+    }
+    // True suspension with deadline
+    @as(*volatile bool, &self_proc.send_waiting).* = true;
+    while (!@as(*volatile bool, &self_proc.send_result_ready).* and isAlive(idx)) {
+        // Check deadline before yielding
+        if (std.time.nanoTimestamp() >= self_proc.send_deadline_ns) break;
+        if (current_thread) |thread| {
+            fiber.context_switch(&self_proc.proc_fiber.?.context, &thread.scheduler_context);
+        } else break;
+    }
+    self_proc.send_waiting = false;
+    self_proc.send_deadline_ns = 0;
+    self_proc.send_slot_owner = 0;
+    if (!self_proc.send_result_ready) {
+        if (!isAlive(idx)) return rt.makeTaggedStr(1, "process_dead");
+        return rt.makeTaggedStr(1, "timeout");
+    }
+    const result = self_proc.send_result;
+    if (result > 0x10000 and rt.getTag(result) == 1) return result;
+    return rt.makeTagged(0, @intCast(result));
 }
 
 // ── Cooperative scheduler ─────────────────────────
@@ -477,6 +586,7 @@ fn any_other_runnable_on_thread(thread: *SchedulerThread) bool {
         const p = &process_table[i];
         if (!p.alive) continue;
         if (p.id == current_process_id) continue;
+        if (p.send_waiting) continue;
         if (p.yielded or (if (p.mailbox_ptr) |m| m.count > 0 else false)) return true;
     }
     return false;
@@ -628,6 +738,7 @@ pub fn verve_spawn_main(main_fn: *const fn (usize) usize) usize {
 pub fn scheduler_run(thread: *SchedulerThread) i64 {
     current_thread = thread;
     defer current_thread = null;
+    thread.initWakeFd();
 
     while (true) {
         var any_ran = false;
@@ -638,7 +749,7 @@ pub fn scheduler_run(thread: *SchedulerThread) i64 {
             if (pidValid(npid)) {
                 const ni = pidx(npid);
                 const proc = &process_table[ni];
-                if (proc.alive and (proc.yielded or (if (proc.mailbox_ptr) |m| m.count > 0 else false))) {
+                if (proc.alive and !proc.send_waiting and (proc.yielded or (if (proc.mailbox_ptr) |m| m.count > 0 else false))) {
                     any_ran = true;
                     ensure_fiber(proc);
                     if (proc.proc_fiber != null) {
@@ -658,6 +769,15 @@ pub fn scheduler_run(thread: *SchedulerThread) i64 {
             const i = pidx(pid);
             const proc = &process_table[i];
             if (!proc.alive) continue;
+            if (proc.send_waiting) {
+                // Check for expired send deadline — wake the process so it can return timeout
+                if (proc.send_deadline_ns > 0 and std.time.nanoTimestamp() >= proc.send_deadline_ns) {
+                    proc.send_waiting = false;
+                    proc.yielded = true;
+                } else {
+                    continue;
+                }
+            }
             if (!proc.yielded and (if (proc.mailbox_ptr) |m| m.count == 0 else true)) continue;
 
             any_ran = true;
@@ -685,28 +805,60 @@ pub fn scheduler_run(thread: *SchedulerThread) i64 {
         if (!any_ran) {
             var any_alive = false;
             var any_io_wait = false;
+            var any_send_wait = false;
+            var min_deadline_ns: i128 = 0; // earliest send deadline (0 = none)
             for (thread.local_pids.items) |pid| {
                 if (!pidValid(pid)) continue;
                 const pi = pidx(pid);
                 if (process_table[pi].alive) {
                     any_alive = true;
                     if (process_table[pi].io_wait_fd >= 0) any_io_wait = true;
+                    if (process_table[pi].send_waiting) {
+                        any_send_wait = true;
+                        if (process_table[pi].send_deadline_ns > 0) {
+                            if (min_deadline_ns == 0 or process_table[pi].send_deadline_ns < min_deadline_ns) {
+                                min_deadline_ns = process_table[pi].send_deadline_ns;
+                            }
+                        }
+                    }
                 }
             }
             if (!any_alive) break;
-            if (!any_io_wait) break;
+            if (!any_io_wait and !any_send_wait) break;
 
             thread.ensureEpoll();
             if (thread.epoll_fd < 0) break;
 
+            // Compute epoll timeout: use deadline if pending, else infinite
+            var epoll_timeout: i32 = -1;
+            if (min_deadline_ns > 0) {
+                const now = std.time.nanoTimestamp();
+                const remaining_ns = min_deadline_ns - now;
+                if (remaining_ns <= 0) {
+                    epoll_timeout = 0; // already expired
+                } else {
+                    // Convert ns to ms, clamping to i32 range
+                    const remaining_ms = @divFloor(remaining_ns, 1_000_000);
+                    epoll_timeout = if (remaining_ms > std.math.maxInt(i32)) -1 else @intCast(remaining_ms);
+                }
+            }
+
             var events: [64]std.os.linux.epoll_event = undefined;
-            const n = std.posix.epoll_wait(thread.epoll_fd, &events, -1);
+            const n = std.posix.epoll_wait(thread.epoll_fd, &events, epoll_timeout);
             if (n == 0) continue;
 
             for (events[0..n]) |ev| {
-                const pid: usize = @intCast(ev.data.u64);
-                if (pidValid(pid)) {
-                    const pidx_val = pidx(pid);
+                const pid_val: usize = @intCast(ev.data.u64);
+                if (pid_val == 0) {
+                    // Wake signal from eventfd — drain the counter
+                    if (thread.wake_fd >= 0) {
+                        var drain_buf: [8]u8 = undefined;
+                        _ = std.posix.read(@intCast(thread.wake_fd), &drain_buf) catch {};
+                    }
+                    continue;
+                }
+                if (pidValid(pid_val)) {
+                    const pidx_val = pidx(pid_val);
                     if (process_table[pidx_val].alive) {
                         process_table[pidx_val].yielded = true;
                         process_table[pidx_val].io_wait_fd = -1;
@@ -766,6 +918,10 @@ pub fn verve_scheduler_run_threaded(num_threads_arg: usize) i64 {
 
     // Clean up
     for (0..num_threads) |i| {
+        if (threads_storage[i].wake_fd >= 0) {
+            std.posix.close(@intCast(threads_storage[i].wake_fd));
+            threads_storage[i].wake_fd = -1;
+        }
         scheduler_threads[i] = null;
     }
     thread_count = 0;

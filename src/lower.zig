@@ -905,12 +905,13 @@ pub const Lower = struct {
         const handler_args = call_args[1..];
 
         if (std.mem.eql(u8, call_name, "send_timeout")) {
-            // Last arg is timeout_ms, rest are handler args
+            // Second arg (index 0 in handler_args) is timeout_ms, rest are handler args
+            // Syntax: Process.send_timeout(pid.Handler, timeout_ms, args...)
             if (handler_args.len > 0) {
-                for (handler_args[0 .. handler_args.len - 1]) |arg| {
+                const timeout_reg = self.lowerExpr(handler_args[0]);
+                for (handler_args[1..]) |arg| {
                     arg_regs.append(self.alloc, self.lowerExpr(arg)) catch {};
                 }
-                const timeout_reg = self.lowerExpr(handler_args[handler_args.len - 1]);
                 self.appendInst(.{ .process_send_timeout = .{
                     .dest = dest,
                     .target = target_reg,
@@ -919,7 +920,7 @@ pub const Lower = struct {
                     .timeout_ms = timeout_reg,
                 } });
             } else {
-                // No args, no timeout — just send with 0 timeout
+                // No timeout specified — use 0 (no deadline, same as send)
                 const timeout_reg = func.newReg();
                 self.appendInst(.{ .const_int = .{ .dest = timeout_reg, .value = 0 } });
                 self.appendInst(.{ .process_send_timeout = .{

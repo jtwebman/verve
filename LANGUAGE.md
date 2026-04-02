@@ -149,8 +149,10 @@ match Process.send(counter.Increment, 5) {
     :error{reason} => Stdio.println("Error: ", reason);
 }
 
-// Send with timeout (milliseconds) — returns :error{"timeout"} if exceeded
-match Process.send_timeout(counter.Increment, 5, 3000) {
+// Send with timeout (milliseconds) — returns :error{"timeout"} if exceeded.
+// Timeouts are not exact: the sender checks the deadline the next time it
+// gets scheduled after the target yields. Actual wait may exceed the deadline.
+match Process.send_timeout(counter.Increment, 3000, 5) {
     :ok{val} => Stdio.println("Count: ", val);
     :error{reason} => Stdio.println("Error: ", reason);
 }
