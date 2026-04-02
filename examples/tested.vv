@@ -50,8 +50,8 @@ module Math {
 	}
 }
 
-module Main {
-	fn main() -> int {
+process Main {
+	receive main() -> int {
 		return 0;
 	}
 }

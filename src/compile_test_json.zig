@@ -64,8 +64,8 @@ fn compileAndCapture(source: []const u8) !struct { exit: u8, stdout: []const u8 
 
 test "compile: env get existing var" {
     const r = try compileAndCapture(
-        \\module App {
-        \\    fn main(args: list<string>) -> int {
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
         \\        home: string = Env.get("HOME");
         \\        if String.len(home) > 0 {
         \\            Stdio.println("has home");
@@ -82,8 +82,8 @@ test "compile: env get existing var" {
 
 test "compile: env get nonexistent var" {
     const r = try compileAndCapture(
-        \\module App {
-        \\    fn main(args: list<string>) -> int {
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
         \\        val: string = Env.get("VERVE_DEFINITELY_NOT_SET_XYZ");
         \\        if String.len(val) == 0 {
         \\            Stdio.println("empty");
@@ -102,8 +102,8 @@ test "compile: env get nonexistent var" {
 
 test "compile: json get_string from object" {
     const r = try compileAndCapture(
-        \\module App {
-        \\    fn main(args: list<string>) -> int {
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
         \\        data: string = "{\"name\": \"verve\", \"version\": 1}";
         \\        name: string = Json.get_string(data, "name");
         \\        Stdio.println(name);
@@ -117,8 +117,8 @@ test "compile: json get_string from object" {
 
 test "compile: json get_int from object" {
     const r = try compileAndCapture(
-        \\module App {
-        \\    fn main(args: list<string>) -> int {
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
         \\        data: string = "{\"count\": 42, \"name\": \"test\"}";
         \\        count: int = Json.get_int(data, "count");
         \\        Stdio.println(count);
@@ -132,8 +132,8 @@ test "compile: json get_int from object" {
 
 test "compile: json get_bool from object" {
     const r = try compileAndCapture(
-        \\module App {
-        \\    fn main(args: list<string>) -> int {
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
         \\        data: string = "{\"active\": true, \"deleted\": false}";
         \\        if Json.get_bool(data, "active") {
         \\            Stdio.println("active");
@@ -155,8 +155,8 @@ test "compile: json get_bool from object" {
 
 test "compile: json nested object" {
     const r = try compileAndCapture(
-        \\module App {
-        \\    fn main(args: list<string>) -> int {
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
         \\        data: string = "{\"user\": {\"name\": \"alice\", \"age\": 30}}";
         \\        user: string = Json.get_object(data, "user");
         \\        name: string = Json.get_string(user, "name");
@@ -173,8 +173,8 @@ test "compile: json nested object" {
 
 test "compile: json missing key returns zero" {
     const r = try compileAndCapture(
-        \\module App {
-        \\    fn main(args: list<string>) -> int {
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
         \\        data: string = "{\"name\": \"test\"}";
         \\        missing: int = Json.get_int(data, "nope");
         \\        Stdio.println(missing);
@@ -188,8 +188,8 @@ test "compile: json missing key returns zero" {
 
 test "compile: json multiple fields" {
     const r = try compileAndCapture(
-        \\module App {
-        \\    fn main(args: list<string>) -> int {
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
         \\        data: string = "{\"a\": 1, \"b\": 2, \"c\": 3, \"d\": 4}";
         \\        Stdio.println(Json.get_int(data, "a"));
         \\        Stdio.println(Json.get_int(data, "b"));
@@ -205,8 +205,8 @@ test "compile: json multiple fields" {
 
 test "compile: json negative number" {
     const r = try compileAndCapture(
-        \\module App {
-        \\    fn main(args: list<string>) -> int {
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
         \\        data: string = "{\"temp\": -5}";
         \\        Stdio.println(Json.get_int(data, "temp"));
         \\        return 0;
@@ -219,8 +219,8 @@ test "compile: json negative number" {
 
 test "compile: json string with spaces and special chars" {
     const r = try compileAndCapture(
-        \\module App {
-        \\    fn main(args: list<string>) -> int {
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
         \\        data: string = "{\"msg\": \"hello world!\"}";
         \\        msg: string = Json.get_string(data, "msg");
         \\        Stdio.println(msg);
@@ -234,8 +234,8 @@ test "compile: json string with spaces and special chars" {
 
 test "compile: json deeply nested" {
     const r = try compileAndCapture(
-        \\module App {
-        \\    fn main(args: list<string>) -> int {
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
         \\        data: string = "{\"a\": {\"b\": {\"c\": 99}}}";
         \\        a: string = Json.get_object(data, "a");
         \\        b: string = Json.get_object(a, "b");
@@ -251,8 +251,8 @@ test "compile: json deeply nested" {
 
 test "compile: json to_int and to_bool leaf extraction" {
     const r = try compileAndCapture(
-        \\module App {
-        \\    fn main(args: list<string>) -> int {
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
         \\        Stdio.println(Json.to_int("42"));
         \\        Stdio.println(Json.to_int("-7"));
         \\        Stdio.println(Json.to_bool("true"));
@@ -272,8 +272,8 @@ test "compile: json typed parse struct" {
         \\    age: int = 0;
         \\    active: bool = false;
         \\}
-        \\module App {
-        \\    fn main(args: list<string>) -> int {
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
         \\        data: string = "{\"name\": \"alice\", \"age\": 30, \"active\": true}";
         \\        match Json.parse(data, User) {
         \\            :ok{user} => {
@@ -302,8 +302,8 @@ test "compile: json typed parse missing fields use zero defaults" {
         \\    port: int = 0;
         \\    debug: bool = false;
         \\}
-        \\module App {
-        \\    fn main(args: list<string>) -> int {
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
         \\        data: string = "{\"port\": 3000}";
         \\        match Json.parse(data, Config) {
         \\            :ok{cfg} => {
@@ -329,8 +329,8 @@ test "compile: json typed parse extra fields ignored" {
         \\struct Item {
         \\    id: int = 0;
         \\}
-        \\module App {
-        \\    fn main(args: list<string>) -> int {
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
         \\        data: string = "{\"id\": 42, \"name\": \"widget\", \"price\": 9.99}";
         \\        match Json.parse(data, Item) {
         \\            :ok{item} => Stdio.println(item.id);
@@ -349,8 +349,8 @@ test "compile: json typed parse invalid json returns error" {
         \\struct Thing {
         \\    x: int = 0;
         \\}
-        \\module App {
-        \\    fn main(args: list<string>) -> int {
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
         \\        data: string = "not json at all";
         \\        match Json.parse(data, Thing) {
         \\            :ok{t} => Stdio.println("unexpected success");
@@ -370,8 +370,8 @@ test "compile: json typed parse with http request body" {
         \\    name: string = "";
         \\    email: string = "";
         \\}
-        \\module App {
-        \\    fn main(args: list<string>) -> int {
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
         \\        http_data: string = "POST /users HTTP/1.1\r\nContent-Type: application/json\r\n\r\n{\"name\": \"bob\", \"email\": \"bob@test.com\"}";
         \\        req: int = Http.parse_request(http_data);
         \\        body: string = Http.req_body(req);
@@ -392,8 +392,8 @@ test "compile: json typed parse with http request body" {
 
 test "compile: json build simple object" {
     const r = try compileAndCapture(
-        \\module App {
-        \\    fn main(args: list<string>) -> int {
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
         \\        b: int = Json.build_object();
         \\        Json.build_add_string(b, "name", "verve");
         \\        Json.build_add_int(b, "version", 1);
@@ -409,8 +409,8 @@ test "compile: json build simple object" {
 
 test "compile: json build with bool" {
     const r = try compileAndCapture(
-        \\module App {
-        \\    fn main(args: list<string>) -> int {
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
         \\        b: int = Json.build_object();
         \\        Json.build_add_bool(b, "yes", true);
         \\        Json.build_add_bool(b, "no", false);
@@ -426,8 +426,8 @@ test "compile: json build with bool" {
 
 test "compile: json build empty object" {
     const r = try compileAndCapture(
-        \\module App {
-        \\    fn main(args: list<string>) -> int {
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
         \\        b: int = Json.build_object();
         \\        result: string = Json.build_end(b);
         \\        Stdio.println(result);
@@ -441,8 +441,8 @@ test "compile: json build empty object" {
 
 test "compile: json build then parse roundtrip" {
     const r = try compileAndCapture(
-        \\module App {
-        \\    fn main(args: list<string>) -> int {
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
         \\        b: int = Json.build_object();
         \\        Json.build_add_string(b, "msg", "hello");
         \\        Json.build_add_int(b, "num", 42);
@@ -461,8 +461,8 @@ test "compile: json build then parse roundtrip" {
 
 test "compile: json build with special chars in string" {
     const r = try compileAndCapture(
-        \\module App {
-        \\    fn main(args: list<string>) -> int {
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
         \\        b: int = Json.build_object();
         \\        Json.build_add_string(b, "msg", "hello world!");
         \\        result: string = Json.build_end(b);
@@ -477,8 +477,8 @@ test "compile: json build with special chars in string" {
 
 test "compile: json array length" {
     const r = try compileAndCapture(
-        \\module App {
-        \\    fn main(args: list<string>) -> int {
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
         \\        data: string = "{\"items\": [1, 2, 3, 4, 5]}";
         \\        count: int = Json.get_array_len(data, "items");
         \\        Stdio.println(count);
@@ -492,8 +492,8 @@ test "compile: json array length" {
 
 test "compile: json empty array length" {
     const r = try compileAndCapture(
-        \\module App {
-        \\    fn main(args: list<string>) -> int {
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
         \\        data: string = "{\"items\": []}";
         \\        count: int = Json.get_array_len(data, "items");
         \\        Stdio.println(count);

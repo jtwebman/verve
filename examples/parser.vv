@@ -587,8 +587,8 @@ module Printer {
 }
 
 /// Entry point.
-module App {
-	fn main(args: list<string>) -> int {
+process App {
+	receive main(args: list<string>) -> int {
 		if args.len < 1 {
 			Stdio.println("Usage: verve run parser.vv <file.vv>");
 			return 1;

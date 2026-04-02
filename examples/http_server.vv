@@ -68,8 +68,8 @@ process Acceptor<AcceptState> {
 }
 
 /// Entry point — start listener, spawn acceptor, run scheduler.
-module Main {
-	fn main() -> int {
+process Main {
+	receive main() -> int {
 		match Tcp.listen("127.0.0.1", 8080) {
 			:ok{listener} => {
 				Stdio.println("HTTP server on http://127.0.0.1:8080 (keep-alive, cooperative scheduler)");

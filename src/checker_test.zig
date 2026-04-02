@@ -51,10 +51,10 @@ fn expectErrorCount(source: []const u8, expected: usize) !void {
 
 // ── Entry point ───────────────────────────────────────────
 
-test "valid: module with main function" {
+test "valid: process with main handler" {
     try expectNoErrors(
-        \\module App {
-        \\    fn main(args: list<string>) -> int {
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
         \\        return 0;
         \\    }
         \\}
@@ -96,11 +96,11 @@ test "valid: library with exports and no main" {
 
 test "error: multiple entry points" {
     try expectError(
-        \\module App1 {
-        \\    fn main() -> int { return 0; }
+        \\process App1 {
+        \\    receive main() -> int { return 0; }
         \\}
-        \\module App2 {
-        \\    fn main() -> int { return 0; }
+        \\process App2 {
+        \\    receive main() -> int { return 0; }
         \\}
     , "multiple entry points");
 }
@@ -109,8 +109,8 @@ test "error: multiple entry points" {
 
 test "valid: variable defined before use" {
     try expectNoErrors(
-        \\module Main {
-        \\    fn main() -> int {
+        \\process Main {
+        \\    receive main() -> int {
         \\        x: int = 10;
         \\        return x;
         \\    }
@@ -120,8 +120,8 @@ test "valid: variable defined before use" {
 
 test "error: variable without type declaration" {
     try expectError(
-        \\module Main {
-        \\    fn main() -> int {
+        \\process Main {
+        \\    receive main() -> int {
         \\        x = 10;
         \\        return x;
         \\    }
@@ -131,8 +131,8 @@ test "error: variable without type declaration" {
 
 test "valid: variable reassignment after declaration" {
     try expectNoErrors(
-        \\module Main {
-        \\    fn main() -> int {
+        \\process Main {
+        \\    receive main() -> int {
         \\        x: int = 10;
         \\        x = 20;
         \\        return x;
@@ -143,8 +143,8 @@ test "valid: variable reassignment after declaration" {
 
 test "error: undefined variable" {
     try expectError(
-        \\module Main {
-        \\    fn main() -> int {
+        \\process Main {
+        \\    receive main() -> int {
         \\        return x;
         \\    }
         \\}
@@ -153,8 +153,8 @@ test "error: undefined variable" {
 
 test "valid: function parameter in scope" {
     try expectNoErrors(
-        \\module Main {
-        \\    fn main(n: int) -> int {
+        \\process Main {
+        \\    receive main(n: int) -> int {
         \\        return n;
         \\    }
         \\}
@@ -173,8 +173,8 @@ test "valid: built-in types" {
         \\    e: uuid = "";
         \\    f: void = void;
         \\}
-        \\module Main {
-        \\    fn main() -> int { return 0; }
+        \\process Main {
+        \\    receive main() -> int { return 0; }
         \\}
     );
 }
@@ -185,8 +185,8 @@ test "valid: user-defined type" {
         \\struct Account {
         \\    balance: Money = 0;
         \\}
-        \\module Main {
-        \\    fn main() -> int { return 0; }
+        \\process Main {
+        \\    receive main() -> int { return 0; }
         \\}
     );
 }
@@ -196,40 +196,43 @@ test "error: unknown type in struct field" {
         \\struct Account {
         \\    balance: Dollars = 0;
         \\}
-        \\module Main {
-        \\    fn main() -> int { return 0; }
+        \\process Main {
+        \\    receive main() -> int { return 0; }
         \\}
     , "unknown type 'Dollars'");
 }
 
 test "error: unknown type in function param" {
     try expectError(
-        \\module Main {
-        \\    fn main(x: Foo) -> int { return 0; }
+        \\process Main {
+        \\    receive main(x: Foo) -> int { return 0; }
         \\}
     , "unknown type 'Foo'");
 }
 
 test "error: unknown type in return type" {
     try expectError(
-        \\module Main {
-        \\    fn main() -> Foo { return 0; }
+        \\module Helpers {
+        \\    fn check() -> Foo { return 0; }
+        \\}
+        \\process Main {
+        \\    receive main() -> int { return 0; }
         \\}
     , "unknown type 'Foo'");
 }
 
 test "valid: generic types" {
     try expectNoErrors(
-        \\module Main {
-        \\    fn main(args: list<string>) -> int { return 0; }
+        \\process Main {
+        \\    receive main(args: list<string>) -> int { return 0; }
         \\}
     );
 }
 
 test "error: unknown generic type" {
     try expectError(
-        \\module Main {
-        \\    fn main(x: Foo<int>) -> int { return 0; }
+        \\process Main {
+        \\    receive main(x: Foo<int>) -> int { return 0; }
         \\}
     , "unknown generic type 'Foo'");
 }
@@ -238,8 +241,8 @@ test "error: unknown generic type" {
 
 test "valid: boolean guard expression" {
     try expectNoErrors(
-        \\module Main {
-        \\    fn main(x: int) -> int {
+        \\process Main {
+        \\    receive main(x: int) -> int {
         \\        guard x > 0;
         \\        return x;
         \\    }
@@ -249,8 +252,8 @@ test "valid: boolean guard expression" {
 
 test "error: string literal as guard" {
     try expectError(
-        \\module Main {
-        \\    fn main() -> int {
+        \\process Main {
+        \\    receive main() -> int {
         \\        guard "hello";
         \\        return 0;
         \\    }
@@ -260,8 +263,8 @@ test "error: string literal as guard" {
 
 test "error: int literal as guard" {
     try expectError(
-        \\module Main {
-        \\    fn main() -> int {
+        \\process Main {
+        \\    receive main() -> int {
         \\        guard 42;
         \\        return 0;
         \\    }
@@ -280,8 +283,8 @@ test "valid: field assign in receive handler" {
         \\        return state.count;
         \\    }
         \\}
-        \\module Main {
-        \\    fn main() -> int { return 0; }
+        \\process Main {
+        \\    receive main() -> int { return 0; }
         \\}
     );
 }
@@ -303,8 +306,8 @@ test "error: receive in module function" {
 
 test "valid: match with two arms" {
     try expectNoErrors(
-        \\module Main {
-        \\    fn main(x: bool) -> int {
+        \\process Main {
+        \\    receive main(x: bool) -> int {
         \\        match x {
         \\            true => return 1;
         \\            false => return 0;
@@ -316,8 +319,8 @@ test "valid: match with two arms" {
 
 test "error: empty match" {
     try expectError(
-        \\module Main {
-        \\    fn main(x: int) -> int {
+        \\process Main {
+        \\    receive main(x: int) -> int {
         \\        match x {
         \\        }
         \\    }
@@ -327,8 +330,8 @@ test "error: empty match" {
 
 test "valid: boolean match with both cases" {
     try expectNoErrors(
-        \\module Main {
-        \\    fn main(x: int) -> int {
+        \\process Main {
+        \\    receive main(x: int) -> int {
         \\        match x > 0 {
         \\            true => return 1;
         \\            false => return 0;
@@ -340,8 +343,8 @@ test "valid: boolean match with both cases" {
 
 test "error: boolean match missing false" {
     try expectError(
-        \\module Main {
-        \\    fn main(x: int) -> int {
+        \\process Main {
+        \\    receive main(x: int) -> int {
         \\        match x > 0 {
         \\            true => return 1;
         \\        }
@@ -352,8 +355,8 @@ test "error: boolean match missing false" {
 
 test "error: boolean match missing true" {
     try expectError(
-        \\module Main {
-        \\    fn main(x: int) -> int {
+        \\process Main {
+        \\    receive main(x: int) -> int {
         \\        match x > 0 {
         \\            false => return 0;
         \\        }
@@ -367,7 +370,7 @@ test "error: boolean match missing true" {
 test "valid: enum match covers all variants" {
     try expectNoErrors(
         \\type Color = enum { Red, Green, Blue };
-        \\module Main {
+        \\module Helpers {
         \\    fn name(c: Color) -> string {
         \\        match c {
         \\            :Red => return "red";
@@ -375,7 +378,9 @@ test "valid: enum match covers all variants" {
         \\            :Blue => return "blue";
         \\        }
         \\    }
-        \\    fn main() -> int { return 0; }
+        \\}
+        \\process Main {
+        \\    receive main() -> int { return 0; }
         \\}
     );
 }
@@ -383,14 +388,16 @@ test "valid: enum match covers all variants" {
 test "error: enum match missing variant" {
     try expectError(
         \\type Color = enum { Red, Green, Blue };
-        \\module Main {
+        \\module Helpers {
         \\    fn name(c: Color) -> string {
         \\        match c {
         \\            :Red => return "red";
         \\            :Green => return "green";
         \\        }
         \\    }
-        \\    fn main() -> int { return 0; }
+        \\}
+        \\process Main {
+        \\    receive main() -> int { return 0; }
         \\}
     , "missing case ':Blue'");
 }
@@ -398,14 +405,16 @@ test "error: enum match missing variant" {
 test "valid: enum match with wildcard" {
     try expectNoErrors(
         \\type Color = enum { Red, Green, Blue };
-        \\module Main {
+        \\module Helpers {
         \\    fn name(c: Color) -> string {
         \\        match c {
         \\            :Red => return "red";
         \\            _ => return "other";
         \\        }
         \\    }
-        \\    fn main() -> int { return 0; }
+        \\}
+        \\process Main {
+        \\    receive main() -> int { return 0; }
         \\}
     );
 }
@@ -413,21 +422,23 @@ test "valid: enum match with wildcard" {
 test "error: enum match missing multiple variants" {
     try expectError(
         \\type Direction = enum { North, South, East, West };
-        \\module Main {
+        \\module Helpers {
         \\    fn name(d: Direction) -> string {
         \\        match d {
         \\            :North => return "north";
         \\        }
         \\    }
-        \\    fn main() -> int { return 0; }
+        \\}
+        \\process Main {
+        \\    receive main() -> int { return 0; }
         \\}
     , "missing case");
 }
 
 test "error: match not exhaustive without wildcard" {
     try expectError(
-        \\module Main {
-        \\    fn main(x: int) -> int {
+        \\process Main {
+        \\    receive main(x: int) -> int {
         \\        match x {
         \\            42 => return 1;
         \\        }
@@ -438,8 +449,8 @@ test "error: match not exhaustive without wildcard" {
 
 test "valid: match with wildcard is exhaustive" {
     try expectNoErrors(
-        \\module Main {
-        \\    fn main(x: int) -> int {
+        \\process Main {
+        \\    receive main(x: int) -> int {
         \\        match x {
         \\            42 => return 1;
         \\            _ => return 0;
@@ -455,8 +466,8 @@ test "valid: Result match with ok and error is exhaustive" {
         \\process Counter<CounterState> {
         \\    receive Get(state: CounterState) -> int { return state.count; }
         \\}
-        \\module Main {
-        \\    fn main() -> int {
+        \\process Main {
+        \\    receive main() -> int {
         \\        c: pid<Counter> = spawn Counter();
         \\        match Process.send(c.Get) {
         \\            :ok{val} => return val;
@@ -469,8 +480,8 @@ test "valid: Result match with ok and error is exhaustive" {
 
 test "valid: boolean match with wildcard" {
     try expectNoErrors(
-        \\module Main {
-        \\    fn main(x: int) -> int {
+        \\process Main {
+        \\    receive main(x: int) -> int {
         \\        match x > 0 {
         \\            true => return 1;
         \\            _ => return 0;
@@ -484,8 +495,8 @@ test "valid: boolean match with wildcard" {
 
 test "error: string condition in while" {
     try expectError(
-        \\module Main {
-        \\    fn main() -> int {
+        \\process Main {
+        \\    receive main() -> int {
         \\        while "yes" {
         \\            return 1;
         \\        }
@@ -503,8 +514,8 @@ test "valid: struct with unique fields" {
         \\    x: int = 0;
         \\    y: int = 0;
         \\}
-        \\module Main {
-        \\    fn main() -> int { return 0; }
+        \\process Main {
+        \\    receive main() -> int { return 0; }
         \\}
     );
 }
@@ -515,8 +526,8 @@ test "error: duplicate struct field" {
         \\    x: int = 0;
         \\    x: int = 0;
         \\}
-        \\module Main {
-        \\    fn main() -> int { return 0; }
+        \\process Main {
+        \\    receive main() -> int { return 0; }
         \\}
     , "duplicate field 'x' in struct 'Point'");
 }
@@ -528,8 +539,8 @@ test "error: struct field without default value" {
         \\struct BadState {
         \\    count: int;
         \\}
-        \\module Main {
-        \\    fn main() -> int { return 0; }
+        \\process Main {
+        \\    receive main() -> int { return 0; }
         \\}
     , "requires a default value");
 }
@@ -542,8 +553,8 @@ test "valid: process state accessible in handler" {
         \\        return state.count;
         \\    }
         \\}
-        \\module Main {
-        \\    fn main() -> int { return 0; }
+        \\process Main {
+        \\    receive main() -> int { return 0; }
         \\}
     );
 }
@@ -578,8 +589,8 @@ test "valid: full program with module and process" {
         \\    }
         \\}
         \\
-        \\module Main {
-        \\    fn main() -> int {
+        \\process Main {
+        \\    receive main() -> int {
         \\        fee: int = Pricing.apply_fee(100, 5);
         \\        return 0;
         \\    }
@@ -591,8 +602,8 @@ test "valid: full program with module and process" {
 
 test "error: guard always false" {
     try expectError(
-        \\module Main {
-        \\    fn main() -> int {
+        \\process Main {
+        \\    receive main() -> int {
         \\        guard false;
         \\        return 0;
         \\    }
@@ -602,36 +613,42 @@ test "error: guard always false" {
 
 test "error: guard x > x is always false" {
     try expectError(
-        \\module Main {
+        \\module Helpers {
         \\    fn check(x: int) -> int {
         \\        guard x > x;
         \\        return x;
         \\    }
-        \\    fn main() -> int { return 0; }
+        \\}
+        \\process Main {
+        \\    receive main() -> int { return 0; }
         \\}
     , "compared to itself");
 }
 
 test "error: guard x != x is always false" {
     try expectError(
-        \\module Main {
+        \\module Helpers {
         \\    fn check(x: int) -> int {
         \\        guard x != x;
         \\        return x;
         \\    }
-        \\    fn main() -> int { return 0; }
+        \\}
+        \\process Main {
+        \\    receive main() -> int { return 0; }
         \\}
     , "compared to itself");
 }
 
 test "valid: guard x == x is fine" {
     try expectNoErrors(
-        \\module Main {
+        \\module Helpers {
         \\    fn check(x: int) -> int {
         \\        guard x == x;
         \\        return x;
         \\    }
-        \\    fn main() -> int { return 0; }
+        \\}
+        \\process Main {
+        \\    receive main() -> int { return 0; }
         \\}
     );
 }
@@ -640,28 +657,34 @@ test "valid: guard x == x is fine" {
 
 test "error: literal division by zero" {
     try expectError(
-        \\module Main {
-        \\    fn main() -> int {
+        \\module Helpers {
+        \\    fn calc() -> int {
         \\        return 42 / 0;
         \\    }
+        \\}
+        \\process Main {
+        \\    receive main() -> int { return 0; }
         \\}
     , "division by zero");
 }
 
 test "error: literal modulo by zero" {
     try expectError(
-        \\module Main {
-        \\    fn main() -> int {
+        \\module Helpers {
+        \\    fn calc() -> int {
         \\        return 42 % 0;
         \\    }
+        \\}
+        \\process Main {
+        \\    receive main() -> int { return 0; }
         \\}
     , "division by zero");
 }
 
 test "valid: division by non-zero" {
     try expectNoErrors(
-        \\module Main {
-        \\    fn main() -> int {
+        \\process Main {
+        \\    receive main() -> int {
         \\        return 42 / 6;
         \\    }
         \\}
@@ -672,20 +695,23 @@ test "valid: division by non-zero" {
 
 test "error: while true with no return" {
     try expectError(
-        \\module Main {
-        \\    fn main() -> int {
+        \\module Helpers {
+        \\    fn loop_forever() -> int {
         \\        while true {
         \\            Stdio.println("forever");
         \\        }
         \\    }
+        \\}
+        \\process Main {
+        \\    receive main() -> int { return 0; }
         \\}
     , "potential infinite loop");
 }
 
 test "valid: while true with return inside" {
     try expectNoErrors(
-        \\module Main {
-        \\    fn main() -> int {
+        \\process Main {
+        \\    receive main() -> int {
         \\        while true {
         \\            return 0;
         \\        }
@@ -696,8 +722,8 @@ test "valid: while true with return inside" {
 
 test "valid: while with condition variable" {
     try expectNoErrors(
-        \\module Main {
-        \\    fn main() -> int {
+        \\process Main {
+        \\    receive main() -> int {
         \\        running: bool = true;
         \\        while running {
         \\            return 0;
@@ -712,12 +738,14 @@ test "valid: while with condition variable" {
 
 test "valid: no recursion" {
     try expectNoErrors(
-        \\module Main {
+        \\module Helpers {
         \\    fn add(a: int, b: int) -> int {
         \\        return a + b;
         \\    }
-        \\    fn main() -> int {
-        \\        return add(1, 2);
+        \\}
+        \\process Main {
+        \\    receive main() -> int {
+        \\        return Helpers.add(1, 2);
         \\    }
         \\}
     );
@@ -725,12 +753,14 @@ test "valid: no recursion" {
 
 test "error: direct recursion" {
     try expectError(
-        \\module Main {
+        \\module Helpers {
         \\    fn countdown(n: int) -> int {
         \\        return countdown(n);
         \\    }
-        \\    fn main() -> int {
-        \\        return countdown(10);
+        \\}
+        \\process Main {
+        \\    receive main() -> int {
+        \\        return Helpers.countdown(10);
         \\    }
         \\}
     , "recursion detected");
@@ -738,15 +768,17 @@ test "error: direct recursion" {
 
 test "error: mutual recursion" {
     try expectError(
-        \\module Main {
+        \\module Helpers {
         \\    fn ping(n: int) -> int {
         \\        return pong(n);
         \\    }
         \\    fn pong(n: int) -> int {
         \\        return ping(n);
         \\    }
-        \\    fn main() -> int {
-        \\        return ping(10);
+        \\}
+        \\process Main {
+        \\    receive main() -> int {
+        \\        return Helpers.ping(10);
         \\    }
         \\}
     , "recursion detected");
@@ -764,8 +796,8 @@ test "error: cross-module recursion" {
         \\        return A.call_b();
         \\    }
         \\}
-        \\module Main {
-        \\    fn main() -> int { return 0; }
+        \\process Main {
+        \\    receive main() -> int { return 0; }
         \\}
     , "recursion detected");
 }
@@ -778,8 +810,8 @@ test "valid: A calls B calls C (no cycle)" {
         \\module B {
         \\    fn get() -> int { return C.value(); }
         \\}
-        \\module Main {
-        \\    fn main() -> int { return B.get(); }
+        \\process Main {
+        \\    receive main() -> int { return B.get(); }
         \\}
     );
 }
@@ -788,11 +820,14 @@ test "valid: A calls B calls C (no cycle)" {
 
 test "reports multiple errors" {
     const checker = try checkSource(
-        \\module Main {
-        \\    fn main() -> Foo {
+        \\module Helpers {
+        \\    fn broken() -> Foo {
         \\        guard 42;
         \\        return x;
         \\    }
+        \\}
+        \\process Main {
+        \\    receive main() -> int { return 0; }
         \\}
     );
     // Should have at least 3 errors: unknown type Foo, int guard, undefined x
@@ -807,8 +842,10 @@ test "error: too many arguments" {
         \\    fn add(a: int, b: int) -> int {
         \\        return a + b;
         \\    }
-        \\    fn main() -> int {
-        \\        return add(1, 2, 3);
+        \\}
+        \\process Main {
+        \\    receive main() -> int {
+        \\        return Math.add(1, 2, 3);
         \\    }
         \\}
     , "expects 2 argument(s), got 3");
@@ -820,8 +857,10 @@ test "error: too few arguments" {
         \\    fn add(a: int, b: int) -> int {
         \\        return a + b;
         \\    }
-        \\    fn main() -> int {
-        \\        return add(1);
+        \\}
+        \\process Main {
+        \\    receive main() -> int {
+        \\        return Math.add(1);
         \\    }
         \\}
     , "expects 2 argument(s), got 1");
@@ -833,8 +872,10 @@ test "error: wrong argument type" {
         \\    fn add(a: int, b: int) -> int {
         \\        return a + b;
         \\    }
-        \\    fn main() -> int {
-        \\        return add(1, "hello");
+        \\}
+        \\process Main {
+        \\    receive main() -> int {
+        \\        return Math.add(1, "hello");
         \\    }
         \\}
     , "argument 'b' in call to 'Math.add'");
@@ -846,8 +887,10 @@ test "valid: correct call" {
         \\    fn add(a: int, b: int) -> int {
         \\        return a + b;
         \\    }
-        \\    fn main() -> int {
-        \\        return add(1, 2);
+        \\}
+        \\process Main {
+        \\    receive main() -> int {
+        \\        return Math.add(1, 2);
         \\    }
         \\}
     );
@@ -860,8 +903,8 @@ test "valid: cross-module call" {
         \\        return x + x;
         \\    }
         \\}
-        \\module Main {
-        \\    fn main() -> int {
+        \\process Main {
+        \\    receive main() -> int {
         \\        return Util.double(5);
         \\    }
         \\}
@@ -872,8 +915,8 @@ test "valid: cross-module call" {
 
 test "error: return string from int function" {
     try expectError(
-        \\module Main {
-        \\    fn main() -> int {
+        \\process Main {
+        \\    receive main() -> int {
         \\        return "hello";
         \\    }
         \\}
@@ -882,22 +925,26 @@ test "error: return string from int function" {
 
 test "error: return int from string function" {
     try expectError(
-        \\module Main {
+        \\module Helpers {
         \\    fn greet() -> string {
         \\        return 42;
         \\    }
-        \\    fn main() -> int { return 0; }
         \\}
-    , "Main.greet: return type mismatch");
+        \\process Main {
+        \\    receive main() -> int { return 0; }
+        \\}
+    , "Helpers.greet: return type mismatch");
 }
 
 test "valid: matching return type" {
     try expectNoErrors(
-        \\module Main {
+        \\module Helpers {
         \\    fn greet() -> string {
         \\        return "hello";
         \\    }
-        \\    fn main() -> int {
+        \\}
+        \\process Main {
+        \\    receive main() -> int {
         \\        return 0;
         \\    }
         \\}
@@ -908,8 +955,8 @@ test "valid: matching return type" {
 
 test "error: assign string to int" {
     try expectError(
-        \\module Main {
-        \\    fn main() -> int {
+        \\process Main {
+        \\    receive main() -> int {
         \\        x: int = "hello";
         \\        return 0;
         \\    }
@@ -919,8 +966,8 @@ test "error: assign string to int" {
 
 test "error: reassign wrong type" {
     try expectError(
-        \\module Main {
-        \\    fn main() -> int {
+        \\process Main {
+        \\    receive main() -> int {
         \\        x: int = 10;
         \\        x = "hello";
         \\        return x;
@@ -931,8 +978,8 @@ test "error: reassign wrong type" {
 
 test "valid: matching assignment" {
     try expectNoErrors(
-        \\module Main {
-        \\    fn main() -> int {
+        \\process Main {
+        \\    receive main() -> int {
         \\        x: int = 42;
         \\        x = 100;
         \\        return x;
@@ -945,8 +992,8 @@ test "valid: matching assignment" {
 
 test "valid: list<int> preserved in scope" {
     try expectNoErrors(
-        \\module Main {
-        \\    fn main(args: list<string>) -> int {
+        \\process Main {
+        \\    receive main(args: list<string>) -> int {
         \\        nums: list<int> = list(1, 2, 3);
         \\        return 0;
         \\    }
@@ -960,8 +1007,10 @@ test "error: fn returning int assigned to string var" {
         \\    fn add(a: int, b: int) -> int {
         \\        return a + b;
         \\    }
-        \\    fn main() -> int {
-        \\        x: string = add(1, 2);
+        \\}
+        \\process Main {
+        \\    receive main() -> int {
+        \\        x: string = Math.add(1, 2);
         \\        return 0;
         \\    }
         \\}
@@ -977,8 +1026,8 @@ test "valid: correct tell" {
         \\        return state.value;
         \\    }
         \\}
-        \\module Main {
-        \\    fn main() -> int {
+        \\process Main {
+        \\    receive main() -> int {
         \\        w: pid<Worker> = spawn Worker();
         \\        Process.tell(w.SetValue, 42);
         \\        return 0;
@@ -991,8 +1040,8 @@ test "valid: correct tell" {
 
 test "error: Stdio.println assigned to int" {
     try expectError(
-        \\module Main {
-        \\    fn main() -> int {
+        \\process Main {
+        \\    receive main() -> int {
         \\        x: int = Stdio.println("hello");
         \\        return x;
         \\    }
@@ -1002,8 +1051,8 @@ test "error: Stdio.println assigned to int" {
 
 test "error: return Stdio.println from int function" {
     try expectError(
-        \\module Main {
-        \\    fn main() -> int {
+        \\process Main {
+        \\    receive main() -> int {
         \\        return Stdio.println("hi");
         \\    }
         \\}
@@ -1016,8 +1065,8 @@ test "valid: spawn assigned to pid" {
         \\process Worker<WorkerState> {
         \\    receive Get(state: WorkerState) -> int { return state.value; }
         \\}
-        \\module Main {
-        \\    fn main() -> int {
+        \\process Main {
+        \\    receive main() -> int {
         \\        w: pid<Worker> = spawn Worker();
         \\        return 0;
         \\    }
@@ -1029,8 +1078,8 @@ test "valid: spawn assigned to pid" {
 
 test "error: pid with unknown process type" {
     try expectError(
-        \\module Main {
-        \\    fn main() -> int {
+        \\process Main {
+        \\    receive main() -> int {
         \\        w: pid<NonExistent> = spawn Worker();
         \\        return 0;
         \\    }
@@ -1044,8 +1093,8 @@ test "error: spawn pid assigned to int" {
         \\process Worker<WorkerState> {
         \\    receive Get(state: WorkerState) -> int { return state.value; }
         \\}
-        \\module Main {
-        \\    fn main() -> int {
+        \\process Main {
+        \\    receive main() -> int {
         \\        w: int = spawn Worker();
         \\        return 0;
         \\    }
@@ -1059,8 +1108,8 @@ test "error: spawn pid assigned to string" {
         \\process Worker<WorkerState> {
         \\    receive Get(state: WorkerState) -> int { return state.value; }
         \\}
-        \\module Main {
-        \\    fn main() -> int {
+        \\process Main {
+        \\    receive main() -> int {
         \\        w: string = spawn Worker();
         \\        return 0;
         \\    }
@@ -1077,16 +1126,18 @@ test "valid: pid as function parameter" {
         \\        return state.count;
         \\    }
         \\}
-        \\module Main {
+        \\module Helpers {
         \\    fn send_increment(c: pid<Counter>) -> int {
         \\        match Process.send(c.Increment) {
         \\            :ok{val} => return val;
         \\            :error{e} => return 0;
         \\        }
         \\    }
-        \\    fn main() -> int {
+        \\}
+        \\process Main {
+        \\    receive main() -> int {
         \\        c: pid<Counter> = spawn Counter();
-        \\        return send_increment(c);
+        \\        return Helpers.send_increment(c);
         \\    }
         \\}
     );
@@ -1101,8 +1152,8 @@ test "valid: pid type inferred from spawn" {
         \\        return state.count;
         \\    }
         \\}
-        \\module Main {
-        \\    fn main() -> int {
+        \\process Main {
+        \\    receive main() -> int {
         \\        c: pid<Counter> = spawn Counter();
         \\        match Process.send(c.Inc) {
         \\            :ok{val} => return val;
@@ -1121,8 +1172,8 @@ test "valid: pid with tell" {
         \\        state.value = v;
         \\    }
         \\}
-        \\module Main {
-        \\    fn main() -> int {
+        \\process Main {
+        \\    receive main() -> int {
         \\        w: pid<Worker> = spawn Worker();
         \\        match Process.tell(w.SetValue, 42) {
         \\            :ok{val} => return 0;
@@ -1143,8 +1194,8 @@ test "error: wrong pid type" {
         \\process ProcB<BState> {
         \\    receive GetY(state: BState) -> int { return state.y; }
         \\}
-        \\module Main {
-        \\    fn main() -> int {
+        \\process Main {
+        \\    receive main() -> int {
         \\        a: pid<ProcA> = spawn ProcB();
         \\        return 0;
         \\    }
@@ -1162,11 +1213,13 @@ test "error: wrong pid type passed to function" {
         \\process ProcB<BState> {
         \\    receive GetY(state: BState) -> int { return state.y; }
         \\}
-        \\module Main {
+        \\module Helpers {
         \\    fn use_a(a: pid<ProcA>) -> int { return 0; }
-        \\    fn main() -> int {
+        \\}
+        \\process Main {
+        \\    receive main() -> int {
         \\        b: pid<ProcB> = spawn ProcB();
-        \\        return use_a(b);
+        \\        return Helpers.use_a(b);
         \\    }
         \\}
     , "expected pid<ProcA>, got pid<ProcB>");
@@ -1181,8 +1234,8 @@ test "valid: Process.self returns typed pid in handler" {
         \\        return 0;
         \\    }
         \\}
-        \\module Main {
-        \\    fn main() -> int { return 0; }
+        \\process Main {
+        \\    receive main() -> int { return 0; }
         \\}
     );
 }
@@ -1200,8 +1253,8 @@ test "error: Process.self wrong pid type in handler" {
         \\process ProcB<BState> {
         \\    receive Noop(state: BState) -> int { return 0; }
         \\}
-        \\module Main {
-        \\    fn main() -> int { return 0; }
+        \\process Main {
+        \\    receive main() -> int { return 0; }
         \\}
     , "cannot assign pid<ProcA> to pid<ProcB>");
 }
@@ -1210,8 +1263,8 @@ test "error: Process.self wrong pid type in handler" {
 
 test "error: String.len assigned to string" {
     try expectError(
-        \\module Main {
-        \\    fn main() -> int {
+        \\process Main {
+        \\    receive main() -> int {
         \\        x: string = String.len("hello");
         \\        return 0;
         \\    }
@@ -1221,8 +1274,8 @@ test "error: String.len assigned to string" {
 
 test "valid: String.len assigned to int" {
     try expectNoErrors(
-        \\module Main {
-        \\    fn main() -> int {
+        \\process Main {
+        \\    receive main() -> int {
         \\        x: int = String.len("hello");
         \\        return 0;
         \\    }
@@ -1232,8 +1285,8 @@ test "valid: String.len assigned to int" {
 
 test "error: String.contains assigned to int" {
     try expectError(
-        \\module Main {
-        \\    fn main() -> int {
+        \\process Main {
+        \\    receive main() -> int {
         \\        x: int = String.contains("hello", "he");
         \\        return 0;
         \\    }
@@ -1243,8 +1296,8 @@ test "error: String.contains assigned to int" {
 
 test "valid: String.contains assigned to bool" {
     try expectNoErrors(
-        \\module Main {
-        \\    fn main() -> int {
+        \\process Main {
+        \\    receive main() -> int {
         \\        x: bool = String.contains("hello", "he");
         \\        return 0;
         \\    }
@@ -1254,8 +1307,8 @@ test "valid: String.contains assigned to bool" {
 
 test "error: String.trim assigned to int" {
     try expectError(
-        \\module Main {
-        \\    fn main() -> int {
+        \\process Main {
+        \\    receive main() -> int {
         \\        x: int = String.trim("  hello  ");
         \\        return 0;
         \\    }
@@ -1265,8 +1318,8 @@ test "error: String.trim assigned to int" {
 
 test "error: Stdio.out assigned to int" {
     try expectError(
-        \\module Main {
-        \\    fn main() -> int {
+        \\process Main {
+        \\    receive main() -> int {
         \\        x: int = Stdio.out();
         \\        return 0;
         \\    }
@@ -1276,8 +1329,8 @@ test "error: Stdio.out assigned to int" {
 
 test "valid: Stdio.out assigned to stream" {
     try expectNoErrors(
-        \\module Main {
-        \\    fn main() -> int {
+        \\process Main {
+        \\    receive main() -> int {
         \\        s: stream = Stdio.out();
         \\        return 0;
         \\    }
@@ -1287,8 +1340,8 @@ test "valid: Stdio.out assigned to stream" {
 
 test "error: Set.has assigned to string" {
     try expectError(
-        \\module Main {
-        \\    fn main() -> int {
+        \\process Main {
+        \\    receive main() -> int {
         \\        s: set<int> = set();
         \\        x: string = Set.has(s, 1);
         \\        return 0;
@@ -1299,21 +1352,23 @@ test "error: Set.has assigned to string" {
 
 test "error: return String.len from string function" {
     try expectError(
-        \\module Main {
+        \\module Helpers {
         \\    fn greet() -> string {
         \\        return String.len("hi");
         \\    }
-        \\    fn main() -> int { return 0; }
         \\}
-    , "Main.greet: return type mismatch");
+        \\process Main {
+        \\    receive main() -> int { return 0; }
+        \\}
+    , "Helpers.greet: return type mismatch");
 }
 
 // ── Field access inference ────────────────────────────────
 
 test "valid: string.len returns int" {
     try expectNoErrors(
-        \\module Main {
-        \\    fn main() -> int {
+        \\process Main {
+        \\    receive main() -> int {
         \\        s: string = "hello";
         \\        x: int = s.len;
         \\        return x;
@@ -1324,8 +1379,8 @@ test "valid: string.len returns int" {
 
 test "error: list.len assigned to string" {
     try expectError(
-        \\module Main {
-        \\    fn main() -> int {
+        \\process Main {
+        \\    receive main() -> int {
         \\        nums: list<int> = list(1, 2, 3);
         \\        x: string = nums.len;
         \\        return 0;
@@ -1340,8 +1395,8 @@ test "valid: struct field access type" {
         \\    x: int = 0;
         \\    y: int = 0;
         \\}
-        \\module Main {
-        \\    fn main() -> int {
+        \\process Main {
+        \\    receive main() -> int {
         \\        p: Point = Point { x: 1, y: 2 };
         \\        v: int = p.x;
         \\        return v;
@@ -1356,8 +1411,8 @@ test "error: struct field access wrong type" {
         \\    x: int = 0;
         \\    y: int = 0;
         \\}
-        \\module Main {
-        \\    fn main() -> int {
+        \\process Main {
+        \\    receive main() -> int {
         \\        p: Point = Point { x: 1, y: 2 };
         \\        v: string = p.x;
         \\        return 0;
@@ -1370,8 +1425,8 @@ test "error: struct field access wrong type" {
 
 test "valid: list<int> index returns int" {
     try expectNoErrors(
-        \\module Main {
-        \\    fn main() -> int {
+        \\process Main {
+        \\    receive main() -> int {
         \\        nums: list<int> = list(1, 2, 3);
         \\        x: int = nums[0];
         \\        return x;
@@ -1382,8 +1437,8 @@ test "valid: list<int> index returns int" {
 
 test "error: list<int> index assigned to string" {
     try expectError(
-        \\module Main {
-        \\    fn main() -> int {
+        \\process Main {
+        \\    receive main() -> int {
         \\        nums: list<int> = list(1, 2, 3);
         \\        x: string = nums[0];
         \\        return 0;
@@ -1394,8 +1449,8 @@ test "error: list<int> index assigned to string" {
 
 test "valid: string index returns string" {
     try expectNoErrors(
-        \\module Main {
-        \\    fn main() -> int {
+        \\process Main {
+        \\    receive main() -> int {
         \\        s: string = "hello";
         \\        c: string = s[0];
         \\        return 0;
@@ -1406,8 +1461,8 @@ test "valid: string index returns string" {
 
 test "error: string index assigned to int" {
     try expectError(
-        \\module Main {
-        \\    fn main() -> int {
+        \\process Main {
+        \\    receive main() -> int {
         \\        s: string = "hello";
         \\        c: int = s[0];
         \\        return 0;
@@ -1418,8 +1473,8 @@ test "error: string index assigned to int" {
 
 test "error: map<string, int> index assigned to string" {
     try expectError(
-        \\module Main {
-        \\    fn main() -> int {
+        \\process Main {
+        \\    receive main() -> int {
         \\        m: map<string, int> = map();
         \\        x: string = m["key"];
         \\        return 0;
@@ -1430,8 +1485,8 @@ test "error: map<string, int> index assigned to string" {
 
 test "valid: map<string, int> index returns int" {
     try expectNoErrors(
-        \\module Main {
-        \\    fn main() -> int {
+        \\process Main {
+        \\    receive main() -> int {
         \\        m: map<string, int> = map();
         \\        x: int = m["key"];
         \\        return x;
@@ -1448,8 +1503,8 @@ test "error: spawn assigned to string" {
         \\process Worker<WorkerState> {
         \\    receive Get(state: WorkerState) -> int { return state.value; }
         \\}
-        \\module Main {
-        \\    fn main() -> int {
+        \\process Main {
+        \\    receive main() -> int {
         \\        w: string = spawn Worker();
         \\        return 0;
         \\    }
@@ -1459,8 +1514,8 @@ test "error: spawn assigned to string" {
 
 test "error: print assigned to string" {
     try expectError(
-        \\module Main {
-        \\    fn main() -> int {
+        \\process Main {
+        \\    receive main() -> int {
         \\        x: string = Stdio.print("hi");
         \\        return 0;
         \\    }
@@ -1472,8 +1527,8 @@ test "error: print assigned to string" {
 
 test "valid: String.trim assigned to string" {
     try expectNoErrors(
-        \\module Main {
-        \\    fn main() -> int {
+        \\process Main {
+        \\    receive main() -> int {
         \\        x: string = String.trim("  hello  ");
         \\        return 0;
         \\    }
@@ -1483,8 +1538,8 @@ test "valid: String.trim assigned to string" {
 
 test "error: String.starts_with assigned to int" {
     try expectError(
-        \\module Main {
-        \\    fn main() -> int {
+        \\process Main {
+        \\    receive main() -> int {
         \\        x: int = String.starts_with("hello", "he");
         \\        return 0;
         \\    }
@@ -1494,8 +1549,8 @@ test "error: String.starts_with assigned to int" {
 
 test "valid: String.starts_with assigned to bool" {
     try expectNoErrors(
-        \\module Main {
-        \\    fn main() -> int {
+        \\process Main {
+        \\    receive main() -> int {
         \\        x: bool = String.starts_with("hello", "he");
         \\        return 0;
         \\    }
@@ -1505,8 +1560,8 @@ test "valid: String.starts_with assigned to bool" {
 
 test "valid: String.replace assigned to string" {
     try expectNoErrors(
-        \\module Main {
-        \\    fn main() -> int {
+        \\process Main {
+        \\    receive main() -> int {
         \\        x: string = String.replace("hello", "l", "r");
         \\        return 0;
         \\    }
@@ -1516,8 +1571,8 @@ test "valid: String.replace assigned to string" {
 
 test "error: String.byte_at assigned to string" {
     try expectError(
-        \\module Main {
-        \\    fn main() -> int {
+        \\process Main {
+        \\    receive main() -> int {
         \\        x: string = String.byte_at("hello", 0);
         \\        return 0;
         \\    }
@@ -1529,8 +1584,8 @@ test "error: String.byte_at assigned to string" {
 
 test "valid: Map.has assigned to bool" {
     try expectNoErrors(
-        \\module Main {
-        \\    fn main() -> int {
+        \\process Main {
+        \\    receive main() -> int {
         \\        m: map<string, int> = map();
         \\        x: bool = Map.has(m, "key");
         \\        return 0;
@@ -1541,8 +1596,8 @@ test "valid: Map.has assigned to bool" {
 
 test "error: Map.put assigned to int" {
     try expectError(
-        \\module Main {
-        \\    fn main() -> int {
+        \\process Main {
+        \\    receive main() -> int {
         \\        m: map<string, int> = map();
         \\        x: int = Map.put(m, "key", 42);
         \\        return 0;
@@ -1553,8 +1608,8 @@ test "error: Map.put assigned to int" {
 
 test "valid: Set.has assigned to bool" {
     try expectNoErrors(
-        \\module Main {
-        \\    fn main() -> int {
+        \\process Main {
+        \\    receive main() -> int {
         \\        s: set<int> = set();
         \\        x: bool = Set.has(s, 1);
         \\        return 0;
@@ -1565,8 +1620,8 @@ test "valid: Set.has assigned to bool" {
 
 test "error: Set.add assigned to int" {
     try expectError(
-        \\module Main {
-        \\    fn main() -> int {
+        \\process Main {
+        \\    receive main() -> int {
         \\        s: set<int> = set();
         \\        x: int = Set.add(s, 1);
         \\        return 0;
@@ -1577,8 +1632,8 @@ test "error: Set.add assigned to int" {
 
 test "error: Stack.push assigned to int" {
     try expectError(
-        \\module Main {
-        \\    fn main() -> int {
+        \\process Main {
+        \\    receive main() -> int {
         \\        s: stack<int> = stack();
         \\        x: int = Stack.push(s, 1);
         \\        return 0;
@@ -1589,8 +1644,8 @@ test "error: Stack.push assigned to int" {
 
 test "error: Queue.push assigned to int" {
     try expectError(
-        \\module Main {
-        \\    fn main() -> int {
+        \\process Main {
+        \\    receive main() -> int {
         \\        q: queue<int> = queue();
         \\        x: int = Queue.push(q, 1);
         \\        return 0;
@@ -1603,8 +1658,8 @@ test "error: Queue.push assigned to int" {
 
 test "error: Stream.write assigned to string" {
     try expectError(
-        \\module Main {
-        \\    fn main() -> int {
+        \\process Main {
+        \\    receive main() -> int {
         \\        s: stream = Stdio.out();
         \\        x: string = Stream.write(s, "hi");
         \\        return 0;
@@ -1615,8 +1670,8 @@ test "error: Stream.write assigned to string" {
 
 test "error: Stream.close assigned to int" {
     try expectError(
-        \\module Main {
-        \\    fn main() -> int {
+        \\process Main {
+        \\    receive main() -> int {
         \\        s: stream = Stdio.out();
         \\        x: int = Stream.close(s);
         \\        return 0;
@@ -1629,8 +1684,8 @@ test "error: Stream.close assigned to int" {
 
 test "valid: list.len assigned to int" {
     try expectNoErrors(
-        \\module Main {
-        \\    fn main() -> int {
+        \\process Main {
+        \\    receive main() -> int {
         \\        nums: list<int> = list(1, 2, 3);
         \\        x: int = nums.len;
         \\        return x;
@@ -1641,8 +1696,8 @@ test "valid: list.len assigned to int" {
 
 test "valid: map.len assigned to int" {
     try expectNoErrors(
-        \\module Main {
-        \\    fn main() -> int {
+        \\process Main {
+        \\    receive main() -> int {
         \\        m: map<string, int> = map();
         \\        x: int = m.len;
         \\        return x;
@@ -1653,8 +1708,8 @@ test "valid: map.len assigned to int" {
 
 test "error: map.len assigned to bool" {
     try expectError(
-        \\module Main {
-        \\    fn main() -> int {
+        \\process Main {
+        \\    receive main() -> int {
         \\        m: map<string, int> = map();
         \\        x: bool = m.len;
         \\        return 0;
@@ -1669,8 +1724,8 @@ test "valid: struct field with string type" {
         \\    name: string = "";
         \\    age: int = 0;
         \\}
-        \\module Main {
-        \\    fn main() -> int {
+        \\process Main {
+        \\    receive main() -> int {
         \\        p: Person = Person { name: "Alice", age: 30 };
         \\        n: string = p.name;
         \\        a: int = p.age;
@@ -1686,8 +1741,8 @@ test "error: struct string field assigned to int" {
         \\    name: string = "";
         \\    age: int = 0;
         \\}
-        \\module Main {
-        \\    fn main() -> int {
+        \\process Main {
+        \\    receive main() -> int {
         \\        p: Person = Person { name: "Alice", age: 30 };
         \\        x: int = p.name;
         \\        return 0;
@@ -1705,8 +1760,8 @@ test "error: cross-module wrong arg type" {
         \\        return x + x;
         \\    }
         \\}
-        \\module Main {
-        \\    fn main() -> int {
+        \\process Main {
+        \\    receive main() -> int {
         \\        return Util.double("hello");
         \\    }
         \\}
@@ -1720,8 +1775,8 @@ test "error: cross-module return type mismatch" {
         \\        return x + x;
         \\    }
         \\}
-        \\module Main {
-        \\    fn main() -> int {
+        \\process Main {
+        \\    receive main() -> int {
         \\        x: string = Util.double(5);
         \\        return 0;
         \\    }
@@ -1736,8 +1791,8 @@ test "error: cross-module too many args" {
         \\        return x + x;
         \\    }
         \\}
-        \\module Main {
-        \\    fn main() -> int {
+        \\process Main {
+        \\    receive main() -> int {
         \\        return Util.double(5, 10);
         \\    }
         \\}
@@ -1749,8 +1804,8 @@ test "error: cross-module too many args" {
 test "valid: type alias compatible with base type" {
     try expectNoErrors(
         \\type Money = int;
-        \\module Main {
-        \\    fn main() -> int {
+        \\process Main {
+        \\    receive main() -> int {
         \\        x: Money = 42;
         \\        return 0;
         \\    }
@@ -1761,8 +1816,8 @@ test "valid: type alias compatible with base type" {
 test "error: type alias incompatible assignment" {
     try expectError(
         \\type Money = int;
-        \\module Main {
-        \\    fn main() -> int {
+        \\process Main {
+        \\    receive main() -> int {
         \\        x: Money = "hello";
         \\        return 0;
         \\    }
@@ -1780,8 +1835,8 @@ test "checker: Result type accepted on match" {
         \\        return state.count + 1;
         \\    }
         \\}
-        \\module App {
-        \\    fn main() -> int {
+        \\process App {
+        \\    receive main() -> int {
         \\        c: pid<Counter> = spawn Counter();
         \\        match Process.send(c.Increment) {
         \\            :ok{val} => return val;
@@ -1794,8 +1849,8 @@ test "checker: Result type accepted on match" {
 
 test "checker: File.open returns Result" {
     try expectNoErrors(
-        \\module App {
-        \\    fn main() -> int {
+        \\process App {
+        \\    receive main() -> int {
         \\        result: Result<stream> = File.open("test.txt", "r");
         \\        match result {
         \\            :ok{f} => return 0;
@@ -1832,8 +1887,8 @@ fn expectErrorWithLocation(source: []const u8, expected_substring: []const u8) !
 
 test "error location: type mismatch in assignment" {
     try expectErrorWithLocation(
-        \\module App {
-        \\    fn main() -> int {
+        \\process App {
+        \\    receive main() -> int {
         \\        x: int = "hello";
         \\        return 0;
         \\    }
@@ -1843,8 +1898,8 @@ test "error location: type mismatch in assignment" {
 
 test "error location: return type mismatch" {
     try expectErrorWithLocation(
-        \\module App {
-        \\    fn main() -> int {
+        \\process App {
+        \\    receive main() -> int {
         \\        return "hello";
         \\    }
         \\}
@@ -1856,8 +1911,8 @@ test "error location: struct field missing default" {
         \\struct Point {
         \\    x: int;
         \\}
-        \\module App {
-        \\    fn main() -> int { return 0; }
+        \\process App {
+        \\    receive main() -> int { return 0; }
         \\}
     , "requires a default value");
 }
@@ -1868,8 +1923,8 @@ test "error location: exported module missing doc comment" {
         \\    /// documented
         \\    fn helper() -> int { return 0; }
         \\}
-        \\module App {
-        \\    fn main() -> int { return 0; }
+        \\process App {
+        \\    receive main() -> int { return 0; }
         \\}
     , "missing a /// doc comment");
 }
@@ -1879,8 +1934,8 @@ test "error location: exported function missing doc comment" {
         \\export module Lib {
         \\    fn helper() -> int { return 0; }
         \\}
-        \\module App {
-        \\    fn main() -> int { return 0; }
+        \\process App {
+        \\    receive main() -> int { return 0; }
         \\}
     , "missing a /// doc comment");
 }
@@ -1889,8 +1944,8 @@ test "error location: exported function missing doc comment" {
 
 test "scope: variable declared in if-body not visible after" {
     try expectError(
-        \\module App {
-        \\    fn main() -> int {
+        \\process App {
+        \\    receive main() -> int {
         \\        if true {
         \\            x: int = 42;
         \\        }
@@ -1903,8 +1958,8 @@ test "scope: variable declared in if-body not visible after" {
 
 test "scope: variable declared in while-body not visible after" {
     try expectError(
-        \\module App {
-        \\    fn main() -> int {
+        \\process App {
+        \\    receive main() -> int {
         \\        while false {
         \\            x: int = 42;
         \\        }
@@ -1917,8 +1972,8 @@ test "scope: variable declared in while-body not visible after" {
 
 test "scope: variable declared before if is accessible inside" {
     try expectNoErrors(
-        \\module App {
-        \\    fn main() -> int {
+        \\process App {
+        \\    receive main() -> int {
         \\        x: int = 10;
         \\        if true {
         \\            y: int = x;
@@ -1931,8 +1986,8 @@ test "scope: variable declared before if is accessible inside" {
 
 test "scope: variable declared before if is accessible after" {
     try expectNoErrors(
-        \\module App {
-        \\    fn main() -> int {
+        \\process App {
+        \\    receive main() -> int {
         \\        x: int = 10;
         \\        if true {
         \\            x = 20;
@@ -1951,7 +2006,9 @@ test "return: function with no return errors" {
         \\    fn add(a: int, b: int) -> int {
         \\        x: int = a + b;
         \\    }
-        \\    fn main() -> int { return 0; }
+        \\}
+        \\process App {
+        \\    receive main() -> int { return 0; }
         \\}
     , "does not return a value on all code paths");
 }
@@ -1966,7 +2023,9 @@ test "return: function with return in both if/else ok" {
         \\            return 0 - x;
         \\        }
         \\    }
-        \\    fn main() -> int { return 0; }
+        \\}
+        \\process App {
+        \\    receive main() -> int { return 0; }
         \\}
     );
 }
@@ -1979,7 +2038,9 @@ test "return: function with return only in if errors" {
         \\            return x;
         \\        }
         \\    }
-        \\    fn main() -> int { return 0; }
+        \\}
+        \\process App {
+        \\    receive main() -> int { return 0; }
         \\}
     , "does not return a value on all code paths");
 }
@@ -1990,7 +2051,9 @@ test "return: void function with no return ok" {
         \\    fn doNothing() -> void {
         \\        x: int = 42;
         \\    }
-        \\    fn main() -> int { return 0; }
+        \\}
+        \\process App {
+        \\    receive main() -> int { return 0; }
         \\}
     );
 }
@@ -2003,7 +2066,9 @@ test "return: while true with return ok" {
         \\            return 0;
         \\        }
         \\    }
-        \\    fn main() -> int { return 0; }
+        \\}
+        \\process App {
+        \\    receive main() -> int { return 0; }
         \\}
     );
 }
@@ -2017,7 +2082,9 @@ test "return: match with both bool arms return ok" {
         \\            false => return 0;
         \\        }
         \\    }
-        \\    fn main() -> int { return 0; }
+        \\}
+        \\process App {
+        \\    receive main() -> int { return 0; }
         \\}
     );
 }
@@ -2026,8 +2093,8 @@ test "return: match with both bool arms return ok" {
 
 test "error location: reassignment type mismatch" {
     try expectErrorWithLocation(
-        \\module App {
-        \\    fn main() -> int {
+        \\process App {
+        \\    receive main() -> int {
         \\        x: int = 10;
         \\        x = "oops";
         \\        return 0;
@@ -2038,8 +2105,8 @@ test "error location: reassignment type mismatch" {
 
 test "error location: variable without type declaration" {
     try expectErrorWithLocation(
-        \\module App {
-        \\    fn main() -> int {
+        \\process App {
+        \\    receive main() -> int {
         \\        x = 42;
         \\        return 0;
         \\    }
@@ -2054,8 +2121,8 @@ test "error location: exported process missing doc comment" {
         \\    /// documented
         \\    receive Inc(state: CS) -> int { return state.count; }
         \\}
-        \\module App {
-        \\    fn main() -> int { return 0; }
+        \\process App {
+        \\    receive main() -> int { return 0; }
         \\}
     , "missing a /// doc comment");
 }
@@ -2066,8 +2133,8 @@ test "error location: duplicate struct field" {
         \\    x: int = 0;
         \\    x: int = 1;
         \\}
-        \\module App {
-        \\    fn main() -> int { return 0; }
+        \\process App {
+        \\    receive main() -> int { return 0; }
         \\}
     , "duplicate field");
 }
@@ -2080,8 +2147,8 @@ test "error location: handler state type mismatch" {
         \\    /// handler
         \\    receive Do(state: B) -> int { return 0; }
         \\}
-        \\module App {
-        \\    fn main() -> int { return 0; }
+        \\process App {
+        \\    receive main() -> int { return 0; }
         \\}
     , "state parameter must be typed");
 }
@@ -2092,16 +2159,16 @@ test "error location: process unknown state type" {
         \\    /// handler
         \\    receive Do() -> int { return 0; }
         \\}
-        \\module App {
-        \\    fn main() -> int { return 0; }
+        \\process App {
+        \\    receive main() -> int { return 0; }
         \\}
     , "not a known struct");
 }
 
 test "error location: non-exhaustive match" {
     try expectErrorWithLocation(
-        \\module App {
-        \\    fn main() -> int {
+        \\process App {
+        \\    receive main() -> int {
         \\        x: int = 5;
         \\        match x > 0 {
         \\            true => return 1;
@@ -2114,8 +2181,8 @@ test "error location: non-exhaustive match" {
 
 test "error location: while true no return (divergence)" {
     try expectErrorWithLocation(
-        \\module App {
-        \\    fn main() -> int {
+        \\process App {
+        \\    receive main() -> int {
         \\        while true {
         \\            x: int = 1;
         \\        }
@@ -2130,7 +2197,9 @@ test "error location: return path analysis" {
         \\    fn bad() -> int {
         \\        x: int = 42;
         \\    }
-        \\    fn main() -> int { return 0; }
+        \\}
+        \\process App {
+        \\    receive main() -> int { return 0; }
         \\}
     , "does not return a value");
 }
@@ -2139,8 +2208,8 @@ test "error location: return path analysis" {
 
 test "scope: variable declared in else-body not visible after" {
     try expectError(
-        \\module App {
-        \\    fn main() -> int {
+        \\process App {
+        \\    receive main() -> int {
         \\        if false {
         \\            y: int = 1;
         \\        } else {
@@ -2155,8 +2224,8 @@ test "scope: variable declared in else-body not visible after" {
 
 test "scope: match arm binding not visible after match" {
     try expectError(
-        \\module App {
-        \\    fn main() -> int {
+        \\process App {
+        \\    receive main() -> int {
         \\        match true {
         \\            true => {
         \\                inner: int = 99;
@@ -2174,8 +2243,8 @@ test "scope: match arm binding not visible after match" {
 
 test "scope: nested if scopes are isolated" {
     try expectError(
-        \\module App {
-        \\    fn main() -> int {
+        \\process App {
+        \\    receive main() -> int {
         \\        if true {
         \\            if true {
         \\                deep: int = 1;
@@ -2204,7 +2273,9 @@ test "return: nested if/else all return ok" {
         \\            return 0;
         \\        }
         \\    }
-        \\    fn main() -> int { return 0; }
+        \\}
+        \\process App {
+        \\    receive main() -> int { return 0; }
         \\}
     );
 }
@@ -2221,7 +2292,9 @@ test "return: nested if without else in one branch errors" {
         \\            return 0;
         \\        }
         \\    }
-        \\    fn main() -> int { return 0; }
+        \\}
+        \\process App {
+        \\    receive main() -> int { return 0; }
         \\}
     , "does not return a value on all code paths");
 }
@@ -2234,7 +2307,9 @@ test "return: match with wildcard all arms return ok" {
         \\            _ => return 0;
         \\        }
         \\    }
-        \\    fn main() -> int { return 0; }
+        \\}
+        \\process App {
+        \\    receive main() -> int { return 0; }
         \\}
     );
 }
@@ -2247,7 +2322,9 @@ test "return: match without wildcard and not exhaustive errors" {
         \\            true => return 1;
         \\        }
         \\    }
-        \\    fn main() -> int { return 0; }
+        \\}
+        \\process App {
+        \\    receive main() -> int { return 0; }
         \\}
     , "does not return a value on all code paths");
 }
@@ -2261,7 +2338,9 @@ test "return: return after if without else ok" {
         \\        }
         \\        return x;
         \\    }
-        \\    fn main() -> int { return 0; }
+        \\}
+        \\process App {
+        \\    receive main() -> int { return 0; }
         \\}
     );
 }
@@ -2298,8 +2377,8 @@ test "error: exported handler missing doc comment" {
         \\export process Counter<CS> {
         \\    receive Inc(state: CS) -> int { return state.count; }
         \\}
-        \\module App {
-        \\    fn main() -> int { return 0; }
+        \\process App {
+        \\    receive main() -> int { return 0; }
         \\}
     , "missing a /// doc comment");
 }
@@ -2310,8 +2389,8 @@ test "error location: exported handler missing doc comment" {
         \\export process Counter<CS> {
         \\    receive Inc(state: CS) -> int { return state.count; }
         \\}
-        \\module App {
-        \\    fn main() -> int { return 0; }
+        \\process App {
+        \\    receive main() -> int { return 0; }
         \\}
     , "missing a /// doc comment");
 }
@@ -2343,15 +2422,17 @@ test "error: float literal as guard condition" {
         \\        guard 3.14;
         \\        return 0;
         \\    }
-        \\    fn main() -> int { return 0; }
+        \\}
+        \\process App {
+        \\    receive main() -> int { return 0; }
         \\}
     , "must be boolean, got float");
 }
 
 test "error: generic type requires type parameters" {
     try expectError(
-        \\module App {
-        \\    fn main() -> int {
+        \\process App {
+        \\    receive main() -> int {
         \\        x: list = list();
         \\        return 0;
         \\    }
@@ -2361,8 +2442,8 @@ test "error: generic type requires type parameters" {
 
 test "error: while condition must be boolean string" {
     try expectError(
-        \\module App {
-        \\    fn main() -> int {
+        \\process App {
+        \\    receive main() -> int {
         \\        while "yes" {
         \\            return 0;
         \\        }
@@ -2374,8 +2455,8 @@ test "error: while condition must be boolean string" {
 
 test "error: while condition must be boolean int" {
     try expectError(
-        \\module App {
-        \\    fn main() -> int {
+        \\process App {
+        \\    receive main() -> int {
         \\        while 42 {
         \\            return 0;
         \\        }
@@ -2392,15 +2473,17 @@ test "error: guard x compared to itself" {
         \\        guard x > x;
         \\        return 0;
         \\    }
-        \\    fn main() -> int { return 0; }
+        \\}
+        \\process App {
+        \\    receive main() -> int { return 0; }
         \\}
     , "compared to itself");
 }
 
 test "error: division by zero literal" {
     try expectError(
-        \\module App {
-        \\    fn main() -> int {
+        \\process App {
+        \\    receive main() -> int {
         \\        return 42 / 0;
         \\    }
         \\}
@@ -2409,8 +2492,8 @@ test "error: division by zero literal" {
 
 test "error: unknown type in declaration" {
     try expectError(
-        \\module App {
-        \\    fn main() -> int {
+        \\process App {
+        \\    receive main() -> int {
         \\        x: Foo = 42;
         \\        return 0;
         \\    }
@@ -2420,8 +2503,8 @@ test "error: unknown type in declaration" {
 
 test "error: unknown generic type in variable" {
     try expectError(
-        \\module App {
-        \\    fn main() -> int {
+        \\process App {
+        \\    receive main() -> int {
         \\        x: Foo<int> = 42;
         \\        return 0;
         \\    }
@@ -2431,8 +2514,8 @@ test "error: unknown generic type in variable" {
 
 test "error: match on boolean missing true" {
     try expectError(
-        \\module App {
-        \\    fn main() -> int {
+        \\process App {
+        \\    receive main() -> int {
         \\        x: bool = false;
         \\        match x {
         \\            false => return 0;
@@ -2445,8 +2528,8 @@ test "error: match on boolean missing true" {
 
 test "error: match on boolean missing false" {
     try expectError(
-        \\module App {
-        \\    fn main() -> int {
+        \\process App {
+        \\    receive main() -> int {
         \\        x: bool = true;
         \\        match x {
         \\            true => return 0;
@@ -2460,8 +2543,8 @@ test "error: match on boolean missing false" {
 test "error: match on enum missing variant" {
     try expectError(
         \\type Color = enum { Red, Green, Blue };
-        \\module App {
-        \\    fn main() -> int {
+        \\process App {
+        \\    receive main() -> int {
         \\        c: Color = :Red;
         \\        match c {
         \\            :Red => return 0;
@@ -2477,7 +2560,9 @@ test "error: recursion detected" {
     try expectError(
         \\module App {
         \\    fn loop() -> int { return App.loop(); }
-        \\    fn main() -> int { return 0; }
+        \\}
+        \\process App {
+        \\    receive main() -> int { return 0; }
         \\}
     , "recursion detected");
 }
@@ -2503,19 +2588,19 @@ test "error: missing entry point" {
 
 test "error: two main functions" {
     try expectError(
-        \\module A {
-        \\    fn main() -> int { return 0; }
+        \\process A {
+        \\    receive main() -> int { return 0; }
         \\}
-        \\module B {
-        \\    fn main() -> int { return 0; }
+        \\process B {
+        \\    receive main() -> int { return 0; }
         \\}
     , "multiple entry points");
 }
 
 test "error: match must have at least one arm" {
     try expectError(
-        \\module App {
-        \\    fn main() -> int {
+        \\process App {
+        \\    receive main() -> int {
         \\        match true {}
         \\        return 0;
         \\    }
@@ -2530,7 +2615,176 @@ test "error: guard always false literal" {
         \\        guard false;
         \\        return 0;
         \\    }
-        \\    fn main() -> int { return 0; }
+        \\}
+        \\process App {
+        \\    receive main() -> int { return 0; }
         \\}
     , "guard is always false");
+}
+
+// ── Deadlock detection ───────────────────────────────────
+
+test "error: direct mutual deadlock between two processes" {
+    try expectError(
+        \\struct AS { v: int = 0; }
+        \\struct BS { v: int = 0; }
+        \\process A<AS> {
+        \\    receive Ping(state: AS, b: pid<B>) -> int {
+        \\        match Process.send(b.Pong) {
+        \\            :ok{v} => return v;
+        \\            :error{r} => return 0;
+        \\        }
+        \\        return 0;
+        \\    }
+        \\}
+        \\process B<BS> {
+        \\    receive Pong(state: BS, a: pid<A>) -> int {
+        \\        match Process.send(a.Ping) {
+        \\            :ok{v} => return v;
+        \\            :error{r} => return 0;
+        \\        }
+        \\        return 0;
+        \\    }
+        \\}
+        \\process Main {
+        \\    receive main() -> int { return 0; }
+        \\}
+    , "potential deadlock");
+}
+
+test "valid: Process.tell does not cause deadlock" {
+    try expectNoErrors(
+        \\struct AS { v: int = 0; }
+        \\struct BS { v: int = 0; }
+        \\process A<AS> {
+        \\    receive Ping(state: AS, b: pid<B>) -> int {
+        \\        Process.tell(b.Pong);
+        \\        return 0;
+        \\    }
+        \\}
+        \\process B<BS> {
+        \\    receive Pong(state: BS, a: pid<A>) -> int {
+        \\        Process.tell(a.Ping);
+        \\        return 0;
+        \\    }
+        \\}
+        \\process Main {
+        \\    receive main() -> int { return 0; }
+        \\}
+    );
+}
+
+test "valid: one-directional sends are fine" {
+    try expectNoErrors(
+        \\struct AS { v: int = 0; }
+        \\struct BS { v: int = 0; }
+        \\process A<AS> {
+        \\    receive DoWork(state: AS, b: pid<B>) -> int {
+        \\        match Process.send(b.Handle) {
+        \\            :ok{v} => return v;
+        \\            :error{r} => return 0;
+        \\        }
+        \\        return 0;
+        \\    }
+        \\}
+        \\process B<BS> {
+        \\    receive Handle(state: BS) -> int {
+        \\        return 42;
+        \\    }
+        \\}
+        \\process Main {
+        \\    receive main() -> int { return 0; }
+        \\}
+    );
+}
+
+test "error: three-process deadlock cycle" {
+    try expectError(
+        \\struct AS { v: int = 0; }
+        \\struct BS { v: int = 0; }
+        \\struct CS { v: int = 0; }
+        \\process A<AS> {
+        \\    receive X(state: AS, b: pid<B>) -> int {
+        \\        match Process.send(b.Y) {
+        \\            :ok{v} => return v;
+        \\            :error{r} => return 0;
+        \\        }
+        \\        return 0;
+        \\    }
+        \\}
+        \\process B<BS> {
+        \\    receive Y(state: BS, c: pid<C>) -> int {
+        \\        match Process.send(c.Z) {
+        \\            :ok{v} => return v;
+        \\            :error{r} => return 0;
+        \\        }
+        \\        return 0;
+        \\    }
+        \\}
+        \\process C<CS> {
+        \\    receive Z(state: CS, a: pid<A>) -> int {
+        \\        match Process.send(a.X) {
+        \\            :ok{v} => return v;
+        \\            :error{r} => return 0;
+        \\        }
+        \\        return 0;
+        \\    }
+        \\}
+        \\process Main {
+        \\    receive main() -> int { return 0; }
+        \\}
+    , "potential deadlock");
+}
+
+test "error: self-send deadlock" {
+    try expectError(
+        \\struct AS { v: int = 0; }
+        \\process A<AS> {
+        \\    receive DoWork(state: AS) -> int {
+        \\        self: pid<A> = Process.self();
+        \\        match Process.send(self.DoWork) {
+        \\            :ok{v} => return v;
+        \\            :error{r} => return 0;
+        \\        }
+        \\        return 0;
+        \\    }
+        \\}
+        \\process Main {
+        \\    receive main() -> int { return 0; }
+        \\}
+    , "potential deadlock");
+}
+
+test "valid: different handlers no cycle" {
+    try expectNoErrors(
+        \\struct AS { v: int = 0; }
+        \\struct BS { v: int = 0; }
+        \\process A<AS> {
+        \\    receive H1(state: AS, b: pid<B>) -> int {
+        \\        match Process.send(b.X) {
+        \\            :ok{v} => return v;
+        \\            :error{r} => return 0;
+        \\        }
+        \\        return 0;
+        \\    }
+        \\    receive H2(state: AS) -> int {
+        \\        return 0;
+        \\    }
+        \\}
+        \\process B<BS> {
+        \\    receive X(state: BS) -> int {
+        \\        return 42;
+        \\    }
+        \\    receive Y(state: BS, a: pid<A>) -> int {
+        \\        match Process.send(a.H2) {
+        \\            :ok{v} => return v;
+        \\            :error{r} => return 0;
+        \\        }
+        \\        return 0;
+        \\    }
+        \\}
+        \\process Main {
+        \\    receive main() -> int { return 0; }
+        \\}
+    );
 }

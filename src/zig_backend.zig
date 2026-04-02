@@ -509,6 +509,11 @@ pub const ZigBackend = struct {
                 self.line("return switch (_hid) {");
                 self.indent += 1;
                 for (pd.handler_names, 0..) |hname, hi| {
+                    // Skip main handler — it's called directly by the wrapper, not dispatched
+                    if (std.mem.eql(u8, hname, "main")) {
+                        self.lineFmt("{d} => 0,", .{hi});
+                        continue;
+                    }
                     // Find handler function for param types
                     var handler_func: ?ir.Function = null;
                     for (program.functions.items) |f| {
@@ -639,30 +644,12 @@ pub const ZigBackend = struct {
                 self.line("");
             }
         }
-        // Check if main is a process handler
-        var main_is_process = false;
+        // Emit main — must be a process handler
         for (program.functions.items) |func| {
             if (std.mem.eql(u8, func.name, "main")) {
-                for (program.process_decls.items) |pd| {
-                    if (std.mem.eql(u8, pd.name, func.module)) {
-                        main_is_process = true;
-                        self.emitFunction(func);
-                        self.line("");
-                        break;
-                    }
-                }
-            }
-        }
-        // Emit main entry point — always use scheduler
-        for (program.functions.items) |func| {
-            if (std.mem.eql(u8, func.name, "main")) {
-                if (main_is_process) {
-                    self.emitProcessMainWrapper(func);
-                } else {
-                    self.emitFunction(func);
-                    self.line("");
-                    self.emitSchedulerMainWrapper(func);
-                }
+                self.emitFunction(func);
+                self.line("");
+                self.emitProcessMainWrapper(func);
             }
         }
     }
@@ -957,42 +944,34 @@ pub const ZigBackend = struct {
         self.line("}");
     }
 
+    /// Emit the main entry point. Main is a process handler that runs under the scheduler
+    /// as a real process with a dispatch table entry, state initialization, and args support.
     fn emitProcessMainWrapper(self: *ZigBackend, func: ir.Function) void {
-        self.line("pub fn main() void {");
-        self.indent += 1;
-        self.line("rt.verve_runtime_init();");
-        self.line("verve_init_dispatch();");
+        // Find the process type index for main's process
+        var process_type_index: usize = 0;
+        var state_type: ?[]const u8 = null;
         for (self.program.process_decls.items, 0..) |pd, pdi| {
             if (std.mem.eql(u8, pd.name, func.module)) {
-                self.lineFmt("const pid = rt.process.verve_spawn({d});", .{pdi});
-                self.line("rt.process.current_process_id = pid;");
-                if (pd.state_type) |st| {
-                    self.lineFmt("{{ const _sm = rt.arena_alloc(@sizeOf(VerveStruct_{s})) orelse unreachable; const _st = @as(*VerveStruct_{s}, @ptrCast(@alignCast(_sm))); _st.* = .{{}}; rt.process.process_table[rt.process.pidx(pid)].state_ptr = @intFromPtr(_st); }}", .{ st, st });
-                }
+                process_type_index = pdi;
+                state_type = pd.state_type;
                 break;
             }
         }
-        self.writeFmt("    const result = verve_{s}_{s}(", .{ func.module, func.name });
-        for (func.params, 0..) |_, i| {
-            if (i > 0) self.write(", ");
-            self.write("0");
-        }
-        self.write(");\n");
-        self.line("if (result != 0) {");
-        self.indent += 1;
-        self.line("std.posix.exit(@intCast(result));");
-        self.indent -= 1;
-        self.line("}");
-        self.indent -= 1;
-        self.line("}");
-    }
 
-    /// Emit a scheduler-wrapped main entry point for module mains that use processes.
-    /// The user's main runs as a fiber under the scheduler so tell/yield/send work correctly.
-    fn emitSchedulerMainWrapper(self: *ZigBackend, func: ir.Function) void {
         // Emit wrapper function that the scheduler calls via main fiber
         self.writeFmt("fn verve_main_wrapper(_: usize) usize {{\n", .{});
         self.indent += 1;
+
+        // Set the main process type to its real dispatch table index
+        self.line("const pid = rt.process.current_process_id;");
+        self.lineFmt("rt.process.process_table[rt.process.pidx(pid)].process_type = {d};", .{process_type_index});
+
+        // Initialize process state if the process has a state type
+        if (state_type) |st| {
+            self.lineFmt("{{ const _sm = rt.arena_alloc(@sizeOf(VerveStruct_{s})) orelse unreachable; const _st = @as(*VerveStruct_{s}, @ptrCast(@alignCast(_sm))); _st.* = .{{}}; rt.process.process_table[rt.process.pidx(pid)].state_ptr = @intFromPtr(_st); }}", .{ st, st });
+        }
+
+        // Build args list from OS arguments
         self.line("var verve_args_list = rt.List.init();");
         self.line("var proc_args = std.process.argsWithAllocator(std.heap.page_allocator) catch return 0;");
         self.line("_ = proc_args.skip();");
@@ -1001,6 +980,8 @@ pub const ZigBackend = struct {
         self.line("verve_args_list.append(@intCast(@intFromPtr(arg.ptr)));");
         self.indent -= 1;
         self.line("}");
+
+        // Call the main handler
         self.writeIndent();
         self.writeFmt("return @intCast(@as(u64, @bitCast(verve_{s}_{s}(", .{ func.module, func.name });
         for (func.params, 0..) |param, i| {
@@ -1015,13 +996,12 @@ pub const ZigBackend = struct {
         self.indent -= 1;
         self.line("}");
         self.line("");
-        // Emit pub fn main() — starts scheduler with main as a synthetic process
+
+        // Emit pub fn main() — starts scheduler with main process
         self.line("pub fn main() void {");
         self.indent += 1;
         self.line("rt.verve_runtime_init();");
-        if (self.program.process_decls.items.len > 0) {
-            self.line("verve_init_dispatch();");
-        }
+        self.line("verve_init_dispatch();");
         self.line("_ = rt.process.verve_spawn_main(&verve_main_wrapper);");
         self.line("_ = rt.process.verve_scheduler_run_threaded(1);");
         self.line("const exit_code = rt.process.program_exit_code.load(.acquire);");
@@ -1033,6 +1013,24 @@ pub const ZigBackend = struct {
     fn getRegType(reg_types: []const RegType, reg: ir.Reg) RegType {
         if (reg < reg_types.len) return reg_types[reg];
         return .int;
+    }
+
+    /// Emit an integer comparison, casting bool operands to i64 via @intFromBool.
+    fn emitIntCmp(self: *ZigBackend, func_name: []const u8, dest: ir.Reg, lhs: ir.Reg, rhs: ir.Reg, reg_types: []const RegType) void {
+        const lhs_bool = getRegType(reg_types, lhs) == .boolean;
+        const rhs_bool = getRegType(reg_types, rhs) == .boolean;
+        if (lhs_bool or rhs_bool) {
+            const lhs_name = self.regName(lhs);
+            const rhs_name = self.regName(rhs);
+            self.writeIndent();
+            self.writeFmt("{s} = (rt.checked.{s}(", .{ self.regName(dest), func_name });
+            if (lhs_bool) self.writeFmt("@intFromBool({s})", .{lhs_name}) else self.writeFmt("{s}", .{lhs_name});
+            self.write(", ");
+            if (rhs_bool) self.writeFmt("@intFromBool({s})", .{rhs_name}) else self.writeFmt("{s}", .{rhs_name});
+            self.write(") != 0);\n");
+        } else {
+            self.lineFmt("{s} = (rt.checked.{s}({s}, {s}) != 0);", .{ self.regName(dest), func_name, self.regName(lhs), self.regName(rhs) });
+        }
     }
 
     fn emitInst(self: *ZigBackend, inst: ir.Inst, local_names: *[128][]const u8, local_count: *usize, local_types: *[128]RegType, reg_types: []const RegType, fn_returns_ptr: bool, fn_return_type: ir.Type) void {
@@ -1086,12 +1084,12 @@ pub const ZigBackend = struct {
             .lte_f64 => |op| self.lineFmt("{s} = ({s} <= {s});", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
             .gte_f64 => |op| self.lineFmt("{s} = ({s} >= {s});", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
 
-            .eq_i64 => |op| self.lineFmt("{s} = (rt.checked.verve_eq({s}, {s}) != 0);", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
-            .neq_i64 => |op| self.lineFmt("{s} = (rt.checked.verve_neq({s}, {s}) != 0);", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
-            .lt_i64 => |op| self.lineFmt("{s} = (rt.checked.verve_lt({s}, {s}) != 0);", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
-            .gt_i64 => |op| self.lineFmt("{s} = (rt.checked.verve_gt({s}, {s}) != 0);", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
-            .lte_i64 => |op| self.lineFmt("{s} = (rt.checked.verve_lte({s}, {s}) != 0);", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
-            .gte_i64 => |op| self.lineFmt("{s} = (rt.checked.verve_gte({s}, {s}) != 0);", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
+            .eq_i64 => |op| self.emitIntCmp("verve_eq", op.dest, op.lhs, op.rhs, reg_types),
+            .neq_i64 => |op| self.emitIntCmp("verve_neq", op.dest, op.lhs, op.rhs, reg_types),
+            .lt_i64 => |op| self.emitIntCmp("verve_lt", op.dest, op.lhs, op.rhs, reg_types),
+            .gt_i64 => |op| self.emitIntCmp("verve_gt", op.dest, op.lhs, op.rhs, reg_types),
+            .lte_i64 => |op| self.emitIntCmp("verve_lte", op.dest, op.lhs, op.rhs, reg_types),
+            .gte_i64 => |op| self.emitIntCmp("verve_gte", op.dest, op.lhs, op.rhs, reg_types),
 
             .and_bool => |op| self.lineFmt("{s} = {s} and {s};", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
             .or_bool => |op| self.lineFmt("{s} = {s} or {s};", .{ self.regName(op.dest), self.regName(op.lhs), self.regName(op.rhs) }),
@@ -1158,7 +1156,13 @@ pub const ZigBackend = struct {
                 self.writeFmt("{s} = verve_{s}_{s}(", .{ self.regName(c.dest), c.module, c.function });
                 for (c.args, 0..) |arg, i| {
                     if (i > 0) self.write(", ");
-                    self.write(self.regName(arg));
+                    const arg_type = getRegType(reg_types, arg);
+                    // Cast usize (pointer) args to i64 when passing to functions expecting i64 params
+                    if (arg_type == .pointer) {
+                        self.writeFmt("@intCast({s})", .{self.regName(arg)});
+                    } else {
+                        self.write(self.regName(arg));
+                    }
                 }
                 self.write(");\n");
             },

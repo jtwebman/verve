@@ -111,6 +111,7 @@ origin: Point = Point{};  // x=0, y=0
 ```
 
 ### Modules
+Modules contain helper functions. They cannot have a `main` entry point.
 ```
 /// Math utilities for integer operations.
 export module Math {
@@ -120,6 +121,30 @@ export module Math {
     }
 }
 ```
+
+### Entry point
+Every program's entry point is a `receive main` handler inside a process. State is optional.
+```
+process App {
+    receive main(args: list<string>) -> int {
+        Stdio.println("hello");
+        return 0;
+    }
+}
+```
+
+A process with `main` can also have state and other handlers:
+```
+struct AppState { started: bool = false; }
+process App<AppState> {
+    receive main(state: AppState, args: list<string>) -> int {
+        state.started = true;
+        return 0;
+    }
+}
+```
+
+If a module shares the same name as the main process, its functions are callable without qualification.
 
 ### Processes (actor model)
 Process state is an explicit struct with a type parameter. Handlers receive state as their first parameter and mutate it via field assignment.

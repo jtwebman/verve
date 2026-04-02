@@ -17,8 +17,8 @@ process Counter<CounterState> {
 }
 
 /// Benchmark: send 10000 tell messages with backpressure and verify final count.
-module App {
-	fn main() -> int {
+process App {
+	receive main() -> int {
 		c: pid<Counter> = spawn Counter();
 		sent: int = 0;
 		while sent < 10000 {

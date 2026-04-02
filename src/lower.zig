@@ -154,9 +154,6 @@ pub const Lower = struct {
                     self.current_process_decl = null;
                     for (m.functions) |func| {
                         try self.lowerFunction(m.name, func);
-                        if (std.mem.eql(u8, func.name, "main")) {
-                            self.program.entry_module = m.name;
-                        }
                         if (func.doc_comment) |doc| {
                             var example_idx: usize = 0;
                             var line_start: usize = 0;

@@ -91,7 +91,9 @@ test "IR: integer addition lowers to add_i64" {
         \\    fn add(a: int, b: int) -> int {
         \\        return a + b;
         \\    }
-        \\    fn main() -> int { return 0; }
+        \\}
+        \\process Math {
+        \\    receive main() -> int { return 0; }
         \\}
     );
     const func = findFunction(program, "add") orelse return error.TestUnexpectedResult;
@@ -105,7 +107,9 @@ test "IR: float addition lowers to add_f64" {
         \\    fn add(a: float, b: float) -> float {
         \\        return a + b;
         \\    }
-        \\    fn main() -> int { return 0; }
+        \\}
+        \\process Math {
+        \\    receive main() -> int { return 0; }
         \\}
     );
     const func = findFunction(program, "add") orelse return error.TestUnexpectedResult;
@@ -122,7 +126,9 @@ test "IR: if/else lowers to branch" {
         \\            return 0 - x;
         \\        }
         \\    }
-        \\    fn main() -> int { return 0; }
+        \\}
+        \\process App {
+        \\    receive main() -> int { return 0; }
         \\}
     );
     const func = findFunction(program, "abs") orelse return error.TestUnexpectedResult;
@@ -135,7 +141,9 @@ test "IR: function call lowers to call instruction" {
     const program = try lowerSource(
         \\module App {
         \\    fn helper() -> int { return 42; }
-        \\    fn main() -> int {
+        \\}
+        \\process App {
+        \\    receive main() -> int {
         \\        return App.helper();
         \\    }
         \\}
@@ -150,8 +158,8 @@ test "IR: struct literal lowers to struct_alloc and struct_store" {
         \\    x: int = 0;
         \\    y: int = 0;
         \\}
-        \\module App {
-        \\    fn main() -> int {
+        \\process App {
+        \\    receive main() -> int {
         \\        p: Point = Point { x: 10, y: 20 };
         \\        return 0;
         \\    }
@@ -164,8 +172,8 @@ test "IR: struct literal lowers to struct_alloc and struct_store" {
 
 test "IR: return statement lowers to ret" {
     const program = try lowerSource(
-        \\module App {
-        \\    fn main() -> int {
+        \\process App {
+        \\    receive main() -> int {
         \\        return 42;
         \\    }
         \\}
@@ -177,8 +185,8 @@ test "IR: return statement lowers to ret" {
 
 test "IR: variable assignment lowers to store_local/load_local" {
     const program = try lowerSource(
-        \\module App {
-        \\    fn main() -> int {
+        \\process App {
+        \\    receive main() -> int {
         \\        x: int = 10;
         \\        return x;
         \\    }
@@ -191,8 +199,8 @@ test "IR: variable assignment lowers to store_local/load_local" {
 
 test "IR: string constant lowers to const_string" {
     const program = try lowerSource(
-        \\module App {
-        \\    fn main() -> int {
+        \\process App {
+        \\    receive main() -> int {
         \\        s: string = "hello";
         \\        return 0;
         \\    }
@@ -204,8 +212,8 @@ test "IR: string constant lowers to const_string" {
 
 test "IR: program has correct entry module" {
     const program = try lowerSource(
-        \\module App {
-        \\    fn main() -> int { return 0; }
+        \\process App {
+        \\    receive main() -> int { return 0; }
         \\}
     );
     try testing.expectEqualStrings("App", program.entry_module);
@@ -217,7 +225,9 @@ test "IR: function count matches source" {
         \\module App {
         \\    fn helper() -> int { return 1; }
         \\    fn other() -> int { return 2; }
-        \\    fn main() -> int { return 0; }
+        \\}
+        \\process App {
+        \\    receive main() -> int { return 0; }
         \\}
     );
     // Should have 3 functions

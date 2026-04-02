@@ -64,8 +64,8 @@ fn compileAndCapture(source: []const u8) !struct { exit: u8, stdout: []const u8 
 
 test "compile: tcp listen and connect loopback" {
     const r = try compileAndCapture(
-        \\module App {
-        \\    fn main(args: list<string>) -> int {
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
         \\        match Tcp.listen("127.0.0.1", 0) {
         \\            :ok{listener} => {
         \\                port: int = Tcp.port(listener);
@@ -98,8 +98,8 @@ test "compile: tcp listen and connect loopback" {
 
 test "compile: tcp connect refused" {
     const r = try compileAndCapture(
-        \\module App {
-        \\    fn main(args: list<string>) -> int {
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
         \\        match Tcp.open("127.0.0.1", 1) {
         \\            :ok{conn} => Stdio.println("unexpected success");
         \\            :error{e} => Stdio.println("refused");
@@ -114,8 +114,8 @@ test "compile: tcp connect refused" {
 
 test "compile: tcp read eof on peer close" {
     const r = try compileAndCapture(
-        \\module App {
-        \\    fn main(args: list<string>) -> int {
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
         \\        match Tcp.listen("127.0.0.1", 0) {
         \\            :ok{listener} => {
         \\                port: int = Tcp.port(listener);
@@ -148,8 +148,8 @@ test "compile: tcp read eof on peer close" {
 
 test "compile: tcp bidirectional echo" {
     const r = try compileAndCapture(
-        \\module App {
-        \\    fn main(args: list<string>) -> int {
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
         \\        match Tcp.listen("127.0.0.1", 0) {
         \\            :ok{listener} => {
         \\                port: int = Tcp.port(listener);
@@ -185,8 +185,8 @@ test "compile: tcp bidirectional echo" {
 
 test "compile: tcp multiple sequential connections" {
     const r = try compileAndCapture(
-        \\module App {
-        \\    fn main(args: list<string>) -> int {
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
         \\        match Tcp.listen("127.0.0.1", 0) {
         \\            :ok{listener} => {
         \\                port: int = Tcp.port(listener);
@@ -223,8 +223,8 @@ test "compile: tcp multiple sequential connections" {
 
 test "compile: tcp listen port zero assigns port" {
     const r = try compileAndCapture(
-        \\module App {
-        \\    fn main(args: list<string>) -> int {
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
         \\        match Tcp.listen("127.0.0.1", 0) {
         \\            :ok{listener} => {
         \\                port: int = Tcp.port(listener);
@@ -247,8 +247,8 @@ test "compile: tcp listen port zero assigns port" {
 
 test "compile: tcp double bind fails" {
     const r = try compileAndCapture(
-        \\module App {
-        \\    fn main(args: list<string>) -> int {
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
         \\        match Tcp.listen("127.0.0.1", 0) {
         \\            :ok{listener1} => {
         \\                port: int = Tcp.port(listener1);
@@ -273,8 +273,8 @@ test "compile: tcp double bind fails" {
 
 test "compile: tcp data before close all delivered" {
     const r = try compileAndCapture(
-        \\module App {
-        \\    fn main(args: list<string>) -> int {
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
         \\        match Tcp.listen("127.0.0.1", 0) {
         \\            :ok{listener} => {
         \\                port: int = Tcp.port(listener);
@@ -313,8 +313,8 @@ test "compile: tcp data before close all delivered" {
 
 test "compile: tcp large transfer" {
     const r = try compileAndCapture(
-        \\module App {
-        \\    fn main(args: list<string>) -> int {
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
         \\        match Tcp.listen("127.0.0.1", 0) {
         \\            :ok{listener} => {
         \\                port: int = Tcp.port(listener);
@@ -360,8 +360,8 @@ test "compile: tcp large transfer" {
 
 test "compile: tcp write after peer close" {
     const r = try compileAndCapture(
-        \\module App {
-        \\    fn main(args: list<string>) -> int {
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
         \\        match Tcp.listen("127.0.0.1", 0) {
         \\            :ok{listener} => {
         \\                port: int = Tcp.port(listener);
@@ -394,8 +394,8 @@ test "compile: tcp write after peer close" {
 
 test "compile: tcp operations on closed stream" {
     const r = try compileAndCapture(
-        \\module App {
-        \\    fn main(args: list<string>) -> int {
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
         \\        match Tcp.listen("127.0.0.1", 0) {
         \\            :ok{listener} => {
         \\                port: int = Tcp.port(listener);
@@ -429,8 +429,8 @@ test "compile: tcp operations on closed stream" {
 
 test "compile: tcp accept on closed listener" {
     const r = try compileAndCapture(
-        \\module App {
-        \\    fn main(args: list<string>) -> int {
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
         \\        match Tcp.listen("127.0.0.1", 0) {
         \\            :ok{listener} => {
         \\                Stream.close(listener);
@@ -453,8 +453,8 @@ test "compile: tcp accept on closed listener" {
 
 test "compile: http parse request method and path" {
     const r = try compileAndCapture(
-        \\module App {
-        \\    fn main(args: list<string>) -> int {
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
         \\        data: string = "GET /hello HTTP/1.1\r\nHost: localhost\r\n\r\n";
         \\        req: int = Http.parse_request(data);
         \\        method: string = Http.req_method(req);
@@ -471,8 +471,8 @@ test "compile: http parse request method and path" {
 
 test "compile: http parse request header" {
     const r = try compileAndCapture(
-        \\module App {
-        \\    fn main(args: list<string>) -> int {
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
         \\        data: string = "POST /api HTTP/1.1\r\nHost: example.com\r\nContent-Type: application/json\r\n\r\n";
         \\        req: int = Http.parse_request(data);
         \\        host: string = Http.req_header(req, "Host");
@@ -489,8 +489,8 @@ test "compile: http parse request header" {
 
 test "compile: http build response" {
     const r = try compileAndCapture(
-        \\module App {
-        \\    fn main(args: list<string>) -> int {
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
         \\        response: string = Http.respond(200, "text/plain", "hello");
         \\        Stdio.println(response);
         \\        return 0;
@@ -506,8 +506,8 @@ test "compile: http build response" {
 
 test "compile: http server loopback" {
     const r = try compileAndCapture(
-        \\module App {
-        \\    fn main(args: list<string>) -> int {
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
         \\        match Tcp.listen("127.0.0.1", 0) {
         \\            :ok{listener} => {
         \\                port: int = Tcp.port(listener);
@@ -547,8 +547,8 @@ test "compile: http server loopback" {
 
 test "compile: http 404 response" {
     const r = try compileAndCapture(
-        \\module App {
-        \\    fn main(args: list<string>) -> int {
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
         \\        response: string = Http.respond(404, "text/plain", "not found");
         \\        Stdio.println(response);
         \\        return 0;
@@ -563,8 +563,8 @@ test "compile: http 404 response" {
 
 test "compile: http json response end to end" {
     const r = try compileAndCapture(
-        \\module App {
-        \\    fn main(args: list<string>) -> int {
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
         \\        b: int = Json.build_object();
         \\        Json.build_add_string(b, "msg", "hello");
         \\        body: string = Json.build_end(b);
@@ -603,8 +603,8 @@ test "compile: http json response end to end" {
 
 test "compile: http parse POST with body" {
     const r = try compileAndCapture(
-        \\module App {
-        \\    fn main(args: list<string>) -> int {
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
         \\        data: string = "POST /api HTTP/1.1\r\nContent-Type: application/json\r\nContent-Length: 13\r\n\r\n{\"key\":\"val\"}";
         \\        req: int = Http.parse_request(data);
         \\        method: string = Http.req_method(req);
@@ -623,8 +623,8 @@ test "compile: http parse POST with body" {
 
 test "compile: http parse different methods" {
     const r = try compileAndCapture(
-        \\module App {
-        \\    fn main(args: list<string>) -> int {
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
         \\        get: int = Http.parse_request("GET / HTTP/1.1\r\n\r\n");
         \\        m1: string = Http.req_method(get);
         \\        Stdio.println(m1);
@@ -647,8 +647,8 @@ test "compile: http parse different methods" {
 
 test "compile: http response status codes" {
     const r = try compileAndCapture(
-        \\module App {
-        \\    fn main(args: list<string>) -> int {
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
         \\        r200: string = Http.respond(200, "text/plain", "ok");
         \\        r201: string = Http.respond(201, "text/plain", "created");
         \\        r400: string = Http.respond(400, "text/plain", "bad");
@@ -667,8 +667,8 @@ test "compile: http response status codes" {
 
 test "compile: http server with json request and response" {
     const r = try compileAndCapture(
-        \\module App {
-        \\    fn main(args: list<string>) -> int {
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
         \\        match Tcp.listen("127.0.0.1", 0) {
         \\            :ok{listener} => {
         \\                port: int = Tcp.port(listener);
@@ -707,8 +707,8 @@ test "compile: http server with json request and response" {
 
 test "compile: http missing header returns empty" {
     const r = try compileAndCapture(
-        \\module App {
-        \\    fn main(args: list<string>) -> int {
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
         \\        data: string = "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n";
         \\        req: int = Http.parse_request(data);
         \\        ct: string = Http.req_header(req, "Content-Type");
@@ -723,8 +723,8 @@ test "compile: http missing header returns empty" {
 
 test "compile: http case insensitive headers" {
     const r = try compileAndCapture(
-        \\module App {
-        \\    fn main(args: list<string>) -> int {
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
         \\        data: string = "GET / HTTP/1.1\r\nContent-Type: text/html\r\n\r\n";
         \\        req: int = Http.parse_request(data);
         \\        ct1: string = Http.req_header(req, "content-type");
@@ -743,8 +743,8 @@ test "compile: http case insensitive headers" {
 
 test "compile: http path with query string" {
     const r = try compileAndCapture(
-        \\module App {
-        \\    fn main(args: list<string>) -> int {
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
         \\        data: string = "GET /search?q=verve&page=1 HTTP/1.1\r\n\r\n";
         \\        req: int = Http.parse_request(data);
         \\        path: string = Http.req_path(req);
@@ -759,8 +759,8 @@ test "compile: http path with query string" {
 
 test "compile: http multiple requests on same listener" {
     const r = try compileAndCapture(
-        \\module App {
-        \\    fn main(args: list<string>) -> int {
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
         \\        match Tcp.listen("127.0.0.1", 0) {
         \\            :ok{listener} => {
         \\                port: int = Tcp.port(listener);
@@ -800,8 +800,8 @@ test "compile: http multiple requests on same listener" {
 
 test "compile: json and http integration - parse json body and respond" {
     const r = try compileAndCapture(
-        \\module App {
-        \\    fn main(args: list<string>) -> int {
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
         \\        match Tcp.listen("127.0.0.1", 0) {
         \\            :ok{listener} => {
         \\                port: int = Tcp.port(listener);
@@ -840,8 +840,8 @@ test "compile: json and http integration - parse json body and respond" {
 
 test "compile: http GET without body" {
     const r = try compileAndCapture(
-        \\module App {
-        \\    fn main(args: list<string>) -> int {
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
         \\        data: string = "GET /api HTTP/1.1\r\nHost: localhost\r\n\r\n";
         \\        req: int = Http.parse_request(data);
         \\        body: string = Http.req_body(req);
@@ -856,8 +856,8 @@ test "compile: http GET without body" {
 
 test "compile: http POST with form encoded body" {
     const r = try compileAndCapture(
-        \\module App {
-        \\    fn main(args: list<string>) -> int {
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
         \\        data: string = "POST /login HTTP/1.1\r\nContent-Type: application/x-www-form-urlencoded\r\nContent-Length: 21\r\n\r\nuser=alice&pass=s3cret";
         \\        req: int = Http.parse_request(data);
         \\        method: string = Http.req_method(req);
@@ -876,8 +876,8 @@ test "compile: http POST with form encoded body" {
 
 test "compile: http request line only no headers" {
     const r = try compileAndCapture(
-        \\module App {
-        \\    fn main(args: list<string>) -> int {
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
         \\        data: string = "GET / HTTP/1.1\r\n\r\n";
         \\        req: int = Http.parse_request(data);
         \\        path: string = Http.req_path(req);
@@ -892,8 +892,8 @@ test "compile: http request line only no headers" {
 
 test "compile: http lazy parsing - path only never touches headers" {
     const r = try compileAndCapture(
-        \\module App {
-        \\    fn main(args: list<string>) -> int {
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
         \\        match Tcp.listen("127.0.0.1", 0) {
         \\            :ok{listener} => {
         \\                port: int = Tcp.port(listener);
@@ -932,8 +932,8 @@ test "compile: http lazy parsing - path only never touches headers" {
 
 test "compile: http GET with body (elasticsearch style)" {
     const r = try compileAndCapture(
-        \\module App {
-        \\    fn main(args: list<string>) -> int {
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
         \\        data: string = "GET /search HTTP/1.1\r\nContent-Length: 16\r\n\r\n{\"query\":\"test\"}";
         \\        req: int = Http.parse_request(data);
         \\        method: string = Http.req_method(req);
@@ -953,8 +953,8 @@ test "compile: http GET with body (elasticsearch style)" {
 
 test "compile: http multiple headers" {
     const r = try compileAndCapture(
-        \\module App {
-        \\    fn main(args: list<string>) -> int {
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
         \\        data: string = "GET / HTTP/1.1\r\nHost: localhost\r\nAccept: text/html\r\nUser-Agent: Verve/1.0\r\nX-Custom: hello\r\n\r\n";
         \\        req: int = Http.parse_request(data);
         \\        host: string = Http.req_header(req, "Host");

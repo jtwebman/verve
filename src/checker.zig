@@ -21,6 +21,7 @@ pub const Checker = struct {
     current_module_name: ?[]const u8,
     current_fn_name: ?[]const u8,
     current_return_type: ?ast.TypeExpr,
+    send_graph: std.StringHashMapUnmanaged(std.ArrayListUnmanaged([]const u8)),
     source: []const u8,
     file_path: []const u8,
 
@@ -49,6 +50,7 @@ pub const Checker = struct {
             .current_module_name = null,
             .current_fn_name = null,
             .current_return_type = null,
+            .send_graph = .{},
             .source = source,
             .file_path = file_path,
         };
@@ -94,6 +96,9 @@ pub const Checker = struct {
 
         // Check for recursion (call graph cycles)
         try self.checkNoRecursion();
+
+        // Check for deadlocks (mutual blocking send cycles between processes)
+        try self.checkDeadlocks();
     }
 
     // ── Entry point ───────────────────────────────────────────
@@ -119,15 +124,18 @@ pub const Checker = struct {
             }
         }
 
+        // Reject main inside modules — must be a process handler
         var mod_iter = self.modules.iterator();
         while (mod_iter.next()) |entry| {
             for (entry.value_ptr.functions) |func| {
-                if (std.mem.eql(u8, func.name, "main")) found += 1;
+                if (std.mem.eql(u8, func.name, "main")) {
+                    try self.addError("main must be a receive handler in a process, not a module function — use: process App { receive main(args: list<string>) -> int { ... } }", func.span);
+                }
             }
         }
 
         if (found == 0 and !has_exports) {
-            try self.addError("no entry point found — add fn main(args: list<string>) -> int", .{ .start = 0, .end = 0 });
+            try self.addError("no entry point found — add: process App { receive main(args: list<string>) -> int { ... } }", .{ .start = 0, .end = 0 });
         } else if (found > 1) {
             try self.addError("multiple entry points found — only one main() is allowed", .{ .start = 0, .end = 0 });
         }
@@ -205,6 +213,19 @@ pub const Checker = struct {
         self.current_fn_name = handler.name;
         self.current_return_type = handler.return_type;
 
+        // Add sibling handler names and same-named module functions to scope
+        for (p.receive_handlers) |sibling| {
+            try self.current_scope.put(self.alloc, sibling.name, null);
+        }
+        if (self.modules.get(p.name)) |mod| {
+            for (mod.functions) |sibling| {
+                try self.current_scope.put(self.alloc, sibling.name, null);
+            }
+            for (mod.constants) |c| {
+                try self.current_scope.put(self.alloc, c.name, c.type_expr);
+            }
+        }
+
         // Add params to scope
         for (handler.params) |param| {
             try self.checkTypeExists(param.type_expr);
@@ -236,6 +257,10 @@ pub const Checker = struct {
         for (handler.body) |stmt| {
             try self.checkStmt(stmt);
         }
+
+        // Warn about obvious poison values and divergence
+        try self.warnUnguardedDivision(handler.body, handler.guards);
+        try self.checkForDivergence(handler.body);
 
         // Check all code paths return for non-void handlers
         if (!std.mem.eql(u8, self.typeExprName(handler.return_type), "void")) {
@@ -593,7 +618,9 @@ pub const Checker = struct {
                 try self.checkExpr(fa.target);
                 try self.checkExpr(fa.value);
             },
-            .send_stmt => {},
+            .send_stmt => |s| {
+                try self.collectSendEdgeFromSendStmt(s);
+            },
         }
     }
 
@@ -672,6 +699,7 @@ pub const Checker = struct {
             .call => |c| {
                 try self.checkExpr(c.target.*);
                 for (c.args) |arg| try self.checkExpr(arg);
+                try self.collectSendEdge(c);
                 // Check arg count and types against function signature
                 if (self.lookupFnSignature(c.target.*)) |sig| {
                     const fn_qual = std.fmt.allocPrint(self.alloc, "{s}.{s}", .{ sig.module_name, sig.name }) catch "?";
@@ -1664,6 +1692,129 @@ pub const Checker = struct {
             },
             else => {},
         }
+    }
+
+    // ── Deadlock detection (mutual blocking send cycles) ──────
+
+    fn collectSendEdge(self: *Checker, c: ast.Call) !void {
+        const source_process = self.current_process_name orelse return;
+        const source_handler = self.current_fn_name orelse return;
+
+        // Must be Process.send or Process.send_timeout
+        if (c.target.* != .field_access) return;
+        const fa = c.target.field_access;
+        if (fa.target.* != .identifier) return;
+        if (!std.mem.eql(u8, fa.target.identifier, "Process")) return;
+        if (!std.mem.eql(u8, fa.field, "send") and !std.mem.eql(u8, fa.field, "send_timeout")) return;
+
+        // Resolve target: first arg is pid_var.HandlerName
+        if (c.args.len == 0) return;
+        if (c.args[0] != .field_access) return;
+        const target_fa = c.args[0].field_access;
+        if (target_fa.target.* != .identifier) return;
+
+        const maybe_type = self.current_scope.get(target_fa.target.identifier) orelse return;
+        const var_type = maybe_type orelse return;
+        const target_process = self.extractPidProcessName(var_type) orelse return;
+        const target_handler = target_fa.field;
+
+        // Verify handler exists
+        const pdecl = self.process_decls.get(target_process) orelse return;
+        var handler_exists = false;
+        for (pdecl.receive_handlers) |h| {
+            if (std.mem.eql(u8, h.name, target_handler)) {
+                handler_exists = true;
+                break;
+            }
+        }
+        if (!handler_exists) return;
+
+        const source_key = try std.fmt.allocPrint(self.alloc, "{s}.{s}", .{ source_process, source_handler });
+        const target_key = try std.fmt.allocPrint(self.alloc, "{s}.{s}", .{ target_process, target_handler });
+
+        const gop = try self.send_graph.getOrPut(self.alloc, source_key);
+        if (!gop.found_existing) {
+            gop.value_ptr.* = .{};
+        }
+        try gop.value_ptr.append(self.alloc, target_key);
+    }
+
+    fn collectSendEdgeFromSendStmt(self: *Checker, s: ast.SendStmt) !void {
+        const source_process = self.current_process_name orelse return;
+        const source_handler = self.current_fn_name orelse return;
+
+        // Resolve target pid from the target expression
+        if (s.target != .identifier) return;
+        const maybe_type = self.current_scope.get(s.target.identifier) orelse return;
+        const var_type = maybe_type orelse return;
+        const target_process = self.extractPidProcessName(var_type) orelse return;
+
+        // Verify handler exists
+        const pdecl = self.process_decls.get(target_process) orelse return;
+        var handler_exists = false;
+        for (pdecl.receive_handlers) |h| {
+            if (std.mem.eql(u8, h.name, s.handler)) {
+                handler_exists = true;
+                break;
+            }
+        }
+        if (!handler_exists) return;
+
+        const source_key = try std.fmt.allocPrint(self.alloc, "{s}.{s}", .{ source_process, source_handler });
+        const target_key = try std.fmt.allocPrint(self.alloc, "{s}.{s}", .{ target_process, s.handler });
+
+        const gop = try self.send_graph.getOrPut(self.alloc, source_key);
+        if (!gop.found_existing) {
+            gop.value_ptr.* = .{};
+        }
+        try gop.value_ptr.append(self.alloc, target_key);
+    }
+
+    fn checkDeadlocks(self: *Checker) !void {
+        // Ensure all handler nodes exist in the graph
+        var proc_iter = self.process_decls.iterator();
+        while (proc_iter.next()) |entry| {
+            for (entry.value_ptr.receive_handlers) |handler| {
+                const key = try std.fmt.allocPrint(self.alloc, "{s}.{s}", .{ entry.key_ptr.*, handler.name });
+                if (self.send_graph.get(key) == null) {
+                    try self.send_graph.put(self.alloc, key, .{});
+                }
+            }
+        }
+
+        // DFS cycle detection
+        var visited: std.StringHashMapUnmanaged(u8) = .{};
+        var graph_iter = self.send_graph.iterator();
+        while (graph_iter.next()) |entry| {
+            const key = entry.key_ptr.*;
+            if ((visited.get(key) orelse 0) == 0) {
+                try self.detectSendCycleDFS(key, &visited);
+            }
+        }
+    }
+
+    fn detectSendCycleDFS(
+        self: *Checker,
+        node: []const u8,
+        visited: *std.StringHashMapUnmanaged(u8),
+    ) !void {
+        try visited.put(self.alloc, node, 1); // in progress
+
+        if (self.send_graph.get(node)) |targets| {
+            for (targets.items) |target| {
+                const state = visited.get(target) orelse 0;
+                if (state == 1) {
+                    try self.addError(
+                        try std.fmt.allocPrint(self.alloc, "potential deadlock: '{s}' sends to '{s}' which sends back — both block waiting for a reply. Use Process.tell() for one direction to break the cycle", .{ node, target }),
+                        .{ .start = 0, .end = 0 },
+                    );
+                } else if (state == 0) {
+                    try self.detectSendCycleDFS(target, visited);
+                }
+            }
+        }
+
+        try visited.put(self.alloc, node, 2); // done
     }
 
     // ── Error management ──────────────────────────────────────

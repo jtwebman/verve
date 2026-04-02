@@ -71,8 +71,8 @@ test "compile: many tagged results dont crash (arena allocation)" {
         \\        return state.count;
         \\    }
         \\}
-        \\module App {
-        \\    fn main(args: list<string>) -> int {
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
         \\        c: pid<Counter> = spawn Counter();
         \\        i: int = 0;
         \\        while i < 1000 {
@@ -99,8 +99,8 @@ test "compile: many tagged results dont crash (arena allocation)" {
 
 test "compile: many string conversions dont crash (arena allocation)" {
     const r = try compileAndCapture(
-        \\module App {
-        \\    fn main(args: list<string>) -> int {
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
         \\        i: int = 0;
         \\        while i < 500 {
         \\            s: string = Convert.to_string(i);
@@ -117,8 +117,8 @@ test "compile: many string conversions dont crash (arena allocation)" {
 
 test "compile: many string concats dont crash (arena allocation)" {
     const r = try compileAndCapture(
-        \\module App {
-        \\    fn main(args: list<string>) -> int {
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
         \\        s: string = "";
         \\        i: int = 0;
         \\        while i < 200 {
@@ -138,8 +138,8 @@ test "compile: many string concats dont crash (arena allocation)" {
 
 test "compile: string concat literals" {
     const r = try compileAndCapture(
-        \\module App {
-        \\    fn main(args: list<string>) -> int {
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
         \\        s: string = "hello" + " " + "world";
         \\        Stdio.println(s);
         \\        return 0;
@@ -152,8 +152,8 @@ test "compile: string concat literals" {
 
 test "compile: string concat variables" {
     const r = try compileAndCapture(
-        \\module App {
-        \\    fn main(args: list<string>) -> int {
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
         \\        a: string = "foo";
         \\        b: string = "bar";
         \\        c: string = a + b;
@@ -168,8 +168,8 @@ test "compile: string concat variables" {
 
 test "compile: string concat length" {
     const r = try compileAndCapture(
-        \\module App {
-        \\    fn main(args: list<string>) -> int {
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
         \\        s: string = "ab" + "cd";
         \\        Stdio.println(String.len(s));
         \\        return 0;
@@ -182,8 +182,8 @@ test "compile: string concat length" {
 
 test "compile: string concat empty" {
     const r = try compileAndCapture(
-        \\module App {
-        \\    fn main(args: list<string>) -> int {
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
         \\        s: string = "hello" + "";
         \\        Stdio.println(s);
         \\        s2: string = "" + "world";
@@ -198,8 +198,8 @@ test "compile: string concat empty" {
 
 test "compile: string concat chain" {
     const r = try compileAndCapture(
-        \\module App {
-        \\    fn main(args: list<string>) -> int {
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
         \\        s: string = "a" + "b" + "c" + "d" + "e";
         \\        Stdio.println(s);
         \\        Stdio.println(String.len(s));
@@ -213,8 +213,8 @@ test "compile: string concat chain" {
 
 test "compile: string concat with convert" {
     const r = try compileAndCapture(
-        \\module App {
-        \\    fn main(args: list<string>) -> int {
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
         \\        name: string = "count";
         \\        num: string = Convert.to_string(42);
         \\        result: string = name + ": " + num;
@@ -229,8 +229,8 @@ test "compile: string concat with convert" {
 
 test "compile: string concat in loop" {
     const r = try compileAndCapture(
-        \\module App {
-        \\    fn main(args: list<string>) -> int {
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
         \\        s: string = "";
         \\        i: int = 0;
         \\        while i < 5 {
@@ -249,8 +249,8 @@ test "compile: string concat in loop" {
 
 test "compile: string concat with stream read_line" {
     const r = try compileAndCapture(
-        \\module App {
-        \\    fn main(args: list<string>) -> int {
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
         \\        match Tcp.listen("127.0.0.1", 0) {
         \\            :ok{listener} => {
         \\                port: int = Tcp.port(listener);
@@ -284,8 +284,8 @@ test "compile: string concat with stream read_line" {
 
 test "compile: string equality after concat" {
     const r = try compileAndCapture(
-        \\module App {
-        \\    fn main(args: list<string>) -> int {
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
         \\        a: string = "hel" + "lo";
         \\        if a == "hello" {
         \\            Stdio.println("equal");
@@ -304,8 +304,8 @@ test "compile: string equality after concat" {
 
 test "compile: String.contains" {
     const r = try compileAndCapture(
-        \\module App {
-        \\    fn main(args: list<string>) -> int {
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
         \\        if String.contains("hello world", "world") {
         \\            Stdio.println("yes");
         \\        } else {
@@ -326,8 +326,8 @@ test "compile: String.contains" {
 
 test "compile: String.starts_with and ends_with" {
     const r = try compileAndCapture(
-        \\module App {
-        \\    fn main(args: list<string>) -> int {
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
         \\        if String.starts_with("hello world", "hello") {
         \\            Stdio.println("starts");
         \\        } else {
@@ -348,8 +348,8 @@ test "compile: String.starts_with and ends_with" {
 
 test "compile: String.trim" {
     const r = try compileAndCapture(
-        \\module App {
-        \\    fn main(args: list<string>) -> int {
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
         \\        s: string = String.trim("  hello  ");
         \\        Stdio.println(s);
         \\        Stdio.println(String.len(s));
@@ -363,8 +363,8 @@ test "compile: String.trim" {
 
 test "compile: String.replace" {
     const r = try compileAndCapture(
-        \\module App {
-        \\    fn main(args: list<string>) -> int {
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
         \\        s: string = String.replace("hello world", "world", "verve");
         \\        Stdio.println(s);
         \\        return 0;
@@ -384,8 +384,8 @@ test "compile: struct with string and int fields" {
         \\    age: int = 0;
         \\    active: bool = false;
         \\}
-        \\module App {
-        \\    fn main(args: list<string>) -> int {
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
         \\        data: string = "{\"name\": \"bob\", \"age\": 25, \"active\": true}";
         \\        match Json.parse(data, User) {
         \\            :ok{user} => {
@@ -413,8 +413,8 @@ test "compile: struct string field length tracked (no strlen)" {
         \\    name: string = "";
         \\    count: int = 0;
         \\}
-        \\module App {
-        \\    fn main(args: list<string>) -> int {
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
         \\        data: string = "{\"name\": \"widget\", \"count\": 5}";
         \\        match Json.parse(data, Item) {
         \\            :ok{item} => {
@@ -437,7 +437,7 @@ test "compile: struct string field length tracked (no strlen)" {
 
 test "compile: string interpolation with variable" {
     const r = try compileAndCapture(
-        \\module App { fn main(args: list<string>) -> int {
+        \\process App { receive main(args: list<string>) -> int {
         \\    name: string = "world";
         \\    Stdio.println("hello ${name}");
         \\    return 0;
@@ -449,7 +449,7 @@ test "compile: string interpolation with variable" {
 
 test "compile: string interpolation with int expression" {
     const r = try compileAndCapture(
-        \\module App { fn main(args: list<string>) -> int {
+        \\process App { receive main(args: list<string>) -> int {
         \\    x: int = 42;
         \\    Stdio.println("value is ${x}");
         \\    return 0;
@@ -461,7 +461,7 @@ test "compile: string interpolation with int expression" {
 
 test "compile: string interpolation with arithmetic" {
     const r = try compileAndCapture(
-        \\module App { fn main(args: list<string>) -> int {
+        \\process App { receive main(args: list<string>) -> int {
         \\    Stdio.println("1 + 1 = ${1 + 1}");
         \\    return 0;
         \\} }
@@ -472,7 +472,7 @@ test "compile: string interpolation with arithmetic" {
 
 test "compile: string interpolation multiple parts" {
     const r = try compileAndCapture(
-        \\module App { fn main(args: list<string>) -> int {
+        \\process App { receive main(args: list<string>) -> int {
         \\    a: string = "hello";
         \\    b: string = "world";
         \\    Stdio.println("${a} ${b}!");
@@ -485,7 +485,7 @@ test "compile: string interpolation multiple parts" {
 
 test "compile: string interpolation assigned to variable" {
     const r = try compileAndCapture(
-        \\module App { fn main(args: list<string>) -> int {
+        \\process App { receive main(args: list<string>) -> int {
         \\    name: string = "verve";
         \\    msg: string = "lang: ${name}";
         \\    Stdio.println(msg);
@@ -498,7 +498,7 @@ test "compile: string interpolation assigned to variable" {
 
 test "compile: string interpolation empty string parts" {
     const r = try compileAndCapture(
-        \\module App { fn main(args: list<string>) -> int {
+        \\process App { receive main(args: list<string>) -> int {
         \\    x: int = 7;
         \\    Stdio.println("${x}");
         \\    return 0;
@@ -510,7 +510,7 @@ test "compile: string interpolation empty string parts" {
 
 test "compile: string interpolation with bool" {
     const r = try compileAndCapture(
-        \\module App { fn main(args: list<string>) -> int {
+        \\process App { receive main(args: list<string>) -> int {
         \\    x: bool = true;
         \\    Stdio.println("flag: ${x}");
         \\    return 0;
@@ -527,7 +527,7 @@ test "compile: string interpolation with bool" {
 test "compile: enum to_string via interpolation" {
     const r = try compileAndCapture(
         \\type Color = enum { Red, Green, Blue };
-        \\module App { fn main(args: list<string>) -> int {
+        \\process App { receive main(args: list<string>) -> int {
         \\    c: Color = :Green;
         \\    Stdio.println("color: ${c}");
         \\    return 0;
@@ -540,7 +540,7 @@ test "compile: enum to_string via interpolation" {
 test "compile: enum to_string via println" {
     const r = try compileAndCapture(
         \\type Color = enum { Red, Green, Blue };
-        \\module App { fn main(args: list<string>) -> int {
+        \\process App { receive main(args: list<string>) -> int {
         \\    c: Color = :Blue;
         \\    Stdio.println(c);
         \\    return 0;
@@ -554,7 +554,7 @@ test "compile: enum to_string via println" {
 test "compile: struct to_string via interpolation" {
     const r = try compileAndCapture(
         \\struct Point { x: int = 0; y: int = 0; }
-        \\module App { fn main(args: list<string>) -> int {
+        \\process App { receive main(args: list<string>) -> int {
         \\    p: Point = Point { x: 3, y: 7 };
         \\    Stdio.println("point: ${p}");
         \\    return 0;
@@ -567,7 +567,7 @@ test "compile: struct to_string via interpolation" {
 test "compile: struct to_string with string field" {
     const r = try compileAndCapture(
         \\struct User { name: string = ""; age: int = 0; }
-        \\module App { fn main(args: list<string>) -> int {
+        \\process App { receive main(args: list<string>) -> int {
         \\    u: User = User { name: "alice", age: 30 };
         \\    Stdio.println("user: ${u}");
         \\    return 0;
@@ -579,7 +579,7 @@ test "compile: struct to_string with string field" {
 
 test "compile: bool to_string via println" {
     const r = try compileAndCapture(
-        \\module App { fn main(args: list<string>) -> int {
+        \\process App { receive main(args: list<string>) -> int {
         \\    x: bool = false;
         \\    Stdio.println(x);
         \\    return 0;
@@ -591,7 +591,7 @@ test "compile: bool to_string via println" {
 
 test "compile: int and float to_string via println" {
     const r = try compileAndCapture(
-        \\module App { fn main(args: list<string>) -> int {
+        \\process App { receive main(args: list<string>) -> int {
         \\    Stdio.println(42);
         \\    Stdio.println(3.14);
         \\    return 0;
@@ -603,7 +603,7 @@ test "compile: int and float to_string via println" {
 
 test "compile: list to_string via interpolation" {
     const r = try compileAndCapture(
-        \\module App { fn main(args: list<string>) -> int {
+        \\process App { receive main(args: list<string>) -> int {
         \\    items: list<int> = list();
         \\    append items { 1; }
         \\    append items { 2; }
@@ -620,7 +620,7 @@ test "compile: enum field in struct to_string" {
     const r = try compileAndCapture(
         \\type Color = enum { Red, Green, Blue };
         \\struct Pixel { color: Color = :Red; x: int = 0; }
-        \\module App { fn main(args: list<string>) -> int {
+        \\process App { receive main(args: list<string>) -> int {
         \\    p: Pixel = Pixel { color: :Green, x: 5 };
         \\    Stdio.println("pixel: ${p}");
         \\    return 0;

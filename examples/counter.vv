@@ -19,8 +19,8 @@ process Counter<CounterState> {
 	}
 }
 
-module Main {
-	fn main() -> int {
+process Main {
+	receive main() -> int {
 		Stdio.println("=== Verve Process Test ===");
 		counter: pid<Counter> = spawn Counter();
 		Stdio.println("Spawned counter process");

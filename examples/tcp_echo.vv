@@ -1,7 +1,7 @@
 /// Simple TCP echo server. Listens on port 9999, accepts one connection,
 /// reads a line, writes it back, then exits.
-module Main {
-	fn main() -> int {
+process Main {
+	receive main() -> int {
 		match Tcp.listen("127.0.0.1", 9999) {
 			:ok{listener} => {
 				Stdio.println("Listening on 127.0.0.1:9999");

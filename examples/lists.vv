@@ -1,5 +1,5 @@
-module Main {
-	fn main() -> int {
+process Main {
+	receive main() -> int {
 		Stdio.println("=== List Test ===");
 
 		// Create a list and append to it
