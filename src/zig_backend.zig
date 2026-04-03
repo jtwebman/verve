@@ -381,6 +381,15 @@ pub const ZigBackend = struct {
         .{ "json_build_add_string", S{ .module = "json", .min_args = 3, .void_result = true } },
         .{ "json_build_add_int", S{ .module = "json", .min_args = 3, .void_result = true } },
         .{ "json_build_add_float", S{ .module = "json", .min_args = 3, .void_result = true } },
+        // ── StringBuilder ───────────────────────────
+        .{ "sb_new", S{ .module = "stringbuilder", .rt_name = "verve_sb_new", .min_args = 1, .returns = .pointer } },
+        .{ "sb_write", S{ .module = "stringbuilder", .rt_name = "verve_sb_append", .min_args = 2, .void_result = true } },
+        .{ "sb_write_int", S{ .module = "stringbuilder", .rt_name = "verve_sb_append_int", .min_args = 2, .void_result = true } },
+        .{ "sb_write_float", S{ .module = "stringbuilder", .rt_name = "verve_sb_append_float", .min_args = 2, .void_result = true } },
+        .{ "sb_write_bool", S{ .module = "stringbuilder", .rt_name = "!", .min_args = 2, .void_result = true } },
+        .{ "sb_to_string", S{ .module = "stringbuilder", .rt_name = "verve_sb_to_string", .min_args = 1, .returns = .string } },
+        .{ "sb_len", S{ .module = "stringbuilder", .rt_name = "verve_sb_len", .min_args = 1 } },
+        .{ "sb_clear", S{ .module = "stringbuilder", .rt_name = "verve_sb_clear", .min_args = 1, .void_result = true } },
         // ── Tags / Process ──────────────────────────
         .{ "make_tagged", S{ .rt_name = "!", .min_args = 2, .returns = .pointer } },
         .{ "process_exit", S{ .module = "process", .rt_name = "!", .void_result = true } },
@@ -427,6 +436,7 @@ pub const ZigBackend = struct {
     const rt_process_source = @embedFile("runtime/process.zig");
     const rt_fiber_source = @embedFile("runtime/fiber.zig");
     const rt_profile_source = @embedFile("runtime/profile.zig");
+    const rt_stringbuilder_source = @embedFile("runtime/stringbuilder.zig");
 
     pub fn emit(self: *ZigBackend, program: ir.Program) void {
         self.program = program;
@@ -1463,6 +1473,11 @@ pub const ZigBackend = struct {
                 }
             }
             self.lineFmt("{s} = 0;", .{self.regName(dest)});
+        } else if (std.mem.eql(u8, name, "sb_write_bool")) {
+            if (args.len >= 2) {
+                self.lineFmt("rt.stringbuilder.verve_sb_append({s}, if ({s}) \"true\" else \"false\");", .{ self.regName(args[0]), self.regName(args[1]) });
+            }
+            self.lineFmt("{s} = 0;", .{self.regName(dest)});
         } else if (std.mem.eql(u8, name, "process_exit")) {
             self.line("rt.process.verve_exit_self();");
             self.lineFmt("{s} = 0;", .{self.regName(dest)});
@@ -1728,6 +1743,7 @@ pub const ZigBackend = struct {
             .{ "process.zig", rt_process_source },
             .{ "fiber.zig", rt_fiber_source },
             .{ "profile.zig", rt_profile_source },
+            .{ "stringbuilder.zig", rt_stringbuilder_source },
         };
         inline for (rt_files) |entry| {
             const rt_path = try std.fmt.allocPrint(self.alloc, "{s}/{s}", .{ rt_dir, entry[0] });

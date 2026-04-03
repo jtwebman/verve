@@ -12,6 +12,7 @@ pub const http = @import("http.zig");
 pub const process = @import("process.zig");
 pub const fiber = @import("fiber.zig");
 pub const profile = @import("profile.zig");
+pub const stringbuilder = @import("stringbuilder.zig");
 
 // ── Constants ──────────────────────────────────────
 pub const MAILBOX_BUF_SIZE = 4 * 1024; // 4KB byte ring buffer per process (was 64KB — too large for short-lived processes)

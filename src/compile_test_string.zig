@@ -629,3 +629,131 @@ test "compile: enum field in struct to_string" {
     try testing.expectEqual(@as(u8, 0), r.exit);
     try testing.expectEqualStrings("pixel: Pixel { color: Green, x: 5 }\n", r.stdout);
 }
+
+// ── StringBuilder tests ──────────────────────────────
+
+test "compile: StringBuilder basic append and to_string" {
+    const r = try compileAndCapture(
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
+        \\        sb = StringBuilder.new();
+        \\        StringBuilder.write(sb, "hello ");
+        \\        StringBuilder.write(sb, "world");
+        \\        Stdio.println(StringBuilder.to_string(sb));
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("hello world\n", r.stdout);
+}
+
+test "compile: StringBuilder with custom capacity" {
+    const r = try compileAndCapture(
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
+        \\        sb = StringBuilder.new(4096);
+        \\        StringBuilder.write(sb, "big buffer");
+        \\        Stdio.println(StringBuilder.to_string(sb));
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("big buffer\n", r.stdout);
+}
+
+test "compile: StringBuilder loop concat" {
+    const r = try compileAndCapture(
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
+        \\        sb = StringBuilder.new();
+        \\        i: int = 0;
+        \\        while i < 5 {
+        \\            StringBuilder.write_int(sb, i);
+        \\            StringBuilder.write(sb, " ");
+        \\            i = i + 1;
+        \\        }
+        \\        Stdio.println(StringBuilder.to_string(sb));
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("0 1 2 3 4 \n", r.stdout);
+}
+
+test "compile: StringBuilder mixed types" {
+    const r = try compileAndCapture(
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
+        \\        sb = StringBuilder.new();
+        \\        StringBuilder.write(sb, "str=");
+        \\        StringBuilder.write(sb, "hi");
+        \\        StringBuilder.write(sb, " int=");
+        \\        StringBuilder.write_int(sb, 42);
+        \\        StringBuilder.write(sb, " float=");
+        \\        StringBuilder.write_float(sb, 3.14);
+        \\        StringBuilder.write(sb, " bool=");
+        \\        StringBuilder.write_bool(sb, true);
+        \\        Stdio.println(StringBuilder.to_string(sb));
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("str=hi int=42 float=3.14 bool=true\n", r.stdout);
+}
+
+test "compile: StringBuilder clear and len" {
+    const r = try compileAndCapture(
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
+        \\        sb = StringBuilder.new();
+        \\        StringBuilder.write(sb, "hello");
+        \\        Stdio.println(StringBuilder.len(sb));
+        \\        StringBuilder.clear(sb);
+        \\        Stdio.println(StringBuilder.len(sb));
+        \\        StringBuilder.write(sb, "world");
+        \\        Stdio.println(StringBuilder.to_string(sb));
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("5\n0\nworld\n", r.stdout);
+}
+
+test "compile: StringBuilder empty to_string" {
+    const r = try compileAndCapture(
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
+        \\        sb = StringBuilder.new();
+        \\        result: string = StringBuilder.to_string(sb);
+        \\        Stdio.println(String.len(result));
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("0\n", r.stdout);
+}
+
+test "compile: StringBuilder grows past initial capacity" {
+    const r = try compileAndCapture(
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
+        \\        sb = StringBuilder.new();
+        \\        i: int = 0;
+        \\        while i < 100 {
+        \\            StringBuilder.write(sb, "abcdefghij");
+        \\            i = i + 1;
+        \\        }
+        \\        Stdio.println(StringBuilder.len(sb));
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("1000\n", r.stdout);
+}

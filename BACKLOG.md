@@ -80,6 +80,7 @@ The benchmark apps need real concurrency to show Verve's advantage.
 What's needed to build the 20 benchmark apps.
 
 ### Needed
+- [ ] Typed config from env vars — `config AppConfig { port: int = 8080; db_url: string; }` with compile-time + startup validation. Required fields (no default) must come from env or fail fast. Config is immutable after init → first candidate for shared-immutable cross-process data.
 - [x] Http — keep-alive connections (reuse TCP, skip handshake per request)
 - [ ] Http — chunked transfer encoding
 - [ ] Http client (for API-to-API calls, webhook sending)
@@ -90,7 +91,7 @@ What's needed to build the 20 benchmark apps.
 - [ ] module Uuid (v4 generation)
 - [ ] module Base64 (encode/decode)
 - [ ] module Hash (sha256, for auth tokens)
-- [ ] StringBuilder / Buffer type — avoid O(n²) string concat in loops, growable byte buffer
+- [x] StringBuilder / Buffer type — avoid O(n²) string concat in loops, growable byte buffer
 
 ### Nice to Have
 - [ ] IO — Udp, Signal

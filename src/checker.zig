@@ -688,7 +688,8 @@ pub const Checker = struct {
                         std.mem.eql(u8, name, "Convert") or
                         std.mem.eql(u8, name, "Json") or
                         std.mem.eql(u8, name, "Http") or
-                        std.mem.eql(u8, name, "Process")) return;
+                        std.mem.eql(u8, name, "Process") or
+                        std.mem.eql(u8, name, "StringBuilder")) return;
                 }
                 try self.checkExpr(fa.target.*);
             },
@@ -1248,6 +1249,7 @@ pub const Checker = struct {
         if (std.mem.eql(u8, mod, "Convert")) return inferConvertFn(func);
         if (std.mem.eql(u8, mod, "Math")) return .{ .simple = "int" };
         // Process.send/tell/send_timeout handled at call site with proper return types
+        if (std.mem.eql(u8, mod, "StringBuilder")) return inferStringBuilderFn(func);
         if (std.mem.eql(u8, mod, "Process")) {
             if (std.mem.eql(u8, func, "self")) {
                 if (self.current_process_name) |pname| return self.makePidType(pname);
@@ -1374,6 +1376,17 @@ pub const Checker = struct {
     fn inferStackQueueFn(func: []const u8) ?ast.TypeExpr {
         if (std.mem.eql(u8, func, "push")) return .{ .simple = "void" };
         // pop, peek -> element type unknown without generic context
+        return null;
+    }
+
+    fn inferStringBuilderFn(func: []const u8) ?ast.TypeExpr {
+        if (std.mem.eql(u8, func, "to_string")) return .{ .simple = "string" };
+        if (std.mem.eql(u8, func, "len")) return .{ .simple = "int" };
+        if (std.mem.eql(u8, func, "write") or
+            std.mem.eql(u8, func, "write_int") or
+            std.mem.eql(u8, func, "write_float") or
+            std.mem.eql(u8, func, "write_bool") or
+            std.mem.eql(u8, func, "clear")) return .{ .simple = "void" };
         return null;
     }
 

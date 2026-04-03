@@ -282,6 +282,33 @@ Map indexing: `m["key"]` returns value or `none`. `.len` returns entry count.
 |----------|-----------|-------------|
 | `File.open(path, mode)` | `string, string -> Result<stream>` | Open file. mode: `"r"` or `"w"` |
 
+### StringBuilder
+
+Growable byte buffer for efficient string building. Avoids O(n^2) from repeated string concatenation in loops.
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `StringBuilder.new()` | `-> pointer` | Create buffer (default 256 bytes) |
+| `StringBuilder.new(cap)` | `int -> pointer` | Create buffer with initial capacity |
+| `StringBuilder.write(sb, str)` | `pointer, string -> void` | Write string |
+| `StringBuilder.write_int(sb, n)` | `pointer, int -> void` | Write integer |
+| `StringBuilder.write_float(sb, f)` | `pointer, float -> void` | Write float |
+| `StringBuilder.write_bool(sb, b)` | `pointer, bool -> void` | Write "true"/"false" |
+| `StringBuilder.to_string(sb)` | `pointer -> string` | Get result string |
+| `StringBuilder.len(sb)` | `pointer -> int` | Current byte length |
+| `StringBuilder.clear(sb)` | `pointer -> void` | Reset to empty |
+
+```verve
+sb = StringBuilder.new()
+i: int = 0
+while i < 1000 {
+    StringBuilder.write_int(sb, i)
+    StringBuilder.write(sb, "\n")
+    i = i + 1
+}
+result: string = StringBuilder.to_string(sb)
+```
+
 ### Stream
 | Function | Signature | Description |
 |----------|-----------|-------------|

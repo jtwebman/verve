@@ -1180,6 +1180,19 @@ pub const Lower = struct {
                         }
 
                         // Built-in modules — all simplified: just pass registers directly
+                        if (std.mem.eql(u8, mod_name, "StringBuilder")) {
+                            if (std.mem.eql(u8, fn_name, "new") and args.len == 0) {
+                                const zero_reg = func.newReg();
+                                self.appendInst(.{ .const_int = .{ .dest = zero_reg, .value = 0 } });
+                                const default_args = self.alloc.alloc(ir.Reg, 1) catch return dest;
+                                default_args[0] = zero_reg;
+                                self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = "sb_new", .args = default_args } });
+                                return dest;
+                            }
+                            const builtin_name = std.fmt.allocPrint(self.alloc, "sb_{s}", .{fn_name}) catch fn_name;
+                            self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = builtin_name, .args = args } });
+                            return dest;
+                        }
                         if (std.mem.eql(u8, mod_name, "String")) {
                             if (std.mem.eql(u8, fn_name, "byte_at")) {
                                 if (args.len >= 2) {
