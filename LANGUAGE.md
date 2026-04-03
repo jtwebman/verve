@@ -326,6 +326,43 @@ result: string = StringBuilder.to_string(sb)
 | `Tcp.accept(listener)` | `stream -> Result<stream>` | Accept connection |
 | `Tcp.port(listener)` | `stream -> int` | Get assigned port number |
 
+### Http
+
+**Server:**
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `Http.read_request(stream)` | `stream -> string` | Read HTTP request from connection |
+| `Http.parse_request(data)` | `string -> pointer` | Parse raw request data |
+| `Http.req_method(req)` | `pointer -> string` | GET, POST, etc. |
+| `Http.req_path(req)` | `pointer -> string` | Request path |
+| `Http.req_body(req)` | `pointer -> string` | Request body |
+| `Http.req_header(req, name)` | `pointer, string -> string` | Get header (case-insensitive) |
+| `Http.respond(status, ct, body)` | `int, string, string -> string` | Build HTTP response |
+
+**Client:**
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `Http.get(url)` | `string -> Result<pointer>` | HTTP GET request |
+| `Http.post(url, body)` | `string, string -> Result<pointer>` | HTTP POST request |
+| `Http.request(method, url, body)` | `string, string, string -> Result<pointer>` | Any HTTP method |
+| `Http.resp_status(resp)` | `pointer -> int` | Response status code (200, 404, etc.) |
+| `Http.resp_body(resp)` | `pointer -> string` | Response body |
+| `Http.resp_header(resp, name)` | `pointer, string -> string` | Get header (case-insensitive) |
+| `Http.set_client_timeout(ms)` | `int -> void` | Set request timeout (default 30s) |
+
+Any HTTP response (including 4xx/5xx) returns `:ok{resp}`. Only network failures return `:error`. Follows redirects automatically (max 10 hops). Supports chunked transfer encoding.
+
+```verve
+match Http.get("http://api.example.com/users") {
+    :ok{resp} => {
+        status: int = Http.resp_status(resp);
+        body: string = Http.resp_body(resp);
+        ct: string = Http.resp_header(resp, "content-type");
+    }
+    :error{e} => Stdio.println("network error");
+}
+```
+
 ### Timer
 | Function | Signature | Description |
 |----------|-----------|-------------|

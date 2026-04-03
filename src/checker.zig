@@ -1295,12 +1295,18 @@ pub const Checker = struct {
         return null;
     }
 
-    fn inferHttpFn(_: *Checker, func: []const u8) ?ast.TypeExpr {
+    fn inferHttpFn(self: *Checker, func: []const u8) ?ast.TypeExpr {
         if (std.mem.eql(u8, func, "respond") or std.mem.eql(u8, func, "read_request"))
             return .{ .simple = "string" };
         if (std.mem.eql(u8, func, "req_method") or std.mem.eql(u8, func, "req_path") or
             std.mem.eql(u8, func, "req_body") or std.mem.eql(u8, func, "req_header"))
             return .{ .simple = "string" };
+        if (std.mem.eql(u8, func, "get") or std.mem.eql(u8, func, "post") or std.mem.eql(u8, func, "request"))
+            return self.makeResultType("int");
+        if (std.mem.eql(u8, func, "resp_status")) return .{ .simple = "int" };
+        if (std.mem.eql(u8, func, "resp_body")) return .{ .simple = "string" };
+        if (std.mem.eql(u8, func, "resp_header")) return .{ .simple = "string" };
+        if (std.mem.eql(u8, func, "set_client_timeout")) return .{ .simple = "void" };
         return null;
     }
 

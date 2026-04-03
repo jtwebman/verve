@@ -972,3 +972,262 @@ test "compile: http multiple headers" {
     try testing.expectEqual(@as(u8, 0), r.exit);
     try testing.expectEqualStrings("localhost\ntext/html\nVerve/1.0\nhello\n", r.stdout);
 }
+
+// ── HTTP Client tests ─────────────────────────────────
+
+test "compile: http client GET to local server" {
+    // Use a Zig-level HTTP server to avoid Verve process timing issues
+    const port = try startTestHttpServer("200 OK", "text/plain", "hello from server");
+    defer stopTestHttpServer(port);
+
+    var url_buf: [64]u8 = undefined;
+    const url = std.fmt.bufPrint(&url_buf, "http://127.0.0.1:{d}/test", .{port}) catch unreachable;
+
+    const src_fmt =
+        \\process App {{
+        \\    receive main(args: list<string>) -> int {{
+        \\        match Http.get("{s}") {{
+        \\            :ok{{resp}} => {{
+        \\                Stdio.println(Http.resp_status(resp));
+        \\                Stdio.println(Http.resp_body(resp));
+        \\            }}
+        \\            :error{{e}} => Stdio.println("error");
+        \\        }}
+        \\        return 0;
+        \\    }}
+        \\}}
+    ;
+    var src_buf: [2048]u8 = undefined;
+    const src = std.fmt.bufPrint(&src_buf, src_fmt, .{url}) catch unreachable;
+    const r = try compileAndCapture(src);
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("200\nhello from server\n", r.stdout);
+}
+
+test "compile: http client POST to local server" {
+    const port = try startTestHttpServerEcho();
+    defer stopTestHttpServer(port);
+
+    var url_buf: [64]u8 = undefined;
+    const url = std.fmt.bufPrint(&url_buf, "http://127.0.0.1:{d}/api", .{port}) catch unreachable;
+
+    const src_fmt =
+        \\process App {{
+        \\    receive main(args: list<string>) -> int {{
+        \\        match Http.post("{s}", "{{\"name\":\"alice\"}}") {{
+        \\            :ok{{resp}} => {{
+        \\                Stdio.println(Http.resp_status(resp));
+        \\                Stdio.println(Http.resp_body(resp));
+        \\            }}
+        \\            :error{{e}} => Stdio.println("error");
+        \\        }}
+        \\        return 0;
+        \\    }}
+        \\}}
+    ;
+    var src_buf: [2048]u8 = undefined;
+    const src = std.fmt.bufPrint(&src_buf, src_fmt, .{url}) catch unreachable;
+    const r = try compileAndCapture(src);
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("200\n{\"name\":\"alice\"}\n", r.stdout);
+}
+
+test "compile: http client resp_header" {
+    const port = try startTestHttpServer("200 OK", "application/json", "{}");
+    defer stopTestHttpServer(port);
+
+    var url_buf: [64]u8 = undefined;
+    const url = std.fmt.bufPrint(&url_buf, "http://127.0.0.1:{d}/", .{port}) catch unreachable;
+
+    const src_fmt =
+        \\process App {{
+        \\    receive main(args: list<string>) -> int {{
+        \\        match Http.get("{s}") {{
+        \\            :ok{{resp}} => {{
+        \\                ct: string = Http.resp_header(resp, "Content-Type");
+        \\                Stdio.println(ct);
+        \\            }}
+        \\            :error{{e}} => Stdio.println("error");
+        \\        }}
+        \\        return 0;
+        \\    }}
+        \\}}
+    ;
+    var src_buf: [2048]u8 = undefined;
+    const src = std.fmt.bufPrint(&src_buf, src_fmt, .{url}) catch unreachable;
+    const r = try compileAndCapture(src);
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("application/json\n", r.stdout);
+}
+
+test "compile: http client 404 is ok not error" {
+    const port = try startTestHttpServer("404 Not Found", "text/plain", "not found");
+    defer stopTestHttpServer(port);
+
+    var url_buf: [64]u8 = undefined;
+    const url = std.fmt.bufPrint(&url_buf, "http://127.0.0.1:{d}/missing", .{port}) catch unreachable;
+
+    const src_fmt =
+        \\process App {{
+        \\    receive main(args: list<string>) -> int {{
+        \\        match Http.get("{s}") {{
+        \\            :ok{{resp}} => {{
+        \\                Stdio.println(Http.resp_status(resp));
+        \\                Stdio.println(Http.resp_body(resp));
+        \\            }}
+        \\            :error{{e}} => Stdio.println("should not be error");
+        \\        }}
+        \\        return 0;
+        \\    }}
+        \\}}
+    ;
+    var src_buf: [2048]u8 = undefined;
+    const src = std.fmt.bufPrint(&src_buf, src_fmt, .{url}) catch unreachable;
+    const r = try compileAndCapture(src);
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("404\nnot found\n", r.stdout);
+}
+
+test "compile: http client connection refused is error" {
+    const r = try compileAndCapture(
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
+        \\        match Http.get("http://127.0.0.1:19999/nope") {
+        \\            :ok{resp} => Stdio.println("should not succeed");
+        \\            :error{e} => Stdio.println("connection error");
+        \\        }
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("connection error\n", r.stdout);
+}
+
+test "compile: http client invalid url is error" {
+    const r = try compileAndCapture(
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
+        \\        match Http.get("not-a-url") {
+        \\            :ok{resp} => Stdio.println("should not succeed");
+        \\            :error{e} => Stdio.println("invalid url");
+        \\        }
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("invalid url\n", r.stdout);
+}
+
+// ── Test HTTP server helpers ─────────────────────────
+
+const TestServer = struct {
+    thread: ?std.Thread,
+    fd: std.posix.fd_t,
+};
+
+var test_servers: [16]?TestServer = .{null} ** 16;
+
+fn startTestHttpServer(status: []const u8, ct: []const u8, body: []const u8) !u16 {
+    return startTestHttpServerImpl(status, ct, body, false);
+}
+
+fn startTestHttpServerEcho() !u16 {
+    return startTestHttpServerImpl("200 OK", "application/json", "", true);
+}
+
+fn startTestHttpServerImpl(status: []const u8, ct: []const u8, body: []const u8, echo: bool) !u16 {
+    const addr = try std.net.Address.resolveIp("127.0.0.1", 0);
+    const fd = try std.posix.socket(addr.any.family, std.posix.SOCK.STREAM, 0);
+    const one: [4]u8 = .{ 1, 0, 0, 0 };
+    std.posix.setsockopt(fd, std.posix.SOL.SOCKET, std.posix.SO.REUSEADDR, &one) catch {};
+    try std.posix.bind(fd, &addr.any, addr.getOsSockLen());
+    try std.posix.listen(fd, 8);
+
+    // Get assigned port
+    var bound_addr: std.posix.sockaddr.in = undefined;
+    var addr_len: std.posix.socklen_t = @sizeOf(std.posix.sockaddr.in);
+    try std.posix.getsockname(fd, @ptrCast(&bound_addr), &addr_len);
+    const port = std.mem.bigToNative(u16, bound_addr.port);
+
+    const ctx = alloc.create(ServerCtx) catch return error.OutOfMemory;
+    ctx.* = .{ .fd = fd, .status = status, .ct = ct, .body = body, .echo = echo };
+
+    const thread = try std.Thread.spawn(.{}, testServerThread, .{ctx});
+
+    // Store for cleanup
+    for (&test_servers) |*slot| {
+        if (slot.* == null) {
+            slot.* = .{ .thread = thread, .fd = fd };
+            break;
+        }
+    }
+
+    return port;
+}
+
+const ServerCtx = struct {
+    fd: std.posix.fd_t,
+    status: []const u8,
+    ct: []const u8,
+    body: []const u8,
+    echo: bool,
+};
+
+fn testServerThread(ctx: *ServerCtx) void {
+    // Accept one connection
+    const client_fd = std.posix.accept(ctx.fd, null, null, 0) catch return;
+    defer std.posix.close(client_fd);
+
+    // Read request
+    var req_buf: [8192]u8 = undefined;
+    var total: usize = 0;
+    while (total < req_buf.len) {
+        const n = std.posix.read(client_fd, req_buf[total..]) catch break;
+        if (n == 0) break;
+        total += n;
+        // Check for end of headers
+        if (std.mem.indexOf(u8, req_buf[0..total], "\r\n\r\n")) |hdr_end| {
+            // Check for Content-Length body
+            const cl = parseTestContentLength(req_buf[0..hdr_end]);
+            if (total >= hdr_end + 4 + cl) break;
+        }
+    }
+
+    // Build response
+    var resp_body: []const u8 = ctx.body;
+    if (ctx.echo and total > 0) {
+        // Echo back the request body
+        if (std.mem.indexOf(u8, req_buf[0..total], "\r\n\r\n")) |hdr_end| {
+            resp_body = req_buf[hdr_end + 4 .. total];
+        }
+    }
+
+    var resp_buf: [8192]u8 = undefined;
+    const resp = std.fmt.bufPrint(&resp_buf, "HTTP/1.1 {s}\r\nContent-Type: {s}\r\nContent-Length: {d}\r\nConnection: close\r\n\r\n{s}", .{ ctx.status, ctx.ct, resp_body.len, resp_body }) catch return;
+    _ = std.posix.write(client_fd, resp) catch {};
+}
+
+fn parseTestContentLength(headers: []const u8) usize {
+    const needle = "Content-Length: ";
+    if (std.mem.indexOf(u8, headers, needle)) |pos| {
+        const start = pos + needle.len;
+        var end = start;
+        while (end < headers.len and headers[end] >= '0' and headers[end] <= '9') end += 1;
+        return std.fmt.parseInt(usize, headers[start..end], 10) catch 0;
+    }
+    return 0;
+}
+
+fn stopTestHttpServer(port: u16) void {
+    _ = port;
+    for (&test_servers) |*slot| {
+        if (slot.*) |*srv| {
+            std.posix.close(srv.fd);
+            if (srv.thread) |t| t.join();
+            slot.* = null;
+            return;
+        }
+    }
+}

@@ -625,3 +625,459 @@ pub fn http_serve(listener_ptr: usize, handler_type_i: i64, handler_index_i: i64
 
     return 0;
 }
+
+// ── HTTP Client ─────────────────────────────────────
+
+var client_timeout_ms: i64 = 30000; // default 30 seconds
+
+pub fn http_set_client_timeout(ms: i64) i64 {
+    client_timeout_ms = if (ms < 0) 0 else ms;
+    return 0;
+}
+
+/// Parsed URL components.
+const ParsedUrl = struct {
+    host: []const u8,
+    port: u16,
+    path: []const u8, // includes query string
+};
+
+/// Parse "http://host:port/path?query" into components.
+fn parseUrl(url: []const u8) ?ParsedUrl {
+    var rest = url;
+    if (std.mem.startsWith(u8, rest, "http://")) {
+        rest = rest[7..];
+    } else if (std.mem.startsWith(u8, rest, "https://")) {
+        return null; // TLS not supported
+    }
+    const slash_pos = std.mem.indexOf(u8, rest, "/");
+    const host_part = if (slash_pos) |sp| rest[0..sp] else rest;
+    const path = if (slash_pos) |sp| rest[sp..] else "/";
+    if (std.mem.indexOf(u8, host_part, ":")) |colon| {
+        const port = std.fmt.parseInt(u16, host_part[colon + 1 ..], 10) catch return null;
+        return .{ .host = host_part[0..colon], .port = port, .path = path };
+    }
+    return .{ .host = host_part, .port = 80, .path = path };
+}
+
+/// HTTP response — stores full raw data with parsed offsets.
+pub const HttpResponse = struct {
+    status: i64,
+    raw: [*]const u8, // full response bytes
+    raw_len: usize,
+    header_end: usize, // byte offset where body starts (after \r\n\r\n)
+};
+
+/// Build an HTTP request string.
+fn clientBuildRequest(method: []const u8, host: []const u8, path: []const u8, body: []const u8) []const u8 {
+    var b = json.JsonBuilder.init();
+    b.append(method);
+    b.appendByte(' ');
+    b.append(path);
+    b.append(" HTTP/1.1\r\nHost: ");
+    b.append(host);
+    b.append("\r\nConnection: close\r\nUser-Agent: Verve/1.0\r\n");
+    if (body.len > 0) {
+        b.append("Content-Length: ");
+        var len_buf: [20]u8 = undefined;
+        const len_str = std.fmt.bufPrint(&len_buf, "{d}", .{body.len}) catch "0";
+        b.append(len_str);
+        b.append("\r\nContent-Type: application/json\r\n");
+    }
+    b.append("\r\n");
+    if (body.len > 0) b.append(body);
+    const res = b.result();
+    return rt.sliceFromPair(res.ptr, res.len);
+}
+
+/// Parse status code from HTTP response first line: "HTTP/1.1 200 OK\r\n"
+fn parseStatusCode(data: []const u8) i64 {
+    // Find first space after HTTP/1.x
+    const sp1 = std.mem.indexOf(u8, data, " ") orelse return 0;
+    const rest = data[sp1 + 1 ..];
+    // Read 3-digit status code
+    if (rest.len < 3) return 0;
+    return std.fmt.parseInt(i64, rest[0..3], 10) catch 0;
+}
+
+/// Check if transfer-encoding is chunked (case-insensitive).
+fn isChunkedTransfer(headers: []const u8) bool {
+    const needle = "transfer-encoding:";
+    var i: usize = 0;
+    while (i + needle.len < headers.len) : (i += 1) {
+        var match = true;
+        for (needle, 0..) |nc, j| {
+            const hc = headers[i + j];
+            const lower = if (hc >= 'A' and hc <= 'Z') hc + 32 else hc;
+            if (lower != nc) {
+                match = false;
+                break;
+            }
+        }
+        if (match) {
+            var start = i + needle.len;
+            while (start < headers.len and headers[start] == ' ') start += 1;
+            // Check if value contains "chunked"
+            const line_end = std.mem.indexOf(u8, headers[start..], "\r\n") orelse headers.len - start;
+            const val = headers[start .. start + line_end];
+            // Case-insensitive check for "chunked"
+            if (val.len >= 7) {
+                var buf: [7]u8 = undefined;
+                for (val[0..@min(val.len, 7)], 0..) |c, k| {
+                    buf[k] = if (c >= 'A' and c <= 'Z') c + 32 else c;
+                }
+                if (std.mem.eql(u8, buf[0..7], "chunked")) return true;
+            }
+            return false;
+        }
+    }
+    return false;
+}
+
+/// Growable buffer for response reading.
+const GrowBuf = struct {
+    ptr: [*]u8,
+    len: usize,
+    cap: usize,
+
+    fn init(initial: usize) ?GrowBuf {
+        const mem = rt.arena_alloc(initial) orelse return null;
+        return .{ .ptr = mem, .len = 0, .cap = initial };
+    }
+
+    fn grow(self: *GrowBuf, needed: usize) bool {
+        if (needed <= self.cap) return true;
+        var new_cap = self.cap;
+        while (new_cap < needed) new_cap *= 2;
+        const new_mem = rt.arena_alloc(new_cap) orelse return false;
+        if (self.len > 0) @memcpy(new_mem[0..self.len], self.ptr[0..self.len]);
+        self.ptr = new_mem;
+        self.cap = new_cap;
+        return true;
+    }
+
+    fn appendSlice(self: *GrowBuf, data: []const u8) bool {
+        if (!self.grow(self.len + data.len)) return false;
+        @memcpy(self.ptr[self.len .. self.len + data.len], data);
+        self.len += data.len;
+        return true;
+    }
+
+    fn slice(self: *const GrowBuf) []const u8 {
+        if (self.len == 0) return "";
+        return self.ptr[0..self.len];
+    }
+};
+
+/// Decode chunked transfer encoding from fd, appending decoded bytes to buf.
+fn readChunkedBody(fd: std.posix.fd_t, buf: *GrowBuf, leftover: []const u8) void {
+    // leftover = bytes already read past header_end that are part of chunked body
+    var pending = leftover;
+
+    while (true) {
+        // We need to find chunk-size line in pending data
+        // Format: <hex-size>\r\n<data>\r\n
+        const chunk_header_end = findInData(pending, "\r\n");
+        if (chunk_header_end == null) {
+            // Need more data — read from socket
+            var read_buf: [4096]u8 = undefined;
+            const n = std.posix.read(fd, &read_buf) catch return;
+            if (n == 0) return;
+            // Append to pending via buf (store temporarily)
+            const old_len = buf.len;
+            if (!buf.appendSlice(pending)) return;
+            if (!buf.appendSlice(read_buf[0..n])) return;
+            pending = buf.ptr[old_len..buf.len];
+            buf.len = old_len; // reset — we're just using it as temp storage
+            continue;
+        }
+
+        const size_str = pending[0..chunk_header_end.?];
+        // Strip chunk extensions (everything after ;)
+        const clean = if (std.mem.indexOf(u8, size_str, ";")) |semi| size_str[0..semi] else size_str;
+        const chunk_size = std.fmt.parseInt(usize, std.mem.trim(u8, clean, " \t"), 16) catch return;
+
+        if (chunk_size == 0) return; // Final chunk
+
+        const data_start = chunk_header_end.? + 2; // skip \r\n after size
+        const data_end = data_start + chunk_size;
+        const chunk_end = data_end + 2; // skip \r\n after data
+
+        if (pending.len >= chunk_end) {
+            // All chunk data in pending
+            if (!buf.appendSlice(pending[data_start..data_end])) return;
+            pending = pending[chunk_end..];
+        } else if (pending.len >= data_start) {
+            // Partial chunk data in pending
+            const available = pending.len - data_start;
+            const in_pending = @min(available, chunk_size);
+            if (!buf.appendSlice(pending[data_start .. data_start + in_pending])) return;
+
+            // Read remaining chunk data from socket
+            var remaining = chunk_size - in_pending;
+            while (remaining > 0) {
+                var read_buf2: [4096]u8 = undefined;
+                const to_read = @min(remaining, read_buf2.len);
+                const n2 = std.posix.read(fd, read_buf2[0..to_read]) catch return;
+                if (n2 == 0) return;
+                if (!buf.appendSlice(read_buf2[0..n2])) return;
+                remaining -= n2;
+            }
+            // Read trailing \r\n
+            var trail: [2]u8 = undefined;
+            _ = std.posix.read(fd, &trail) catch {};
+            pending = &.{};
+        } else {
+            // Need more data before data_start
+            var read_buf3: [4096]u8 = undefined;
+            const n3 = std.posix.read(fd, &read_buf3) catch return;
+            if (n3 == 0) return;
+            // Rebuild pending with new data
+            const old_len = buf.len;
+            if (!buf.appendSlice(pending)) return;
+            if (!buf.appendSlice(read_buf3[0..n3])) return;
+            pending = buf.ptr[old_len..buf.len];
+            buf.len = old_len;
+            continue;
+        }
+    }
+}
+
+fn findInData(data: []const u8, needle: []const u8) ?usize {
+    if (data.len < needle.len) return null;
+    for (0..data.len - needle.len + 1) |i| {
+        if (std.mem.eql(u8, data[i .. i + needle.len], needle)) return i;
+    }
+    return null;
+}
+
+/// Read full HTTP response from socket. Returns HttpResponse or null on failure.
+fn clientReadResponse(fd: std.posix.fd_t) ?*HttpResponse {
+    var buf = GrowBuf.init(8192) orelse return null;
+
+    // Read until end of headers
+    var header_end: ?usize = null;
+    while (header_end == null and buf.len < max_header_size) {
+        const space = @min(buf.cap - buf.len, 4096);
+        if (space == 0) {
+            if (!buf.grow(buf.cap * 2)) break;
+            continue;
+        }
+        const n = std.posix.read(fd, buf.ptr[buf.len .. buf.len + space]) catch break;
+        if (n == 0) break;
+        buf.len += n;
+        header_end = findHeaderEnd(buf.ptr[0..buf.len]);
+    }
+
+    const hdr_end = header_end orelse return null;
+
+    // Parse status code from first line
+    const status = parseStatusCode(buf.ptr[0..@min(buf.len, 32)]);
+
+    // Check transfer encoding
+    const headers = buf.ptr[0..hdr_end];
+    if (isChunkedTransfer(headers)) {
+        // Decode chunked body
+        const leftover = if (buf.len > hdr_end) buf.ptr[hdr_end..buf.len] else "";
+        var body_buf = GrowBuf.init(8192) orelse return null;
+        readChunkedBody(fd, &body_buf, leftover);
+
+        // Build final response: headers + decoded body
+        var final = GrowBuf.init(hdr_end + body_buf.len) orelse return null;
+        if (!final.appendSlice(headers)) return null;
+        if (!final.appendSlice(body_buf.slice())) return null;
+
+        const resp_mem = rt.arena_alloc(@sizeOf(HttpResponse)) orelse return null;
+        const resp: *HttpResponse = @ptrCast(@alignCast(resp_mem));
+        resp.* = .{
+            .status = status,
+            .raw = final.ptr,
+            .raw_len = final.len,
+            .header_end = hdr_end,
+        };
+        return resp;
+    }
+
+    // Content-Length body reading
+    const content_len = parseContentLength(headers);
+    if (content_len > 0) {
+        const needed = hdr_end + content_len;
+        if (!buf.grow(needed)) {
+            // Can't grow — return what we have
+        } else {
+            while (buf.len < needed) {
+                const n = std.posix.read(fd, buf.ptr[buf.len..@min(needed, buf.cap)]) catch break;
+                if (n == 0) break;
+                buf.len += n;
+            }
+        }
+    } else {
+        // No Content-Length, not chunked: read until connection close
+        const max_total = hdr_end + max_body_size;
+        while (buf.len < max_total) {
+            if (!buf.grow(buf.len + 4096)) break;
+            const space = @min(buf.cap - buf.len, 4096);
+            const n = std.posix.read(fd, buf.ptr[buf.len .. buf.len + space]) catch break;
+            if (n == 0) break;
+            buf.len += n;
+        }
+    }
+
+    const resp_mem = rt.arena_alloc(@sizeOf(HttpResponse)) orelse return null;
+    const resp: *HttpResponse = @ptrCast(@alignCast(resp_mem));
+    resp.* = .{
+        .status = status,
+        .raw = buf.ptr,
+        .raw_len = buf.len,
+        .header_end = hdr_end,
+    };
+    return resp;
+}
+
+/// Find a header value in response headers (case-insensitive).
+fn clientFindHeader(resp: *const HttpResponse, name: []const u8) []const u8 {
+    if (resp.header_end == 0) return "";
+    const headers = resp.raw[0..resp.header_end];
+    // Scan line by line
+    var pos: usize = 0;
+    // Skip status line
+    if (findInData(headers, "\r\n")) |first_nl| {
+        pos = first_nl + 2;
+    }
+    while (pos < headers.len) {
+        const line_end = findInData(headers[pos..], "\r\n") orelse break;
+        const line = headers[pos .. pos + line_end];
+        pos += line_end + 2;
+        const colon = std.mem.indexOf(u8, line, ":") orelse continue;
+        const key = line[0..colon];
+        if (key.len != name.len) continue;
+        // Case-insensitive compare
+        var match = true;
+        for (key, 0..) |c, i| {
+            const a = if (c >= 'A' and c <= 'Z') c + 32 else c;
+            const b = if (name[i] >= 'A' and name[i] <= 'Z') name[i] + 32 else name[i];
+            if (a != b) {
+                match = false;
+                break;
+            }
+        }
+        if (match) {
+            var val_start = colon + 1;
+            while (val_start < line.len and line[val_start] == ' ') val_start += 1;
+            return line[val_start..];
+        }
+    }
+    return "";
+}
+
+// ── Client public API ───────────────────────────────
+
+pub fn http_client_get(url: []const u8) usize {
+    return httpClientRequest("GET", url, "");
+}
+
+pub fn http_client_post(url: []const u8, body: []const u8) usize {
+    return httpClientRequest("POST", url, body);
+}
+
+pub fn http_client_request(method: []const u8, url: []const u8, body: []const u8) usize {
+    return httpClientRequest(method, url, body);
+}
+
+fn httpClientRequest(method: []const u8, url: []const u8, body: []const u8) usize {
+    return httpClientRequestInner(method, url, body, 0);
+}
+
+fn httpClientRequestInner(method: []const u8, url: []const u8, body: []const u8, redirect_count: u8) usize {
+    if (redirect_count > 10) return rt.makeTagged(1, 0); // too many redirects
+
+    const parsed = parseUrl(url) orelse return rt.makeTagged(1, 0);
+
+    // Connect with timeout
+    const addr = std.net.Address.resolveIp(parsed.host, parsed.port) catch return rt.makeTagged(1, 0);
+    const fd = std.posix.socket(addr.any.family, std.posix.SOCK.STREAM, 0) catch return rt.makeTagged(1, 0);
+    errdefer std.posix.close(fd);
+
+    // Set socket timeout if configured
+    if (client_timeout_ms > 0) {
+        const tv_sec: i64 = @divFloor(client_timeout_ms, 1000);
+        const tv_usec: i64 = @mod(client_timeout_ms, 1000) * 1000;
+        const timeout = std.posix.timeval{
+            .sec = @intCast(tv_sec),
+            .usec = @intCast(tv_usec),
+        };
+        std.posix.setsockopt(fd, std.posix.SOL.SOCKET, std.posix.SO.RCVTIMEO, std.mem.asBytes(&timeout)) catch {};
+        std.posix.setsockopt(fd, std.posix.SOL.SOCKET, std.posix.SO.SNDTIMEO, std.mem.asBytes(&timeout)) catch {};
+    }
+
+    std.posix.connect(fd, &addr.any, addr.getOsSockLen()) catch {
+        std.posix.close(fd);
+        return rt.makeTagged(1, 0);
+    };
+
+    // Send request
+    const req = clientBuildRequest(method, parsed.host, parsed.path, body);
+    _ = std.posix.write(fd, req) catch {
+        std.posix.close(fd);
+        return rt.makeTagged(1, 0);
+    };
+
+    // Read response
+    const resp = clientReadResponse(fd) orelse {
+        std.posix.close(fd);
+        return rt.makeTagged(1, 0);
+    };
+    std.posix.close(fd);
+
+    // Handle redirects: 301, 302, 303, 307, 308
+    if (resp.status >= 301 and resp.status <= 308 and resp.status != 304 and resp.status != 305 and resp.status != 306) {
+        const location = clientFindHeader(resp, "location");
+        if (location.len > 0) {
+            // Resolve redirect URL
+            var redirect_url: []const u8 = location;
+            if (!std.mem.startsWith(u8, location, "http://") and !std.mem.startsWith(u8, location, "https://")) {
+                // Relative URL — prepend scheme + host
+                var b = json.JsonBuilder.init();
+                b.append("http://");
+                b.append(parsed.host);
+                if (parsed.port != 80) {
+                    b.appendByte(':');
+                    b.appendInt(@intCast(parsed.port));
+                }
+                if (location[0] != '/') b.appendByte('/');
+                b.append(location);
+                const res = b.result();
+                redirect_url = rt.sliceFromPair(res.ptr, res.len);
+            }
+            // 303: always GET, drop body. 307/308: preserve method and body.
+            const new_method = if (resp.status == 303) "GET" else method;
+            const new_body = if (resp.status == 303) "" else body;
+            return httpClientRequestInner(new_method, redirect_url, new_body, redirect_count + 1);
+        }
+    }
+
+    // Success — return tagged pointer to HttpResponse
+    return rt.makeTagged(0, @intCast(@intFromPtr(resp)));
+}
+
+/// Http.resp_status(resp) → int
+pub fn http_resp_status(resp_ptr: usize) i64 {
+    if (resp_ptr == 0) return 0;
+    const resp: *const HttpResponse = @ptrFromInt(resp_ptr);
+    return resp.status;
+}
+
+/// Http.resp_body(resp) → string
+pub fn http_resp_body(resp_ptr: usize) []const u8 {
+    if (resp_ptr == 0) return "";
+    const resp: *const HttpResponse = @ptrFromInt(resp_ptr);
+    if (resp.raw_len <= resp.header_end) return "";
+    return resp.raw[resp.header_end..resp.raw_len];
+}
+
+/// Http.resp_header(resp, name) → string (case-insensitive)
+pub fn http_resp_header(resp_ptr: usize, name: []const u8) []const u8 {
+    if (resp_ptr == 0) return "";
+    const resp: *const HttpResponse = @ptrFromInt(resp_ptr);
+    return clientFindHeader(resp, name);
+}

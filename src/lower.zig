@@ -1356,6 +1356,11 @@ pub const Lower = struct {
                                 self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = "http_parse_request", .args = args } });
                                 return dest;
                             }
+                            if (std.mem.eql(u8, fn_name, "get") or std.mem.eql(u8, fn_name, "post") or std.mem.eql(u8, fn_name, "request")) {
+                                const builtin_name = std.fmt.allocPrint(self.alloc, "http_client_{s}", .{fn_name}) catch fn_name;
+                                self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = builtin_name, .args = args } });
+                                return dest;
+                            }
                             const builtin_name = std.fmt.allocPrint(self.alloc, "http_{s}", .{fn_name}) catch fn_name;
                             self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = builtin_name, .args = args } });
                             return dest;
