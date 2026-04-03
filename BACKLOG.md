@@ -82,8 +82,13 @@ What's needed to build the 20 benchmark apps.
 ### Needed
 - [ ] Typed config from env vars — `config AppConfig { port: int = 8080; db_url: string; }` with compile-time + startup validation. Required fields (no default) must come from env or fail fast. Config is immutable after init → first candidate for shared-immutable cross-process data.
 - [x] Http — keep-alive connections (reuse TCP, skip handshake per request)
-- [ ] Http — chunked transfer encoding
+- [ ] Http — chunked transfer encoding (server-side responses)
 - [x] Http client (for API-to-API calls, webhook sending)
+- [ ] Http client — custom request headers
+- [ ] Http client — HTTPS/TLS support
+- [ ] Http client — keep-alive connection pooling
+- [ ] Http client — response body streaming
+- [ ] Http client — compression (gzip/deflate/brotli decompression)
 - [x] Json — typed struct stringify (`Json.stringify(my_struct)`)
 - [ ] Database driver (SQLite — single file, no server)
 - [x] Timer process (setTimeout/setInterval equivalent)
