@@ -359,6 +359,46 @@ pub fn http_build_response(status: i64, ct: []const u8, body: []const u8) []cons
     return rt.sliceFromPair(res.ptr, res.len);
 }
 
+/// Build an HTTP response with chunked transfer encoding.
+pub fn http_build_response_chunked(status: i64, ct: []const u8, body: []const u8) []const u8 {
+    var b = json.JsonBuilder.init();
+    b.append("HTTP/1.1 ");
+    var status_buf: [4]u8 = undefined;
+    const status_str = std.fmt.bufPrint(&status_buf, "{d}", .{status}) catch "500";
+    b.append(status_str);
+    b.appendByte(' ');
+    const reason: []const u8 = switch (status) {
+        200 => "OK",
+        201 => "Created",
+        204 => "No Content",
+        400 => "Bad Request",
+        404 => "Not Found",
+        405 => "Method Not Allowed",
+        500 => "Internal Server Error",
+        else => "OK",
+    };
+    b.append(reason);
+    b.append("\r\n");
+    b.append("Content-Type: ");
+    b.append(ct);
+    b.append("\r\nTransfer-Encoding: chunked\r\n");
+    b.append("Connection: keep-alive\r\n");
+    var date_buf: [48]u8 = undefined;
+    const ts = std.time.timestamp();
+    const date_str = std.fmt.bufPrint(&date_buf, "Date: {d}\r\n", .{ts}) catch "";
+    b.append(date_str);
+    b.append("\r\n");
+    // Single chunk: hex-size \r\n data \r\n, then terminator 0\r\n\r\n
+    var hex_buf: [20]u8 = undefined;
+    const hex_str = std.fmt.bufPrint(&hex_buf, "{x}", .{body.len}) catch "0";
+    b.append(hex_str);
+    b.append("\r\n");
+    b.append(body);
+    b.append("\r\n0\r\n\r\n");
+    const res = b.result();
+    return rt.sliceFromPair(res.ptr, res.len);
+}
+
 // ── HTTP Server (multi-threaded epoll connection manager) ──────
 
 const process = @import("process.zig");
@@ -640,24 +680,52 @@ const ParsedUrl = struct {
     host: []const u8,
     port: u16,
     path: []const u8, // includes query string
+    is_tls: bool,
 };
 
-/// Parse "http://host:port/path?query" into components.
+/// Parse "http://host:port/path?query" or "https://..." into components.
 fn parseUrl(url: []const u8) ?ParsedUrl {
     var rest = url;
-    if (std.mem.startsWith(u8, rest, "http://")) {
+    var is_tls = false;
+    if (std.mem.startsWith(u8, rest, "https://")) {
+        rest = rest[8..];
+        is_tls = true;
+    } else if (std.mem.startsWith(u8, rest, "http://")) {
         rest = rest[7..];
-    } else if (std.mem.startsWith(u8, rest, "https://")) {
-        return null; // TLS not supported
     }
     const slash_pos = std.mem.indexOf(u8, rest, "/");
     const host_part = if (slash_pos) |sp| rest[0..sp] else rest;
     const path = if (slash_pos) |sp| rest[sp..] else "/";
+    const default_port: u16 = if (is_tls) 443 else 80;
     if (std.mem.indexOf(u8, host_part, ":")) |colon| {
         const port = std.fmt.parseInt(u16, host_part[colon + 1 ..], 10) catch return null;
-        return .{ .host = host_part[0..colon], .port = port, .path = path };
+        return .{ .host = host_part[0..colon], .port = port, .path = path, .is_tls = is_tls };
     }
-    return .{ .host = host_part, .port = 80, .path = path };
+    return .{ .host = host_part, .port = default_port, .path = path, .is_tls = is_tls };
+}
+
+// ── Read/write abstraction (plain TCP or TLS) ───────
+
+const IoReader = std.Io.Reader;
+const IoWriter = std.Io.Writer;
+
+fn clientRead(fd: std.posix.fd_t, tls_reader: ?*IoReader, buf: []u8) ?usize {
+    if (tls_reader) |r| {
+        return r.readSliceShort(buf) catch return null;
+    }
+    const n = std.posix.read(fd, buf) catch return null;
+    if (n == 0) return null;
+    return n;
+}
+
+fn clientWriteAll(fd: std.posix.fd_t, tls_writer: ?*IoWriter, data: []const u8) bool {
+    if (tls_writer) |w| {
+        w.writeAll(data) catch return false;
+        w.flush() catch return false;
+        return true;
+    }
+    _ = std.posix.write(fd, data) catch return false;
+    return true;
 }
 
 /// HTTP response — stores full raw data with parsed offsets.
@@ -769,70 +837,55 @@ const GrowBuf = struct {
     }
 };
 
-/// Decode chunked transfer encoding from fd, appending decoded bytes to buf.
-fn readChunkedBody(fd: std.posix.fd_t, buf: *GrowBuf, leftover: []const u8) void {
-    // leftover = bytes already read past header_end that are part of chunked body
+/// Decode chunked transfer encoding, appending decoded bytes to buf.
+fn readChunkedBody(fd: std.posix.fd_t, tls_reader: ?*IoReader, buf: *GrowBuf, leftover: []const u8) void {
     var pending = leftover;
 
     while (true) {
-        // We need to find chunk-size line in pending data
-        // Format: <hex-size>\r\n<data>\r\n
         const chunk_header_end = findInData(pending, "\r\n");
         if (chunk_header_end == null) {
-            // Need more data — read from socket
             var read_buf: [4096]u8 = undefined;
-            const n = std.posix.read(fd, &read_buf) catch return;
-            if (n == 0) return;
-            // Append to pending via buf (store temporarily)
+            const n = clientRead(fd, tls_reader, &read_buf) orelse return;
             const old_len = buf.len;
             if (!buf.appendSlice(pending)) return;
             if (!buf.appendSlice(read_buf[0..n])) return;
             pending = buf.ptr[old_len..buf.len];
-            buf.len = old_len; // reset — we're just using it as temp storage
+            buf.len = old_len;
             continue;
         }
 
         const size_str = pending[0..chunk_header_end.?];
-        // Strip chunk extensions (everything after ;)
         const clean = if (std.mem.indexOf(u8, size_str, ";")) |semi| size_str[0..semi] else size_str;
         const chunk_size = std.fmt.parseInt(usize, std.mem.trim(u8, clean, " \t"), 16) catch return;
 
-        if (chunk_size == 0) return; // Final chunk
+        if (chunk_size == 0) return;
 
-        const data_start = chunk_header_end.? + 2; // skip \r\n after size
+        const data_start = chunk_header_end.? + 2;
         const data_end = data_start + chunk_size;
-        const chunk_end = data_end + 2; // skip \r\n after data
+        const chunk_end = data_end + 2;
 
         if (pending.len >= chunk_end) {
-            // All chunk data in pending
             if (!buf.appendSlice(pending[data_start..data_end])) return;
             pending = pending[chunk_end..];
         } else if (pending.len >= data_start) {
-            // Partial chunk data in pending
             const available = pending.len - data_start;
             const in_pending = @min(available, chunk_size);
             if (!buf.appendSlice(pending[data_start .. data_start + in_pending])) return;
 
-            // Read remaining chunk data from socket
             var remaining = chunk_size - in_pending;
             while (remaining > 0) {
                 var read_buf2: [4096]u8 = undefined;
                 const to_read = @min(remaining, read_buf2.len);
-                const n2 = std.posix.read(fd, read_buf2[0..to_read]) catch return;
-                if (n2 == 0) return;
+                const n2 = clientRead(fd, tls_reader, read_buf2[0..to_read]) orelse return;
                 if (!buf.appendSlice(read_buf2[0..n2])) return;
                 remaining -= n2;
             }
-            // Read trailing \r\n
             var trail: [2]u8 = undefined;
-            _ = std.posix.read(fd, &trail) catch {};
+            _ = clientRead(fd, tls_reader, &trail);
             pending = &.{};
         } else {
-            // Need more data before data_start
             var read_buf3: [4096]u8 = undefined;
-            const n3 = std.posix.read(fd, &read_buf3) catch return;
-            if (n3 == 0) return;
-            // Rebuild pending with new data
+            const n3 = clientRead(fd, tls_reader, &read_buf3) orelse return;
             const old_len = buf.len;
             if (!buf.appendSlice(pending)) return;
             if (!buf.appendSlice(read_buf3[0..n3])) return;
@@ -851,8 +904,8 @@ fn findInData(data: []const u8, needle: []const u8) ?usize {
     return null;
 }
 
-/// Read full HTTP response from socket. Returns HttpResponse or null on failure.
-fn clientReadResponse(fd: std.posix.fd_t) ?*HttpResponse {
+/// Read full HTTP response. Returns HttpResponse or null on failure.
+fn clientReadResponse(fd: std.posix.fd_t, tls_reader: ?*IoReader) ?*HttpResponse {
     var buf = GrowBuf.init(8192) orelse return null;
 
     // Read until end of headers
@@ -863,38 +916,28 @@ fn clientReadResponse(fd: std.posix.fd_t) ?*HttpResponse {
             if (!buf.grow(buf.cap * 2)) break;
             continue;
         }
-        const n = std.posix.read(fd, buf.ptr[buf.len .. buf.len + space]) catch break;
-        if (n == 0) break;
+        const n = clientRead(fd, tls_reader, buf.ptr[buf.len .. buf.len + space]) orelse break;
         buf.len += n;
         header_end = findHeaderEnd(buf.ptr[0..buf.len]);
     }
 
     const hdr_end = header_end orelse return null;
 
-    // Parse status code from first line
     const status = parseStatusCode(buf.ptr[0..@min(buf.len, 32)]);
 
-    // Check transfer encoding
     const headers = buf.ptr[0..hdr_end];
     if (isChunkedTransfer(headers)) {
-        // Decode chunked body
         const leftover = if (buf.len > hdr_end) buf.ptr[hdr_end..buf.len] else "";
         var body_buf = GrowBuf.init(8192) orelse return null;
-        readChunkedBody(fd, &body_buf, leftover);
+        readChunkedBody(fd, tls_reader, &body_buf, leftover);
 
-        // Build final response: headers + decoded body
         var final = GrowBuf.init(hdr_end + body_buf.len) orelse return null;
         if (!final.appendSlice(headers)) return null;
         if (!final.appendSlice(body_buf.slice())) return null;
 
         const resp_mem = rt.arena_alloc(@sizeOf(HttpResponse)) orelse return null;
         const resp: *HttpResponse = @ptrCast(@alignCast(resp_mem));
-        resp.* = .{
-            .status = status,
-            .raw = final.ptr,
-            .raw_len = final.len,
-            .header_end = hdr_end,
-        };
+        resp.* = .{ .status = status, .raw = final.ptr, .raw_len = final.len, .header_end = hdr_end };
         return resp;
     }
 
@@ -902,12 +945,9 @@ fn clientReadResponse(fd: std.posix.fd_t) ?*HttpResponse {
     const content_len = parseContentLength(headers);
     if (content_len > 0) {
         const needed = hdr_end + content_len;
-        if (!buf.grow(needed)) {
-            // Can't grow — return what we have
-        } else {
+        if (buf.grow(needed)) {
             while (buf.len < needed) {
-                const n = std.posix.read(fd, buf.ptr[buf.len..@min(needed, buf.cap)]) catch break;
-                if (n == 0) break;
+                const n = clientRead(fd, tls_reader, buf.ptr[buf.len..@min(needed, buf.cap)]) orelse break;
                 buf.len += n;
             }
         }
@@ -917,8 +957,7 @@ fn clientReadResponse(fd: std.posix.fd_t) ?*HttpResponse {
         while (buf.len < max_total) {
             if (!buf.grow(buf.len + 4096)) break;
             const space = @min(buf.cap - buf.len, 4096);
-            const n = std.posix.read(fd, buf.ptr[buf.len .. buf.len + space]) catch break;
-            if (n == 0) break;
+            const n = clientRead(fd, tls_reader, buf.ptr[buf.len .. buf.len + space]) orelse break;
             buf.len += n;
         }
     }
@@ -989,23 +1028,21 @@ fn httpClientRequest(method: []const u8, url: []const u8, body: []const u8) usiz
 }
 
 fn httpClientRequestInner(method: []const u8, url: []const u8, body: []const u8, redirect_count: u8) usize {
-    if (redirect_count > 10) return rt.makeTagged(1, 0); // too many redirects
+    if (redirect_count > 10) return rt.makeTagged(1, 0);
 
     const parsed = parseUrl(url) orelse return rt.makeTagged(1, 0);
 
-    // Connect with timeout
+    // HTTPS: delegate to std.http.Client (handles TLS, compression, etc.)
+    if (parsed.is_tls) return httpClientRequestTls(method, url, body, redirect_count);
+
+    // HTTP: raw socket path (fast, no allocator needed)
     const addr = std.net.Address.resolveIp(parsed.host, parsed.port) catch return rt.makeTagged(1, 0);
     const fd = std.posix.socket(addr.any.family, std.posix.SOCK.STREAM, 0) catch return rt.makeTagged(1, 0);
-    errdefer std.posix.close(fd);
 
-    // Set socket timeout if configured
     if (client_timeout_ms > 0) {
         const tv_sec: i64 = @divFloor(client_timeout_ms, 1000);
         const tv_usec: i64 = @mod(client_timeout_ms, 1000) * 1000;
-        const timeout = std.posix.timeval{
-            .sec = @intCast(tv_sec),
-            .usec = @intCast(tv_usec),
-        };
+        const timeout = std.posix.timeval{ .sec = @intCast(tv_sec), .usec = @intCast(tv_usec) };
         std.posix.setsockopt(fd, std.posix.SOL.SOCKET, std.posix.SO.RCVTIMEO, std.mem.asBytes(&timeout)) catch {};
         std.posix.setsockopt(fd, std.posix.SOL.SOCKET, std.posix.SO.SNDTIMEO, std.mem.asBytes(&timeout)) catch {};
     }
@@ -1015,15 +1052,13 @@ fn httpClientRequestInner(method: []const u8, url: []const u8, body: []const u8,
         return rt.makeTagged(1, 0);
     };
 
-    // Send request
     const req = clientBuildRequest(method, parsed.host, parsed.path, body);
-    _ = std.posix.write(fd, req) catch {
+    if (!clientWriteAll(fd, null, req)) {
         std.posix.close(fd);
         return rt.makeTagged(1, 0);
-    };
+    }
 
-    // Read response
-    const resp = clientReadResponse(fd) orelse {
+    const resp = clientReadResponse(fd, null) orelse {
         std.posix.close(fd);
         return rt.makeTagged(1, 0);
     };
@@ -1033,10 +1068,8 @@ fn httpClientRequestInner(method: []const u8, url: []const u8, body: []const u8,
     if (resp.status >= 301 and resp.status <= 308 and resp.status != 304 and resp.status != 305 and resp.status != 306) {
         const location = clientFindHeader(resp, "location");
         if (location.len > 0) {
-            // Resolve redirect URL
             var redirect_url: []const u8 = location;
             if (!std.mem.startsWith(u8, location, "http://") and !std.mem.startsWith(u8, location, "https://")) {
-                // Relative URL — prepend scheme + host
                 var b = json.JsonBuilder.init();
                 b.append("http://");
                 b.append(parsed.host);
@@ -1049,14 +1082,95 @@ fn httpClientRequestInner(method: []const u8, url: []const u8, body: []const u8,
                 const res = b.result();
                 redirect_url = rt.sliceFromPair(res.ptr, res.len);
             }
-            // 303: always GET, drop body. 307/308: preserve method and body.
             const new_method = if (resp.status == 303) "GET" else method;
             const new_body = if (resp.status == 303) "" else body;
             return httpClientRequestInner(new_method, redirect_url, new_body, redirect_count + 1);
         }
     }
 
-    // Success — return tagged pointer to HttpResponse
+    return rt.makeTagged(0, @intCast(@intFromPtr(resp)));
+}
+
+/// HTTPS request via std.http.Client (handles TLS, certificate validation, compression).
+fn httpClientRequestTls(method_str: []const u8, url: []const u8, body: []const u8, redirect_count: u8) usize {
+    const http_mod = std.http;
+    var client: http_mod.Client = .{ .allocator = std.heap.page_allocator };
+    defer client.deinit();
+
+    const uri = std.Uri.parse(url) catch return rt.makeTagged(1, 0);
+
+    // Map method string to enum
+    const method: http_mod.Method = if (std.mem.eql(u8, method_str, "GET"))
+        .GET
+    else if (std.mem.eql(u8, method_str, "POST"))
+        .POST
+    else if (std.mem.eql(u8, method_str, "PUT"))
+        .PUT
+    else if (std.mem.eql(u8, method_str, "DELETE"))
+        .DELETE
+    else if (std.mem.eql(u8, method_str, "PATCH"))
+        .PATCH
+    else if (std.mem.eql(u8, method_str, "HEAD"))
+        .HEAD
+    else
+        .GET;
+
+    // Configure redirect behavior
+    const max_redirects: u16 = if (redirect_count >= 10) 0 else 10 - @as(u16, redirect_count);
+
+    var req = client.request(method, uri, .{
+        .headers = .{ .accept_encoding = .{ .override = "identity" } },
+        .redirect_behavior = @enumFromInt(max_redirects),
+    }) catch return rt.makeTagged(1, 0);
+    defer req.deinit();
+
+    // Send body or bodiless
+    if (body.len > 0) {
+        req.transfer_encoding = .{ .content_length = body.len };
+        var req_body = req.sendBodyUnflushed(&.{}) catch return rt.makeTagged(1, 0);
+        req_body.writer.writeAll(body) catch return rt.makeTagged(1, 0);
+        req_body.end() catch return rt.makeTagged(1, 0);
+        if (req.connection) |conn| conn.flush() catch return rt.makeTagged(1, 0);
+    } else {
+        req.sendBodiless() catch return rt.makeTagged(1, 0);
+    }
+
+    // Receive headers (arena-allocate to avoid stack overflow in Verve processes)
+    const head_buf = rt.arena_alloc(16384) orelse return rt.makeTagged(1, 0);
+    var response = req.receiveHead(head_buf[0..16384]) catch return rt.makeTagged(1, 0);
+    const status: i64 = @intFromEnum(response.head.status);
+
+    // Read body (arena-allocate decompression buffer to avoid stack overflow)
+    const decomp_buf = rt.arena_alloc(65536) orelse return rt.makeTagged(1, 0);
+    const reader = response.reader(decomp_buf[0..65536]);
+    var body_buf = GrowBuf.init(8192) orelse return rt.makeTagged(1, 0);
+    while (true) {
+        if (!body_buf.grow(body_buf.len + 4096)) break;
+        const space = @min(body_buf.cap - body_buf.len, 4096);
+        const n = reader.readSliceShort(body_buf.ptr[body_buf.len .. body_buf.len + space]) catch break;
+        if (n == 0) break;
+        body_buf.len += n;
+    }
+
+    // Build HttpResponse struct compatible with our accessor functions
+    // Reconstruct a minimal header section so resp_header still works
+    var resp_buf = GrowBuf.init(256 + body_buf.len) orelse return rt.makeTagged(1, 0);
+    // Minimal status line + content-type header
+    var status_line_buf: [64]u8 = undefined;
+    const status_line = std.fmt.bufPrint(&status_line_buf, "HTTP/1.1 {d} OK\r\n", .{status}) catch "HTTP/1.1 200 OK\r\n";
+    if (!resp_buf.appendSlice(status_line)) return rt.makeTagged(1, 0);
+    if (response.head.content_type) |ct| {
+        if (!resp_buf.appendSlice("Content-Type: ")) return rt.makeTagged(1, 0);
+        if (!resp_buf.appendSlice(ct)) return rt.makeTagged(1, 0);
+        if (!resp_buf.appendSlice("\r\n")) return rt.makeTagged(1, 0);
+    }
+    if (!resp_buf.appendSlice("\r\n")) return rt.makeTagged(1, 0);
+    const hdr_end = resp_buf.len;
+    if (!resp_buf.appendSlice(body_buf.slice())) return rt.makeTagged(1, 0);
+
+    const resp_mem = rt.arena_alloc(@sizeOf(HttpResponse)) orelse return rt.makeTagged(1, 0);
+    const resp: *HttpResponse = @ptrCast(@alignCast(resp_mem));
+    resp.* = .{ .status = status, .raw = resp_buf.ptr, .raw_len = resp_buf.len, .header_end = hdr_end };
     return rt.makeTagged(0, @intCast(@intFromPtr(resp)));
 }
 

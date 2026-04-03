@@ -1296,7 +1296,7 @@ pub const Checker = struct {
     }
 
     fn inferHttpFn(self: *Checker, func: []const u8) ?ast.TypeExpr {
-        if (std.mem.eql(u8, func, "respond") or std.mem.eql(u8, func, "read_request"))
+        if (std.mem.eql(u8, func, "respond") or std.mem.eql(u8, func, "respond_chunked") or std.mem.eql(u8, func, "read_request"))
             return .{ .simple = "string" };
         if (std.mem.eql(u8, func, "req_method") or std.mem.eql(u8, func, "req_path") or
             std.mem.eql(u8, func, "req_body") or std.mem.eql(u8, func, "req_header"))

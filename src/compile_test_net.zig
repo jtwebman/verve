@@ -973,6 +973,36 @@ test "compile: http multiple headers" {
     try testing.expectEqualStrings("localhost\ntext/html\nVerve/1.0\nhello\n", r.stdout);
 }
 
+// ── HTTP Chunked Server Response ──────────────────────
+
+test "compile: http respond_chunked" {
+    const port = try startTestHttpServerChunked();
+    defer stopTestHttpServer(port);
+
+    var url_buf: [64]u8 = undefined;
+    const url = std.fmt.bufPrint(&url_buf, "http://127.0.0.1:{d}/chunked", .{port}) catch unreachable;
+
+    const src_fmt =
+        \\process App {{
+        \\    receive main(args: list<string>) -> int {{
+        \\        match Http.get("{s}") {{
+        \\            :ok{{resp}} => {{
+        \\                Stdio.println(Http.resp_status(resp));
+        \\                Stdio.println(Http.resp_body(resp));
+        \\            }}
+        \\            :error{{e}} => Stdio.println("error");
+        \\        }}
+        \\        return 0;
+        \\    }}
+        \\}}
+    ;
+    var src_buf: [2048]u8 = undefined;
+    const src = std.fmt.bufPrint(&src_buf, src_fmt, .{url}) catch unreachable;
+    const r = try compileAndCapture(src);
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("200\nhello chunked\n", r.stdout);
+}
+
 // ── HTTP Client tests ─────────────────────────────────
 
 test "compile: http client GET to local server" {
@@ -1131,6 +1161,60 @@ var test_servers: [16]?TestServer = .{null} ** 16;
 
 fn startTestHttpServer(status: []const u8, ct: []const u8, body: []const u8) !u16 {
     return startTestHttpServerImpl(status, ct, body, false);
+}
+
+fn startTestHttpServerChunked() !u16 {
+    return startTestHttpServerChunkedImpl("200 OK", "text/plain", "hello chunked");
+}
+
+fn startTestHttpServerChunkedImpl(status: []const u8, ct: []const u8, body: []const u8) !u16 {
+    const addr = try std.net.Address.resolveIp("127.0.0.1", 0);
+    const fd = try std.posix.socket(addr.any.family, std.posix.SOCK.STREAM, 0);
+    const one: [4]u8 = .{ 1, 0, 0, 0 };
+    std.posix.setsockopt(fd, std.posix.SOL.SOCKET, std.posix.SO.REUSEADDR, &one) catch {};
+    try std.posix.bind(fd, &addr.any, addr.getOsSockLen());
+    try std.posix.listen(fd, 8);
+
+    var bound_addr: std.posix.sockaddr.in = undefined;
+    var addr_len: std.posix.socklen_t = @sizeOf(std.posix.sockaddr.in);
+    try std.posix.getsockname(fd, @ptrCast(&bound_addr), &addr_len);
+    const port = std.mem.bigToNative(u16, bound_addr.port);
+
+    const ctx = alloc.create(ChunkedServerCtx) catch return error.OutOfMemory;
+    ctx.* = .{ .fd = fd, .status = status, .ct = ct, .body = body };
+
+    const thread = try std.Thread.spawn(.{}, testChunkedServerThread, .{ctx});
+
+    for (&test_servers) |*slot| {
+        if (slot.* == null) {
+            slot.* = .{ .thread = thread, .fd = fd };
+            break;
+        }
+    }
+    return port;
+}
+
+const ChunkedServerCtx = struct {
+    fd: std.posix.fd_t,
+    status: []const u8,
+    ct: []const u8,
+    body: []const u8,
+};
+
+fn testChunkedServerThread(ctx: *ChunkedServerCtx) void {
+    const client_fd = std.posix.accept(ctx.fd, null, null, 0) catch return;
+    defer std.posix.close(client_fd);
+
+    // Read request
+    var req_buf: [4096]u8 = undefined;
+    _ = std.posix.read(client_fd, &req_buf) catch return;
+
+    // Build chunked response
+    var resp_buf: [8192]u8 = undefined;
+    var hex_buf: [20]u8 = undefined;
+    const hex_str = std.fmt.bufPrint(&hex_buf, "{x}", .{ctx.body.len}) catch "0";
+    const resp = std.fmt.bufPrint(&resp_buf, "HTTP/1.1 {s}\r\nContent-Type: {s}\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n{s}\r\n{s}\r\n0\r\n\r\n", .{ ctx.status, ctx.ct, hex_str, ctx.body }) catch return;
+    _ = std.posix.write(client_fd, resp) catch {};
 }
 
 fn startTestHttpServerEcho() !u16 {

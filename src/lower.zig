@@ -1352,6 +1352,10 @@ pub const Lower = struct {
                                 self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = "http_build_response", .args = args } });
                                 return dest;
                             }
+                            if (std.mem.eql(u8, fn_name, "respond_chunked")) {
+                                self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = "http_build_response_chunked", .args = args } });
+                                return dest;
+                            }
                             if (std.mem.eql(u8, fn_name, "parse_request")) {
                                 self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = "http_parse_request", .args = args } });
                                 return dest;

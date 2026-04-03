@@ -338,6 +338,7 @@ result: string = StringBuilder.to_string(sb)
 | `Http.req_body(req)` | `pointer -> string` | Request body |
 | `Http.req_header(req, name)` | `pointer, string -> string` | Get header (case-insensitive) |
 | `Http.respond(status, ct, body)` | `int, string, string -> string` | Build HTTP response |
+| `Http.respond_chunked(status, ct, body)` | `int, string, string -> string` | Build chunked HTTP response |
 
 **Client:**
 | Function | Signature | Description |
@@ -350,7 +351,7 @@ result: string = StringBuilder.to_string(sb)
 | `Http.resp_header(resp, name)` | `pointer, string -> string` | Get header (case-insensitive) |
 | `Http.set_client_timeout(ms)` | `int -> void` | Set request timeout (default 30s) |
 
-Any HTTP response (including 4xx/5xx) returns `:ok{resp}`. Only network failures return `:error`. Follows redirects automatically (max 10 hops). Supports chunked transfer encoding.
+Any HTTP response (including 4xx/5xx) returns `:ok{resp}`. Only network failures return `:error`. Follows redirects automatically (max 10 hops). Supports chunked transfer encoding. HTTPS supported (`https://` URLs use TLS automatically).
 
 ```verve
 match Http.get("http://api.example.com/users") {
