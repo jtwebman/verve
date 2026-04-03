@@ -326,6 +326,21 @@ result: string = StringBuilder.to_string(sb)
 | `Tcp.accept(listener)` | `stream -> Result<stream>` | Accept connection |
 | `Tcp.port(listener)` | `stream -> int` | Get assigned port number |
 
+### Timer
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `Timer.sleep(ms)` | `int -> void` | Yield process for at least `ms` milliseconds |
+
+Sleep is cooperative — the process yields to the scheduler and resumes on the next scheduler cycle after the deadline. Not exact, but efficient (no busy-wait). Use in a loop for intervals:
+
+```verve
+// Run work every ~1 second
+while true {
+    do_work();
+    Timer.sleep(1000);
+}
+```
+
 ### Math
 | Function | Signature | Description |
 |----------|-----------|-------------|

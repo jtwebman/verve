@@ -1108,3 +1108,59 @@ test "compile: send_timeout returns timeout on unresponsive process" {
     try testing.expectEqual(@as(u8, 0), r.exit);
     try testing.expectEqualStrings("timeout\n", r.stdout);
 }
+
+// ── Timer tests ──────────────────────────────────────
+
+test "compile: Timer.sleep basic" {
+    const r = try compileAndCapture(
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
+        \\        Stdio.println("before");
+        \\        Timer.sleep(10);
+        \\        Stdio.println("after");
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("before\nafter\n", r.stdout);
+}
+
+test "compile: Timer.sleep yields to other processes" {
+    const r = try compileAndCapture(
+        \\process Worker {
+        \\    receive Ping() -> int {
+        \\        Stdio.println("pong");
+        \\        return 1;
+        \\    }
+        \\}
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
+        \\        w: pid<Worker> = spawn Worker();
+        \\        Stdio.println("sleeping");
+        \\        Timer.sleep(50);
+        \\        match Process.send(w.Ping) {
+        \\            :ok{v} => Stdio.println("done");
+        \\            :error{e} => Stdio.println("err");
+        \\        }
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("sleeping\npong\ndone\n", r.stdout);
+}
+
+test "compile: Timer.sleep zero ms is no-op" {
+    const r = try compileAndCapture(
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
+        \\        Timer.sleep(0);
+        \\        Stdio.println("ok");
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("ok\n", r.stdout);
+}

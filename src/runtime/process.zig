@@ -83,6 +83,8 @@ pub const VerveProcess = struct {
     send_slot_owner: usize = 0, // PID of target allowed to write send_result
     send_waiting: bool = false, // true while blocked in verve_send/verve_send_timeout
     send_deadline_ns: i128 = 0, // nanosecond deadline for send_timeout (0 = no deadline)
+    timer_waiting: bool = false, // true while blocked in Timer.sleep()
+    timer_deadline_ns: i128 = 0, // nanosecond deadline for sleep (0 = none)
     parent_pid: usize = 0, // PID of spawning process (0 = top-level)
 
     /// Get or create mailbox (lazy allocation).
@@ -122,6 +124,8 @@ pub const VerveProcess = struct {
         self.send_slot_owner = 0;
         self.send_waiting = false;
         self.send_deadline_ns = 0;
+        self.timer_waiting = false;
+        self.timer_deadline_ns = 0;
         self.parent_pid = 0;
     }
 };
@@ -604,6 +608,22 @@ pub fn verve_yield() i64 {
     return 0;
 }
 
+/// Sleep for the given number of milliseconds. Yields the process to the
+/// scheduler and resumes after the deadline passes (cooperative, not exact).
+pub fn verve_timer_sleep(ms: i64) void {
+    if (ms <= 0) return;
+    if (current_process_id == 0) return;
+    const thread = current_thread orelse return;
+    const idx = pidx(current_process_id);
+    const proc = &process_table[idx];
+    proc.timer_deadline_ns = std.time.nanoTimestamp() + @as(i128, ms) * 1_000_000;
+    proc.timer_waiting = true;
+    fiber.context_switch(&proc.proc_fiber.?.context, &thread.scheduler_context);
+    // Resumed by scheduler when deadline expired
+    proc.timer_waiting = false;
+    proc.timer_deadline_ns = 0;
+}
+
 /// Yield until a file descriptor is readable. Registers fd with epoll,
 /// suspends the process, and resumes when data arrives.
 pub fn verve_io_yield(fd: i64) void {
@@ -749,7 +769,7 @@ pub fn scheduler_run(thread: *SchedulerThread) i64 {
             if (pidValid(npid)) {
                 const ni = pidx(npid);
                 const proc = &process_table[ni];
-                if (proc.alive and !proc.send_waiting and (proc.yielded or (if (proc.mailbox_ptr) |m| m.count > 0 else false))) {
+                if (proc.alive and !proc.send_waiting and !proc.timer_waiting and (proc.yielded or (if (proc.mailbox_ptr) |m| m.count > 0 else false))) {
                     any_ran = true;
                     ensure_fiber(proc);
                     if (proc.proc_fiber != null) {
@@ -773,6 +793,14 @@ pub fn scheduler_run(thread: *SchedulerThread) i64 {
                 // Check for expired send deadline — wake the process so it can return timeout
                 if (proc.send_deadline_ns > 0 and std.time.nanoTimestamp() >= proc.send_deadline_ns) {
                     proc.send_waiting = false;
+                    proc.yielded = true;
+                } else {
+                    continue;
+                }
+            }
+            if (proc.timer_waiting) {
+                if (std.time.nanoTimestamp() >= proc.timer_deadline_ns) {
+                    proc.timer_waiting = false;
                     proc.yielded = true;
                 } else {
                     continue;
@@ -806,7 +834,8 @@ pub fn scheduler_run(thread: *SchedulerThread) i64 {
             var any_alive = false;
             var any_io_wait = false;
             var any_send_wait = false;
-            var min_deadline_ns: i128 = 0; // earliest send deadline (0 = none)
+            var any_timer_wait = false;
+            var min_deadline_ns: i128 = 0; // earliest deadline (0 = none)
             for (thread.local_pids.items) |pid| {
                 if (!pidValid(pid)) continue;
                 const pi = pidx(pid);
@@ -821,10 +850,16 @@ pub fn scheduler_run(thread: *SchedulerThread) i64 {
                             }
                         }
                     }
+                    if (process_table[pi].timer_waiting) {
+                        any_timer_wait = true;
+                        if (min_deadline_ns == 0 or process_table[pi].timer_deadline_ns < min_deadline_ns) {
+                            min_deadline_ns = process_table[pi].timer_deadline_ns;
+                        }
+                    }
                 }
             }
             if (!any_alive) break;
-            if (!any_io_wait and !any_send_wait) break;
+            if (!any_io_wait and !any_send_wait and !any_timer_wait) break;
 
             thread.ensureEpoll();
             if (thread.epoll_fd < 0) break;

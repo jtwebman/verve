@@ -1180,6 +1180,11 @@ pub const Lower = struct {
                         }
 
                         // Built-in modules — all simplified: just pass registers directly
+                        if (std.mem.eql(u8, mod_name, "Timer")) {
+                            const builtin_name = std.fmt.allocPrint(self.alloc, "timer_{s}", .{fn_name}) catch fn_name;
+                            self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = builtin_name, .args = args } });
+                            return dest;
+                        }
                         if (std.mem.eql(u8, mod_name, "StringBuilder")) {
                             if (std.mem.eql(u8, fn_name, "new") and args.len == 0) {
                                 const zero_reg = func.newReg();

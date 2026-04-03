@@ -381,6 +381,8 @@ pub const ZigBackend = struct {
         .{ "json_build_add_string", S{ .module = "json", .min_args = 3, .void_result = true } },
         .{ "json_build_add_int", S{ .module = "json", .min_args = 3, .void_result = true } },
         .{ "json_build_add_float", S{ .module = "json", .min_args = 3, .void_result = true } },
+        // ── Timer ────────────────────────────────────
+        .{ "timer_sleep", S{ .module = "process", .rt_name = "verve_timer_sleep", .min_args = 1, .void_result = true } },
         // ── StringBuilder ───────────────────────────
         .{ "sb_new", S{ .module = "stringbuilder", .rt_name = "verve_sb_new", .min_args = 1, .returns = .pointer } },
         .{ "sb_write", S{ .module = "stringbuilder", .rt_name = "verve_sb_append", .min_args = 2, .void_result = true } },

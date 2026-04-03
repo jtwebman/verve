@@ -86,7 +86,7 @@ What's needed to build the 20 benchmark apps.
 - [ ] Http client (for API-to-API calls, webhook sending)
 - [ ] Json — typed struct stringify (`Json.stringify(my_struct)`)
 - [ ] Database driver (SQLite — single file, no server)
-- [ ] Timer process (setTimeout/setInterval equivalent)
+- [x] Timer process (setTimeout/setInterval equivalent)
 - [ ] module Time (timestamps, durations, formatting)
 - [ ] module Uuid (v4 generation)
 - [ ] module Base64 (encode/decode)

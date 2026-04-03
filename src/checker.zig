@@ -689,7 +689,8 @@ pub const Checker = struct {
                         std.mem.eql(u8, name, "Json") or
                         std.mem.eql(u8, name, "Http") or
                         std.mem.eql(u8, name, "Process") or
-                        std.mem.eql(u8, name, "StringBuilder")) return;
+                        std.mem.eql(u8, name, "StringBuilder") or
+                        std.mem.eql(u8, name, "Timer")) return;
                 }
                 try self.checkExpr(fa.target.*);
             },
@@ -1250,6 +1251,10 @@ pub const Checker = struct {
         if (std.mem.eql(u8, mod, "Math")) return .{ .simple = "int" };
         // Process.send/tell/send_timeout handled at call site with proper return types
         if (std.mem.eql(u8, mod, "StringBuilder")) return inferStringBuilderFn(func);
+        if (std.mem.eql(u8, mod, "Timer")) {
+            if (std.mem.eql(u8, func, "sleep")) return .{ .simple = "void" };
+            return null;
+        }
         if (std.mem.eql(u8, mod, "Process")) {
             if (std.mem.eql(u8, func, "self")) {
                 if (self.current_process_name) |pname| return self.makePidType(pname);
