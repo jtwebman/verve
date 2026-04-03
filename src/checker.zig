@@ -1248,6 +1248,23 @@ pub const Checker = struct {
         if (std.mem.eql(u8, mod, "Tcp")) return self.inferTcpFn(func);
         if (std.mem.eql(u8, mod, "Http")) return self.inferHttpFn(func);
         if (std.mem.eql(u8, mod, "Convert")) return inferConvertFn(func);
+        if (std.mem.eql(u8, mod, "Json")) {
+            if (std.mem.eql(u8, func, "stringify")) return .{ .simple = "string" };
+            if (std.mem.eql(u8, func, "build_end") or std.mem.eql(u8, func, "get_string") or
+                std.mem.eql(u8, func, "get_object") or std.mem.eql(u8, func, "to_string"))
+                return .{ .simple = "string" };
+            if (std.mem.eql(u8, func, "get_int") or std.mem.eql(u8, func, "get_array_len") or
+                std.mem.eql(u8, func, "to_int"))
+                return .{ .simple = "int" };
+            if (std.mem.eql(u8, func, "get_float") or std.mem.eql(u8, func, "to_float"))
+                return .{ .simple = "float" };
+            if (std.mem.eql(u8, func, "get_bool") or std.mem.eql(u8, func, "to_bool"))
+                return .{ .simple = "bool" };
+            if (std.mem.eql(u8, func, "build_add_string") or std.mem.eql(u8, func, "build_add_int") or
+                std.mem.eql(u8, func, "build_add_float") or std.mem.eql(u8, func, "build_add_bool"))
+                return .{ .simple = "void" };
+            return null;
+        }
         if (std.mem.eql(u8, mod, "Math")) return .{ .simple = "int" };
         // Process.send/tell/send_timeout handled at call site with proper return types
         if (std.mem.eql(u8, mod, "StringBuilder")) return inferStringBuilderFn(func);

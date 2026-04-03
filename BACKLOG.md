@@ -84,7 +84,7 @@ What's needed to build the 20 benchmark apps.
 - [x] Http — keep-alive connections (reuse TCP, skip handshake per request)
 - [ ] Http — chunked transfer encoding
 - [ ] Http client (for API-to-API calls, webhook sending)
-- [ ] Json — typed struct stringify (`Json.stringify(my_struct)`)
+- [x] Json — typed struct stringify (`Json.stringify(my_struct)`)
 - [ ] Database driver (SQLite — single file, no server)
 - [x] Timer process (setTimeout/setInterval equivalent)
 - [ ] module Time (timestamps, durations, formatting)

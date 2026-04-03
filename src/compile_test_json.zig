@@ -504,3 +504,83 @@ test "compile: json empty array length" {
     try testing.expectEqual(@as(u8, 0), r.exit);
     try testing.expectEqualStrings("0\n", r.stdout);
 }
+
+// ── Json.stringify tests ─────────────────────────────
+
+test "compile: Json.stringify basic struct" {
+    const r = try compileAndCapture(
+        \\struct User {
+        \\    name: string = "";
+        \\    age: int = 0;
+        \\}
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
+        \\        u: User = User { name: "alice", age: 30 };
+        \\        Stdio.println(Json.stringify(u));
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("{\"name\":\"alice\",\"age\":30}\n", r.stdout);
+}
+
+test "compile: Json.stringify with bool and float" {
+    const r = try compileAndCapture(
+        \\struct Config {
+        \\    debug: bool = false;
+        \\    rate: float = 0.0;
+        \\    port: int = 0;
+        \\}
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
+        \\        c: Config = Config { debug: true, rate: 3.14, port: 8080 };
+        \\        Stdio.println(Json.stringify(c));
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("{\"debug\":true,\"rate\":3.14,\"port\":8080}\n", r.stdout);
+}
+
+test "compile: Json.stringify escapes strings" {
+    const r = try compileAndCapture(
+        \\struct Msg {
+        \\    text: string = "";
+        \\}
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
+        \\        m: Msg = Msg { text: "hello \"world\"" };
+        \\        Stdio.println(Json.stringify(m));
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("{\"text\":\"hello \\\"world\\\"\"}\n", r.stdout);
+}
+
+test "compile: Json.stringify roundtrip with parse" {
+    const r = try compileAndCapture(
+        \\struct Item {
+        \\    name: string = "";
+        \\    count: int = 0;
+        \\}
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
+        \\        data: string = "{\"name\":\"bolt\",\"count\":42}";
+        \\        match Json.parse(data, Item) {
+        \\            :ok{item} => {
+        \\                json: string = Json.stringify(item);
+        \\                Stdio.println(json);
+        \\            }
+        \\            :error{e} => Stdio.println("fail");
+        \\        }
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("{\"name\":\"bolt\",\"count\":42}\n", r.stdout);
+}

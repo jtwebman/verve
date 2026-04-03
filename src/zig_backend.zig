@@ -420,6 +420,7 @@ pub const ZigBackend = struct {
     fn builtinReturnType(name: []const u8) RegType {
         if (builtin_specs.get(name)) |spec| return spec.returns;
         if (std.mem.startsWith(u8, name, "json_parse_struct:")) return .pointer;
+        if (std.mem.startsWith(u8, name, "json_stringify_struct:")) return .string;
         if (std.mem.startsWith(u8, name, "to_string:")) return .string;
         return .int;
     }
@@ -510,6 +511,9 @@ pub const ZigBackend = struct {
 
         // Emit struct_to_string functions
         self.emitStructToStringFunctions(program);
+
+        // Emit struct_to_json functions (Json.stringify)
+        self.emitStructToJsonFunctions(program);
 
         // Emit per-process dispatch functions (binary message protocol)
         if (program.process_decls.items.len > 0) {
@@ -701,6 +705,9 @@ pub const ZigBackend = struct {
 
         // Emit struct_to_string functions
         self.emitStructToStringFunctions(program);
+
+        // Emit struct_to_json functions (Json.stringify)
+        self.emitStructToJsonFunctions(program);
 
         // Emit dispatch init if processes exist (same binary protocol as emit())
         if (program.process_decls.items.len > 0) {
@@ -1359,6 +1366,15 @@ pub const ZigBackend = struct {
             return;
         }
 
+        // Special prefix: json_stringify_struct:StructName
+        if (std.mem.startsWith(u8, name, "json_stringify_struct:")) {
+            const struct_name = name["json_stringify_struct:".len..];
+            if (args.len >= 1) {
+                self.lineFmt("{s} = verve_json_stringify_{s}({s});", .{ self.regName(dest), struct_name, self.regName(args[0]) });
+            }
+            return;
+        }
+
         // Special prefix: to_string:TypeHint
         if (std.mem.startsWith(u8, name, "to_string:")) {
             const hint = name["to_string:".len..];
@@ -1548,6 +1564,41 @@ pub const ZigBackend = struct {
             }
             self.line("_result = rt.string.verve_string_concat(_result, \" }\");");
             self.line("return _result;");
+            self.indent -= 1;
+            self.line("}");
+            self.line("");
+        }
+    }
+
+    /// Emit verve_json_stringify_X functions for all structs.
+    fn emitStructToJsonFunctions(self: *ZigBackend, program: ir.Program) void {
+        for (program.struct_decls.items) |sd| {
+            self.writeFmt("fn verve_json_stringify_{s}(ptr: usize) []const u8 {{\n", .{sd.name});
+            self.indent += 1;
+            self.writeFmt("const s = @as(*const VerveStruct_{s}, @ptrFromInt(ptr));\n", .{sd.name});
+            self.line("var b = rt.json.JsonBuilder.init();");
+            self.line("b.appendByte('{');");
+            for (sd.fields, 0..) |f, fi| {
+                if (fi > 0) self.line("b.appendByte(',');");
+                self.writeFmt("b.appendQuotedString(\"{s}\");\n", .{f.name});
+                self.line("b.appendByte(':');");
+                if (std.mem.eql(u8, f.type_name, "string")) {
+                    self.lineFmt("b.appendQuotedString(s.{s});", .{f.name});
+                } else if (std.mem.eql(u8, f.type_name, "int")) {
+                    self.lineFmt("b.appendInt(s.{s});", .{f.name});
+                } else if (std.mem.eql(u8, f.type_name, "float")) {
+                    self.lineFmt("b.appendFloat(s.{s});", .{f.name});
+                } else if (std.mem.eql(u8, f.type_name, "bool")) {
+                    self.lineFmt("b.append(if (s.{s}) \"true\" else \"false\");", .{f.name});
+                } else if (self.isEnumType(f.type_name)) {
+                    self.lineFmt("b.appendQuotedString(verve_enum_to_string_{s}(@intFromEnum(s.{s})));", .{ f.type_name, f.name });
+                } else {
+                    self.lineFmt("b.appendInt(s.{s});", .{f.name});
+                }
+            }
+            self.line("b.appendByte('}');");
+            self.line("const res = b.result();");
+            self.line("return rt.sliceFromPair(res.ptr, res.len);");
             self.indent -= 1;
             self.line("}");
             self.line("");

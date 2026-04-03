@@ -1305,6 +1305,18 @@ pub const Lower = struct {
                             return dest;
                         }
                         if (std.mem.eql(u8, mod_name, "Json")) {
+                            if (std.mem.eql(u8, fn_name, "stringify")) {
+                                var struct_name: []const u8 = "unknown";
+                                // Resolve struct type from variable name
+                                if (c.args.len >= 1 and c.args[0] == .identifier) {
+                                    if (self.var_types.get(c.args[0].identifier)) |tn| {
+                                        struct_name = tn;
+                                    }
+                                }
+                                const builtin_name = std.fmt.allocPrint(self.alloc, "json_stringify_struct:{s}", .{struct_name}) catch "json_stringify_struct:unknown";
+                                self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = builtin_name, .args = args } });
+                                return dest;
+                            }
                             if (std.mem.eql(u8, fn_name, "parse")) {
                                 var struct_name: []const u8 = "unknown";
                                 if (c.args.len >= 2 and c.args[1] == .identifier) {

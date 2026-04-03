@@ -369,6 +369,22 @@ while true {
 | `Convert.to_string(n)` | `int -> string` | Integer to string |
 | `Convert.to_int(s)` | `string -> int` | String to integer (0 on failure) |
 
+### Json
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `Json.parse(data, Struct)` | `string, type -> Result<Struct>` | Parse JSON into typed struct |
+| `Json.stringify(s)` | `Struct -> string` | Serialize struct to JSON string |
+| `Json.get_string(data, key)` | `string, string -> string` | Get string field |
+| `Json.get_int(data, key)` | `string, string -> int` | Get integer field |
+| `Json.get_float(data, key)` | `string, string -> float` | Get float field |
+| `Json.get_bool(data, key)` | `string, string -> bool` | Get boolean field |
+| `Json.build_object()` | `-> pointer` | Start building JSON object |
+| `Json.build_add_string(b, key, val)` | `pointer, string, string -> void` | Add string field |
+| `Json.build_add_int(b, key, val)` | `pointer, string, int -> void` | Add int field |
+| `Json.build_add_float(b, key, val)` | `pointer, string, float -> void` | Add float field |
+| `Json.build_add_bool(b, key, val)` | `pointer, string, bool -> void` | Add bool field |
+| `Json.build_end(b)` | `pointer -> string` | Finish and return JSON string |
+
 ### Stdio
 | Function | Signature | Description |
 |----------|-----------|-------------|
