@@ -245,7 +245,8 @@ test "compile: tcp listen port zero assigns port" {
     try testing.expectEqualStrings("ok\n", r.stdout);
 }
 
-test "compile: tcp double bind fails" {
+test "compile: tcp double bind with SO_REUSEPORT succeeds" {
+    // SO_REUSEPORT is set for multi-threaded load balancing, so double bind succeeds
     const r = try compileAndCapture(
         \\process App {
         \\    receive main(args: list<string>) -> int {
@@ -254,7 +255,7 @@ test "compile: tcp double bind fails" {
         \\                port: int = Tcp.port(listener1);
         \\                match Tcp.listen("127.0.0.1", port) {
         \\                    :ok{listener2} => {
-        \\                        Stdio.println("unexpected success");
+        \\                        Stdio.println("reuse ok");
         \\                        Stream.close(listener2);
         \\                    }
         \\                    :error{e} => Stdio.println("address in use");
@@ -268,7 +269,7 @@ test "compile: tcp double bind fails" {
         \\}
     );
     try testing.expectEqual(@as(u8, 0), r.exit);
-    try testing.expectEqualStrings("address in use\n", r.stdout);
+    try testing.expectEqualStrings("reuse ok\n", r.stdout);
 }
 
 test "compile: tcp data before close all delivered" {

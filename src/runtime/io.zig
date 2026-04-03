@@ -148,7 +148,8 @@ pub fn stream_close(stream_ptr: usize) void {
     switch (s.kind) {
         .tcp_client, .tcp_listener => {
             std.posix.close(s.fd);
-            std.heap.page_allocator.destroy(s);
+            // Don't free the struct — prevents use-after-free on double close or
+            // write-after-close. The closed flag guards all subsequent operations.
         },
         .file_write => std.posix.close(s.fd),
         .file_read => {},
