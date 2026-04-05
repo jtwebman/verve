@@ -1,6 +1,8 @@
 const std = @import("std");
-const ast = @import("ast.zig");
-const ir = @import("ir.zig");
+const ast = @import("../ast.zig");
+const ir = @import("../ir.zig");
+const builtins = @import("builtins.zig");
+const generics = @import("generics.zig");
 
 /// Lowers Verve AST to target-independent IR.
 pub const Lower = struct {
@@ -53,7 +55,7 @@ pub const Lower = struct {
         return func.getBlock(bid);
     }
 
-    fn appendInst(self: *Lower, inst: ir.Inst) void {
+    pub fn appendInst(self: *Lower, inst: ir.Inst) void {
         if (self.curBlock()) |b| b.append(inst);
     }
 
@@ -165,7 +167,7 @@ pub const Lower = struct {
                                     const example_text = std.mem.trim(u8, line_[idx + 9 ..], " \t\r");
                                     if (example_text.len > 0) {
                                         const assert_src = std.fmt.allocPrint(self.alloc, "assert {s};", .{example_text}) catch "";
-                                        var example_parser = @import("parser.zig").Parser.init(assert_src, self.alloc);
+                                        var example_parser = @import("../parser.zig").Parser.init(assert_src, self.alloc);
                                         if (example_parser.parseStmt()) |stmt| {
                                             const test_name = std.fmt.allocPrint(self.alloc, "@example {s}.{s} #{d}", .{ m.name, func.name, example_idx }) catch "example";
                                             const test_fn_name = std.fmt.allocPrint(self.alloc, "__example_{s}_{d}", .{ func.name, example_idx }) catch "example";
@@ -245,7 +247,7 @@ pub const Lower = struct {
                     if (std.mem.eql(u8, g.name, "pid") and g.args.len == 1 and g.args[0] == .simple) {
                         self.process_vars.put(self.alloc, p.name, g.args[0].simple) catch {};
                     } else if (self.generic_struct_decls.get(g.name) != null) {
-                        const mono_name = self.instantiateGenericStruct(g.name, g.args) catch g.name;
+                        const mono_name = generics.instantiateGenericStruct(self, g.name, g.args) catch g.name;
                         self.var_types.put(self.alloc, p.name, mono_name) catch {};
                     }
                 },
@@ -360,7 +362,7 @@ pub const Lower = struct {
                         if (std.mem.eql(u8, g.name, "pid") and g.args.len == 1 and g.args[0] == .simple) {
                             self.process_vars.put(self.alloc, a.name, g.args[0].simple) catch {};
                         } else if (self.generic_struct_decls.get(g.name) != null) {
-                            const mono_name = self.instantiateGenericStruct(g.name, g.args) catch g.name;
+                            const mono_name = generics.instantiateGenericStruct(self, g.name, g.args) catch g.name;
                             self.pending_generic_name = mono_name;
                             self.var_types.put(self.alloc, a.name, mono_name) catch {};
                         }
@@ -391,12 +393,12 @@ pub const Lower = struct {
                         .generic => |g| {
                             // User-defined generics handled above; track collection types
                             if (self.generic_struct_decls.get(g.name) == null) {
-                                const full_name = self.formatGenericTypeName(g.name, g.args);
+                                const full_name = generics.formatGenericTypeName(self, g.name, g.args);
                                 self.var_types.put(self.alloc, a.name, full_name) catch {};
                             }
                         },
                         .optional => |inner| {
-                            const inner_name = self.typeExprName(inner.*);
+                            const inner_name = generics.typeExprName(self, inner.*);
                             const opt_name = std.fmt.allocPrint(self.alloc, "optional_{s}", .{inner_name}) catch "__optional";
                             self.var_types.put(self.alloc, a.name, opt_name) catch {};
                         },
@@ -692,104 +694,6 @@ pub const Lower = struct {
         if (std.mem.eql(u8, tag_name, "error")) return 1;
         if (std.mem.eql(u8, tag_name, "eof")) return 2;
         return -1;
-    }
-
-    // ── Generic struct monomorphization ────────────────────
-
-    /// Generate a monomorphized name like "Pair_int" or "Entry_string_int"
-    fn monomorphKey(self: *Lower, base_name: []const u8, type_args: []const ast.TypeExpr) []const u8 {
-        var buf = std.ArrayListUnmanaged(u8){};
-        buf.appendSlice(self.alloc, base_name) catch return base_name;
-        for (type_args) |arg| {
-            buf.appendSlice(self.alloc, "_") catch {};
-            buf.appendSlice(self.alloc, self.typeExprName(arg)) catch {};
-        }
-        return buf.toOwnedSlice(self.alloc) catch base_name;
-    }
-
-    /// Get a simple string name for a type expression
-    fn typeExprName(self: *Lower, te: ast.TypeExpr) []const u8 {
-        return switch (te) {
-            .simple => |name| name,
-            .generic => |g| self.monomorphKey(g.name, g.args),
-            else => "unknown",
-        };
-    }
-
-    /// Resolve a field type expression by substituting type parameters.
-    /// If type_expr is `.simple` and matches a type param name, substitute with the arg.
-    fn resolveFieldTypeName(self: *Lower, type_expr: ast.TypeExpr, type_params: []const []const u8, type_args: []const ast.TypeExpr) []const u8 {
-        switch (type_expr) {
-            .simple => |name| {
-                for (type_params, 0..) |param, i| {
-                    if (std.mem.eql(u8, name, param) and i < type_args.len) {
-                        return self.typeExprName(type_args[i]);
-                    }
-                }
-                return name;
-            },
-            else => return "unknown",
-        }
-    }
-
-    /// Instantiate a generic struct with concrete type args. Returns the monomorphized name.
-    fn instantiateGenericStruct(self: *Lower, base_name: []const u8, type_args: []const ast.TypeExpr) ![]const u8 {
-        const key = self.monomorphKey(base_name, type_args);
-
-        // Already instantiated?
-        if (self.monomorphized.get(key) != null) return key;
-
-        const generic_def = self.generic_struct_decls.get(base_name) orelse return base_name;
-
-        // Build resolved fields
-        var fields = std.ArrayListUnmanaged(ir.StructFieldInfo){};
-        for (generic_def.fields) |f| {
-            const resolved_type = self.resolveFieldTypeName(f.type_expr, generic_def.type_params, type_args);
-            try fields.append(self.alloc, .{ .name = f.name, .type_name = resolved_type });
-        }
-
-        // Emit the specialized StructInfo to IR
-        try self.program.struct_decls.append(self.alloc, .{
-            .name = key,
-            .fields = try fields.toOwnedSlice(self.alloc),
-        });
-
-        // Create a synthetic AST StructDecl for the lowerer's struct_decls map
-        // (needed for field access resolution)
-        var ast_fields = std.ArrayListUnmanaged(ast.Field){};
-        for (generic_def.fields) |f| {
-            const resolved_type = self.resolveFieldTypeName(f.type_expr, generic_def.type_params, type_args);
-            try ast_fields.append(self.alloc, .{
-                .name = f.name,
-                .type_expr = .{ .simple = resolved_type },
-                .default_value = f.default_value,
-                .span = f.span,
-            });
-        }
-        const mono_decl = ast.StructDecl{
-            .name = key,
-            .fields = try ast_fields.toOwnedSlice(self.alloc),
-            .type_params = &.{},
-            .exported = generic_def.exported,
-            .span = generic_def.span,
-        };
-        try self.struct_decls.put(self.alloc, key, mono_decl);
-        try self.monomorphized.put(self.alloc, key, {});
-
-        return key;
-    }
-
-    /// Format a generic type name with angle brackets: "list<int>", "map<string, int>"
-    fn formatGenericTypeName(self: *Lower, base: []const u8, args: []const ast.TypeExpr) []const u8 {
-        var buf = std.ArrayListUnmanaged(u8){};
-        buf.appendSlice(self.alloc, base) catch return base;
-        buf.appendSlice(self.alloc, "<") catch return base;
-        for (args, 0..) |arg, i| {
-            if (i > 0) buf.appendSlice(self.alloc, ", ") catch {};
-            buf.appendSlice(self.alloc, self.typeExprName(arg)) catch {};
-        }
-        buf.appendSlice(self.alloc, ">") catch return base;
-        return buf.toOwnedSlice(self.alloc) catch base;
     }
 
     /// Get the to_string builtin name for an expression, with type hint if available.
@@ -1179,244 +1083,9 @@ pub const Lower = struct {
                             return dest;
                         }
 
-                        // Built-in modules — all simplified: just pass registers directly
-                        if (std.mem.eql(u8, mod_name, "Timer")) {
-                            const builtin_name = std.fmt.allocPrint(self.alloc, "timer_{s}", .{fn_name}) catch fn_name;
-                            self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = builtin_name, .args = args } });
-                            return dest;
-                        }
-                        if (std.mem.eql(u8, mod_name, "StringBuilder")) {
-                            if (std.mem.eql(u8, fn_name, "new") and args.len == 0) {
-                                const zero_reg = func.newReg();
-                                self.appendInst(.{ .const_int = .{ .dest = zero_reg, .value = 0 } });
-                                const default_args = self.alloc.alloc(ir.Reg, 1) catch return dest;
-                                default_args[0] = zero_reg;
-                                self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = "sb_new", .args = default_args } });
-                                return dest;
-                            }
-                            const builtin_name = std.fmt.allocPrint(self.alloc, "sb_{s}", .{fn_name}) catch fn_name;
-                            self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = builtin_name, .args = args } });
-                            return dest;
-                        }
-                        if (std.mem.eql(u8, mod_name, "String")) {
-                            if (std.mem.eql(u8, fn_name, "byte_at")) {
-                                if (args.len >= 2) {
-                                    self.appendInst(.{ .string_byte_at = .{ .dest = dest, .str = args[0], .index = args[1] } });
-                                    return dest;
-                                }
-                            }
-                            if (std.mem.eql(u8, fn_name, "slice")) {
-                                if (args.len >= 3) {
-                                    self.appendInst(.{ .string_slice = .{ .dest = dest, .str = args[0], .start = args[1], .end = args[2] } });
-                                    return dest;
-                                }
-                            }
-                            if (std.mem.eql(u8, fn_name, "len")) {
-                                if (args.len >= 1) {
-                                    self.appendInst(.{ .string_len = .{ .dest = dest, .str = args[0] } });
-                                    return dest;
-                                }
-                            }
-                            const builtin_name = std.fmt.allocPrint(self.alloc, "string_{s}", .{fn_name}) catch fn_name;
-                            self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = builtin_name, .args = args } });
-                            return dest;
-                        }
-                        if (std.mem.eql(u8, mod_name, "Set")) {
-                            self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = "set_has_str", .args = args } });
-                            return dest;
-                        }
-                        if (std.mem.eql(u8, mod_name, "Map") or std.mem.eql(u8, mod_name, "Stack") or std.mem.eql(u8, mod_name, "Queue")) {
-                            const builtin_name = std.fmt.allocPrint(self.alloc, "{s}_{s}", .{ if (std.mem.eql(u8, mod_name, "Map")) "map" else if (std.mem.eql(u8, mod_name, "Stack")) "stack" else "queue", fn_name }) catch fn_name;
-                            self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = builtin_name, .args = args } });
-                            return dest;
-                        }
-                        if (std.mem.eql(u8, mod_name, "Stdio")) {
-                            if (std.mem.eql(u8, fn_name, "println") or std.mem.eql(u8, fn_name, "print")) {
-                                // Each arg is a single register — the backend checks its type
-                                self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = fn_name, .args = args } });
-                                return dest;
-                            }
-                            const builtin_name = std.fmt.allocPrint(self.alloc, "stdio_{s}", .{fn_name}) catch fn_name;
-                            self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = builtin_name, .args = args } });
-                            return dest;
-                        }
-                        if (std.mem.eql(u8, mod_name, "File")) {
-                            if (std.mem.eql(u8, fn_name, "open")) {
-                                self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = "file_open", .args = args } });
-                                return dest;
-                            }
-                            const builtin_name = std.fmt.allocPrint(self.alloc, "file_{s}", .{fn_name}) catch fn_name;
-                            self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = builtin_name, .args = args } });
-                            return dest;
-                        }
-                        if (std.mem.eql(u8, mod_name, "Stream")) {
-                            const builtin_name = std.fmt.allocPrint(self.alloc, "stream_{s}", .{fn_name}) catch fn_name;
-                            self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = builtin_name, .args = args } });
-                            return dest;
-                        }
-                        if (std.mem.eql(u8, mod_name, "Math")) {
-                            const builtin_name = std.fmt.allocPrint(self.alloc, "math_{s}", .{fn_name}) catch fn_name;
-                            self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = builtin_name, .args = args } });
-                            return dest;
-                        }
-                        if (std.mem.eql(u8, mod_name, "Env")) {
-                            if (std.mem.eql(u8, fn_name, "get")) {
-                                self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = "env_get", .args = args } });
-                                return dest;
-                            }
-                            const builtin_name = std.fmt.allocPrint(self.alloc, "env_{s}", .{fn_name}) catch fn_name;
-                            self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = builtin_name, .args = args } });
-                            return dest;
-                        }
-                        if (std.mem.eql(u8, mod_name, "System")) {
-                            const builtin_name = std.fmt.allocPrint(self.alloc, "system_{s}", .{fn_name}) catch fn_name;
-                            self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = builtin_name, .args = args } });
-                            return dest;
-                        }
-                        if (std.mem.eql(u8, mod_name, "Convert")) {
-                            if (std.mem.eql(u8, fn_name, "to_string")) {
-                                self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = "int_to_string", .args = args } });
-                                return dest;
-                            }
-                            if (std.mem.eql(u8, fn_name, "to_int")) {
-                                self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = "string_to_int", .args = args } });
-                                return dest;
-                            }
-                            if (std.mem.eql(u8, fn_name, "to_float")) {
-                                self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = "convert_to_float", .args = args } });
-                                return dest;
-                            }
-                            if (std.mem.eql(u8, fn_name, "to_int_f")) {
-                                self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = "convert_to_int_f", .args = args } });
-                                return dest;
-                            }
-                            if (std.mem.eql(u8, fn_name, "float_to_string")) {
-                                self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = "float_to_string", .args = args } });
-                                return dest;
-                            }
-                            if (std.mem.eql(u8, fn_name, "string_to_float")) {
-                                self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = "string_to_float", .args = args } });
-                                return dest;
-                            }
-                        }
-                        if (std.mem.eql(u8, mod_name, "Process")) {
-                            if (std.mem.eql(u8, fn_name, "env_int") or
-                                std.mem.eql(u8, fn_name, "env_float") or
-                                std.mem.eql(u8, fn_name, "env_bool") or
-                                std.mem.eql(u8, fn_name, "env_string"))
-                            {
-                                // Extract type suffix: "env_int" → "int"
-                                const type_name = fn_name[4..]; // skip "env_"
-                                // Extract env var name from first AST arg (must be string literal)
-                                const env_name = if (c.args.len >= 1 and c.args[0] == .string_literal) c.args[0].string_literal else "UNKNOWN";
-                                // Register env var declaration with defaults
-                                var decl = ir.EnvVarDecl{
-                                    .env_name = env_name,
-                                    .type_name = type_name,
-                                    .has_default = c.args.len >= 2,
-                                };
-                                if (c.args.len >= 2) {
-                                    if (std.mem.eql(u8, type_name, "int")) {
-                                        if (c.args[1] == .int_literal) decl.default_int = c.args[1].int_literal;
-                                        if (c.args[1] == .unary_op and c.args[1].unary_op.op == .sub and c.args[1].unary_op.operand.* == .int_literal)
-                                            decl.default_int = -c.args[1].unary_op.operand.int_literal;
-                                    } else if (std.mem.eql(u8, type_name, "float")) {
-                                        if (c.args[1] == .float_literal) decl.default_float = c.args[1].float_literal;
-                                    } else if (std.mem.eql(u8, type_name, "bool")) {
-                                        if (c.args[1] == .bool_literal) decl.default_bool = c.args[1].bool_literal;
-                                    } else if (std.mem.eql(u8, type_name, "string")) {
-                                        if (c.args[1] == .string_literal) decl.default_string = c.args[1].string_literal;
-                                    }
-                                }
-                                // Deduplicate: only add if not already registered
-                                var found = false;
-                                for (self.program.env_decls.items) |existing| {
-                                    if (std.mem.eql(u8, existing.env_name, env_name)) {
-                                        found = true;
-                                        break;
-                                    }
-                                }
-                                if (!found) self.program.env_decls.append(self.alloc, decl) catch {};
-                                // Emit env_load instruction — reads from pre-validated global
-                                self.appendInst(.{ .env_load = .{ .dest = dest, .env_name = env_name, .type_name = type_name } });
-                                // Track register types for codegen
-                                if (std.mem.eql(u8, type_name, "float")) self.float_regs.put(self.alloc, dest, {}) catch {};
-                                if (std.mem.eql(u8, type_name, "string")) self.var_types.put(self.alloc, std.fmt.allocPrint(self.alloc, "__env_{d}", .{dest}) catch "", "string") catch {};
-                                return dest;
-                            }
-                            const builtin_name = std.fmt.allocPrint(self.alloc, "process_{s}", .{fn_name}) catch fn_name;
-                            self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = builtin_name, .args = args } });
-                            return dest;
-                        }
-                        if (std.mem.eql(u8, mod_name, "Json")) {
-                            if (std.mem.eql(u8, fn_name, "stringify")) {
-                                var struct_name: []const u8 = "unknown";
-                                // Resolve struct type from variable name
-                                if (c.args.len >= 1 and c.args[0] == .identifier) {
-                                    if (self.var_types.get(c.args[0].identifier)) |tn| {
-                                        struct_name = tn;
-                                    }
-                                }
-                                const builtin_name = std.fmt.allocPrint(self.alloc, "json_stringify_struct:{s}", .{struct_name}) catch "json_stringify_struct:unknown";
-                                self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = builtin_name, .args = args } });
-                                return dest;
-                            }
-                            if (std.mem.eql(u8, fn_name, "parse")) {
-                                var struct_name: []const u8 = "unknown";
-                                if (c.args.len >= 2 and c.args[1] == .identifier) {
-                                    struct_name = c.args[1].identifier;
-                                }
-                                const builtin_name = std.fmt.allocPrint(self.alloc, "json_parse_struct:{s}", .{struct_name}) catch "json_parse_struct:unknown";
-                                // Only pass the data arg, not the struct name
-                                const data_args = self.alloc.alloc(ir.Reg, 1) catch return dest;
-                                data_args[0] = args[0];
-                                self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = builtin_name, .args = data_args } });
-                                self.var_types.put(self.alloc, std.fmt.allocPrint(self.alloc, "__tagged_struct_{d}", .{dest}) catch "", struct_name) catch {};
-                                return dest;
-                            }
-                            if (std.mem.eql(u8, fn_name, "build_object")) {
-                                self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = "json_build_object", .args = &.{} } });
-                                return dest;
-                            }
-                            if (std.mem.eql(u8, fn_name, "build_end")) {
-                                self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = "json_build_end", .args = args } });
-                                return dest;
-                            }
-                            if (std.mem.eql(u8, fn_name, "build_add_string") or std.mem.eql(u8, fn_name, "build_add_int") or std.mem.eql(u8, fn_name, "build_add_bool") or std.mem.eql(u8, fn_name, "build_add_float")) {
-                                const builtin_name = std.fmt.allocPrint(self.alloc, "json_{s}", .{fn_name}) catch fn_name;
-                                self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = builtin_name, .args = args } });
-                                return dest;
-                            }
-                            const builtin_name = std.fmt.allocPrint(self.alloc, "json_{s}", .{fn_name}) catch fn_name;
-                            self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = builtin_name, .args = args } });
-                            return dest;
-                        }
-                        if (std.mem.eql(u8, mod_name, "Http")) {
-                            if (std.mem.eql(u8, fn_name, "respond")) {
-                                self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = "http_build_response", .args = args } });
-                                return dest;
-                            }
-                            if (std.mem.eql(u8, fn_name, "respond_chunked")) {
-                                self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = "http_build_response_chunked", .args = args } });
-                                return dest;
-                            }
-                            if (std.mem.eql(u8, fn_name, "parse_request")) {
-                                self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = "http_parse_request", .args = args } });
-                                return dest;
-                            }
-                            if (std.mem.eql(u8, fn_name, "get") or std.mem.eql(u8, fn_name, "post") or std.mem.eql(u8, fn_name, "request")) {
-                                const builtin_name = std.fmt.allocPrint(self.alloc, "http_client_{s}", .{fn_name}) catch fn_name;
-                                self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = builtin_name, .args = args } });
-                                return dest;
-                            }
-                            const builtin_name = std.fmt.allocPrint(self.alloc, "http_{s}", .{fn_name}) catch fn_name;
-                            self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = builtin_name, .args = args } });
-                            return dest;
-                        }
-                        if (std.mem.eql(u8, mod_name, "Tcp")) {
-                            const builtin_name = std.fmt.allocPrint(self.alloc, "tcp_{s}", .{fn_name}) catch fn_name;
-                            self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = builtin_name, .args = args } });
-                            return dest;
+                        // Built-in modules
+                        if (builtins.lowerBuiltinModuleCall(self, mod_name, fn_name, args, c.args, dest)) |result| {
+                            return result;
                         }
                         // User module.function
                         self.appendInst(.{ .call = .{ .dest = dest, .module = mod_name, .function = fn_name, .args = args } });

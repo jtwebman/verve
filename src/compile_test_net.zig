@@ -1,6 +1,6 @@
 const std = @import("std");
 const Parser = @import("parser.zig").Parser;
-const Lower = @import("lower.zig").Lower;
+const Lower = @import("lower/lower.zig").Lower;
 const ZigBackend = @import("zig_backend.zig").ZigBackend;
 const testing = std.testing;
 const alloc = std.heap.page_allocator;

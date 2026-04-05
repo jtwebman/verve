@@ -1,6 +1,6 @@
 const std = @import("std");
 const Parser = @import("parser.zig").Parser;
-const Lower = @import("lower.zig").Lower;
+const Lower = @import("lower/lower.zig").Lower;
 const Loader = @import("loader.zig").Loader;
 
 fn getZigPath(alloc: std.mem.Allocator) []const u8 {
@@ -297,7 +297,7 @@ pub fn main() !void {
         }
 
         // Lower AST to IR
-        const Lwr = @import("lower.zig").Lower;
+        const Lwr = @import("lower/lower.zig").Lower;
         var lower = Lwr.init(alloc);
         const program = lower.lowerFile(merged) catch |err| {
             std.debug.print("Lowering error: {}\n", .{err});
