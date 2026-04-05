@@ -24,7 +24,7 @@ These are things LANGUAGE-DESIGN.md and LANGUAGE.md claim that don't fully work 
 - [x] Enum types in compiler — real Zig enums, struct field boundaries, match support
 - [x] Tagged union types in compiler — :tag{expr} construction, makeTagged runtime, string-aware extraction
 - [x] Optional types (T?) in compiler — tagged values (some=0, none=1), match with :some{val}/none
-- [ ] Sized integer types — int8, int16, int32, uint8, uint16, uint32, uint64 with native-width message encoding, implicit widening, checked narrowing (overflow → poison)
+- [x] Sized integer types — int8, int16, int32, uint8, uint16, uint32, uint64 with native-width message encoding, implicit widening, checked narrowing (overflow → poison)
 - [ ] Proper file I/O — write mode, seek, read_bytes for files, file_size, truncate, fsync
 - [ ] C FFI — extern function declarations, automatic string conversion at boundaries, C library linking
 
