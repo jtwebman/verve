@@ -83,7 +83,7 @@ pub const ZigBackend = struct {
 
     fn regTypeFromIr(t: ir.Type) RegType {
         return switch (t) {
-            .i64 => .int,
+            .i8, .i16, .i32, .i64, .u8, .u16, .u32, .u64 => .int,
             .f64 => .float,
             .bool => .boolean,
             .string => .string,
@@ -273,6 +273,41 @@ pub const ZigBackend = struct {
             }
         }
         return .int;
+    }
+
+    /// Returns the raw type_name string for a struct field (e.g. "int8", "uint32", "int").
+    fn lookupFieldTypeName(self: *ZigBackend, struct_name: []const u8, field_name: []const u8) []const u8 {
+        for (self.program.struct_decls.items) |sd| {
+            if (std.mem.eql(u8, sd.name, struct_name)) {
+                for (sd.fields) |f| {
+                    if (std.mem.eql(u8, f.name, field_name)) return f.type_name;
+                }
+            }
+        }
+        return "int";
+    }
+
+    /// Returns true if a type name is a sized integer (not the default i64/int).
+    fn isSizedInt(type_name: []const u8) bool {
+        return std.mem.eql(u8, type_name, "int8") or
+            std.mem.eql(u8, type_name, "int16") or
+            std.mem.eql(u8, type_name, "int32") or
+            std.mem.eql(u8, type_name, "uint8") or
+            std.mem.eql(u8, type_name, "uint16") or
+            std.mem.eql(u8, type_name, "uint32") or
+            std.mem.eql(u8, type_name, "uint64");
+    }
+
+    /// Maps a Verve type name to its Zig type name.
+    fn zigTypeName(type_name: []const u8) []const u8 {
+        if (std.mem.eql(u8, type_name, "int8")) return "i8";
+        if (std.mem.eql(u8, type_name, "int16")) return "i16";
+        if (std.mem.eql(u8, type_name, "int32")) return "i32";
+        if (std.mem.eql(u8, type_name, "uint8")) return "u8";
+        if (std.mem.eql(u8, type_name, "uint16")) return "u16";
+        if (std.mem.eql(u8, type_name, "uint32")) return "u32";
+        if (std.mem.eql(u8, type_name, "uint64")) return "u64";
+        return "i64";
     }
 
     // ── Builtin registry ────────────────────────────────────
@@ -479,8 +514,22 @@ pub const ZigBackend = struct {
             self.indent += 1;
             for (sd.fields) |f| {
                 self.writeIndent();
-                if (std.mem.eql(u8, f.type_name, "int")) {
+                if (std.mem.eql(u8, f.type_name, "int") or std.mem.eql(u8, f.type_name, "int64")) {
                     self.writeFmt("{s}: i64 = 0,\n", .{f.name});
+                } else if (std.mem.eql(u8, f.type_name, "int8")) {
+                    self.writeFmt("{s}: i8 = 0,\n", .{f.name});
+                } else if (std.mem.eql(u8, f.type_name, "int16")) {
+                    self.writeFmt("{s}: i16 = 0,\n", .{f.name});
+                } else if (std.mem.eql(u8, f.type_name, "int32")) {
+                    self.writeFmt("{s}: i32 = 0,\n", .{f.name});
+                } else if (std.mem.eql(u8, f.type_name, "uint8")) {
+                    self.writeFmt("{s}: u8 = 0,\n", .{f.name});
+                } else if (std.mem.eql(u8, f.type_name, "uint16")) {
+                    self.writeFmt("{s}: u16 = 0,\n", .{f.name});
+                } else if (std.mem.eql(u8, f.type_name, "uint32")) {
+                    self.writeFmt("{s}: u32 = 0,\n", .{f.name});
+                } else if (std.mem.eql(u8, f.type_name, "uint64")) {
+                    self.writeFmt("{s}: u64 = 0,\n", .{f.name});
                 } else if (std.mem.eql(u8, f.type_name, "float")) {
                     self.writeFmt("{s}: f64 = 0.0,\n", .{f.name});
                 } else if (std.mem.eql(u8, f.type_name, "bool")) {
@@ -1218,6 +1267,10 @@ pub const ZigBackend = struct {
             .struct_store => |ss| {
                 if (self.fieldIsEnum(ss.struct_name, ss.field_name)) |_| {
                     self.lineFmt("@as(*VerveStruct_{s}, @ptrFromInt({s})).{s} = @enumFromInt({s});", .{ ss.struct_name, self.regName(ss.base), ss.field_name, self.regName(ss.src) });
+                } else if (isSizedInt(self.lookupFieldTypeName(ss.struct_name, ss.field_name))) {
+                    // Narrow i64 register to sized int field
+                    const zt = zigTypeName(self.lookupFieldTypeName(ss.struct_name, ss.field_name));
+                    self.lineFmt("@as(*VerveStruct_{s}, @ptrFromInt({s})).{s} = @as({s}, @intCast({s}));", .{ ss.struct_name, self.regName(ss.base), ss.field_name, zt, self.regName(ss.src) });
                 } else {
                     self.lineFmt("@as(*VerveStruct_{s}, @ptrFromInt({s})).{s} = {s};", .{ ss.struct_name, self.regName(ss.base), ss.field_name, self.regName(ss.src) });
                 }
@@ -1225,6 +1278,15 @@ pub const ZigBackend = struct {
             .struct_load => |sl| {
                 if (self.fieldIsEnum(sl.struct_name, sl.field_name)) |_| {
                     self.lineFmt("{s} = @intFromEnum(@as(*const VerveStruct_{s}, @ptrFromInt({s})).{s});", .{ self.regName(sl.dest), sl.struct_name, self.regName(sl.base), sl.field_name });
+                } else if (isSizedInt(self.lookupFieldTypeName(sl.struct_name, sl.field_name))) {
+                    // Widen sized int field to i64 register
+                    const ftn = self.lookupFieldTypeName(sl.struct_name, sl.field_name);
+                    const is_unsigned = ftn[0] == 'u';
+                    if (is_unsigned) {
+                        self.lineFmt("{s} = @as(i64, @intCast(@as(*const VerveStruct_{s}, @ptrFromInt({s})).{s}));", .{ self.regName(sl.dest), sl.struct_name, self.regName(sl.base), sl.field_name });
+                    } else {
+                        self.lineFmt("{s} = @as(i64, @intCast(@as(*const VerveStruct_{s}, @ptrFromInt({s})).{s}));", .{ self.regName(sl.dest), sl.struct_name, self.regName(sl.base), sl.field_name });
+                    }
                 } else {
                     self.lineFmt("{s} = @as(*const VerveStruct_{s}, @ptrFromInt({s})).{s};", .{ self.regName(sl.dest), sl.struct_name, self.regName(sl.base), sl.field_name });
                 }
@@ -1308,7 +1370,10 @@ pub const ZigBackend = struct {
                 self.line("_msg_buf[3] = @truncate(_spid >> 8);");
                 if (ps.args.len > 0) {
                     self.line("var _mpos: usize = 4;");
-                    for (ps.args) |arg| self.emitMsgEncode(arg, reg_types);
+                    for (ps.args, 0..) |arg, ai| {
+                        const pt_arg = if (ai < ps.param_types.len) ps.param_types[ai] else null;
+                        self.emitMsgEncode(arg, reg_types, pt_arg);
+                    }
                     self.lineFmt("{s} = rt.process.verve_send(@intCast(@as(u64, @bitCast({s}))), &_msg_buf, _mpos);", .{ self.regName(ps.dest), self.regName(ps.target) });
                 } else {
                     self.lineFmt("{s} = rt.process.verve_send(@intCast(@as(u64, @bitCast({s}))), &_msg_buf, 4);", .{ self.regName(ps.dest), self.regName(ps.target) });
@@ -1328,7 +1393,10 @@ pub const ZigBackend = struct {
                 self.line("_msg_buf[3] = 0;");
                 if (pt.args.len > 0) {
                     self.line("var _mpos: usize = 4;");
-                    for (pt.args) |arg| self.emitMsgEncode(arg, reg_types);
+                    for (pt.args, 0..) |arg, ai| {
+                        const pt_arg = if (ai < pt.param_types.len) pt.param_types[ai] else null;
+                        self.emitMsgEncode(arg, reg_types, pt_arg);
+                    }
                     self.lineFmt("{s} = rt.process.verve_tell(@intCast(@as(u64, @bitCast({s}))), &_msg_buf, _mpos);", .{ self.regName(pt.dest), self.regName(pt.target) });
                 } else {
                     self.lineFmt("{s} = rt.process.verve_tell(@intCast(@as(u64, @bitCast({s}))), &_msg_buf, 4);", .{ self.regName(pt.dest), self.regName(pt.target) });
@@ -1365,7 +1433,10 @@ pub const ZigBackend = struct {
                 self.line("_msg_buf[3] = @truncate(_spid >> 8);");
                 if (ps.args.len > 0) {
                     self.line("var _mpos: usize = 4;");
-                    for (ps.args) |arg| self.emitMsgEncode(arg, reg_types);
+                    for (ps.args, 0..) |arg, ai| {
+                        const pt_arg = if (ai < ps.param_types.len) ps.param_types[ai] else null;
+                        self.emitMsgEncode(arg, reg_types, pt_arg);
+                    }
                     self.lineFmt("{s} = rt.process.verve_send_timeout(@intCast(@as(u64, @bitCast({s}))), &_msg_buf, _mpos, {s});", .{ self.regName(ps.dest), self.regName(ps.target), self.regName(ps.timeout_ms) });
                 } else {
                     self.lineFmt("{s} = rt.process.verve_send_timeout(@intCast(@as(u64, @bitCast({s}))), &_msg_buf, 4, {s});", .{ self.regName(ps.dest), self.regName(ps.target), self.regName(ps.timeout_ms) });
@@ -1733,8 +1804,10 @@ pub const ZigBackend = struct {
                 self.line("b.appendByte(':');");
                 if (std.mem.eql(u8, f.type_name, "string")) {
                     self.lineFmt("b.appendQuotedString(s.{s});", .{f.name});
-                } else if (std.mem.eql(u8, f.type_name, "int")) {
+                } else if (std.mem.eql(u8, f.type_name, "int") or std.mem.eql(u8, f.type_name, "int64")) {
                     self.lineFmt("b.appendInt(s.{s});", .{f.name});
+                } else if (isSizedInt(f.type_name)) {
+                    self.lineFmt("b.appendInt(@as(i64, @intCast(s.{s})));", .{f.name});
                 } else if (std.mem.eql(u8, f.type_name, "float")) {
                     self.lineFmt("b.appendFloat(s.{s});", .{f.name});
                 } else if (std.mem.eql(u8, f.type_name, "bool")) {
@@ -1824,15 +1897,30 @@ pub const ZigBackend = struct {
             // Read 8 bytes as usize (opaque pointer — stream handle, struct ref, etc.)
             self.lineFmt("const _p_{s}: usize = @intCast(@as(u64, @bitCast([8]u8{{ _msg_ptr[_pos], _msg_ptr[_pos+1], _msg_ptr[_pos+2], _msg_ptr[_pos+3], _msg_ptr[_pos+4], _msg_ptr[_pos+5], _msg_ptr[_pos+6], _msg_ptr[_pos+7] }})));", .{param.name});
             self.line("_pos += 8;");
+        } else if (param.type_ == .i8 or param.type_ == .u8) {
+            // Read 1 byte, widen to i64 for register
+            self.lineFmt("const _p_{s}: i64 = @as(i64, @intCast(_msg_ptr[_pos]));", .{param.name});
+            self.line("_pos += 1;");
+        } else if (param.type_ == .i16 or param.type_ == .u16) {
+            // Read 2 bytes, widen to i64
+            self.lineFmt("const _p_{s}: i64 = @as(i64, @intCast(@as(u16, @bitCast([2]u8{{ _msg_ptr[_pos], _msg_ptr[_pos+1] }}))));", .{param.name});
+            self.line("_pos += 2;");
+        } else if (param.type_ == .i32 or param.type_ == .u32) {
+            // Read 4 bytes, widen to i64
+            self.lineFmt("const _p_{s}: i64 = @as(i64, @intCast(@as(u32, @bitCast([4]u8{{ _msg_ptr[_pos], _msg_ptr[_pos+1], _msg_ptr[_pos+2], _msg_ptr[_pos+3] }}))));", .{param.name});
+            self.line("_pos += 4;");
         } else {
-            // Read 8 bytes as i64 (little-endian)
+            // Read 8 bytes as i64 (little-endian) — default for i64, u64, pid
             self.lineFmt("const _p_{s}: i64 = @bitCast([8]u8{{ _msg_ptr[_pos], _msg_ptr[_pos+1], _msg_ptr[_pos+2], _msg_ptr[_pos+3], _msg_ptr[_pos+4], _msg_ptr[_pos+5], _msg_ptr[_pos+6], _msg_ptr[_pos+7] }});", .{param.name});
             self.line("_pos += 8;");
         }
     }
 
     /// Emit binary message encode for a single parameter. Writes to _msg_buf at _mpos.
-    fn emitMsgEncode(self: *ZigBackend, reg: ir.Reg, reg_types: []const RegType) void {
+    /// Message protocol type tags:
+    /// 0 = i64 (8 bytes), 1 = f64 (8 bytes), 2 = bool (1 byte), 3 = string (4-byte len + bytes)
+    /// 4 = i8/u8 (1 byte), 5 = i16/u16 (2 bytes), 6 = i32/u32 (4 bytes), 7 = pointer (8 bytes)
+    fn emitMsgEncode(self: *ZigBackend, reg: ir.Reg, reg_types: []const RegType, param_type: ?ir.Type) void {
         const t = getRegType(reg_types, reg);
         const rn = self.regName(reg);
         if (t == .string) {
@@ -1847,10 +1935,30 @@ pub const ZigBackend = struct {
             self.lineFmt("_msg_buf[_mpos] = 2; _mpos += 1;", .{}); // ArgType.boolean
             self.lineFmt("_msg_buf[_mpos] = if ({s}) 1 else 0; _mpos += 1;", .{rn});
         } else if (t == .pointer) {
-            self.lineFmt("_msg_buf[_mpos] = 0; _mpos += 1;", .{}); // ArgType.int (pointer as int)
+            self.lineFmt("_msg_buf[_mpos] = 7; _mpos += 1;", .{}); // ArgType.pointer
             self.lineFmt("const _ib_{d}: [8]u8 = @bitCast(@as(i64, @intCast({s}))); @memcpy(_msg_buf[_mpos.._mpos+8], &_ib_{d}); _mpos += 8;", .{ reg, rn, reg });
+        } else if (param_type) |pt| {
+            // Sized integer: encode at native width
+            switch (pt) {
+                .i8, .u8 => {
+                    self.lineFmt("_msg_buf[_mpos] = 4; _mpos += 1;", .{}); // ArgType.int8
+                    self.lineFmt("_msg_buf[_mpos] = @as(u8, @truncate(@as(u64, @bitCast({s})))); _mpos += 1;", .{rn});
+                },
+                .i16, .u16 => {
+                    self.lineFmt("_msg_buf[_mpos] = 5; _mpos += 1;", .{}); // ArgType.int16
+                    self.lineFmt("{{ const _iv_{d}: [2]u8 = @bitCast(@as(u16, @truncate(@as(u64, @bitCast({s}))))); @memcpy(_msg_buf[_mpos.._mpos+2], &_iv_{d}); _mpos += 2; }}", .{ reg, rn, reg });
+                },
+                .i32, .u32 => {
+                    self.lineFmt("_msg_buf[_mpos] = 6; _mpos += 1;", .{}); // ArgType.int32
+                    self.lineFmt("{{ const _iv_{d}: [4]u8 = @bitCast(@as(u32, @truncate(@as(u64, @bitCast({s}))))); @memcpy(_msg_buf[_mpos.._mpos+4], &_iv_{d}); _mpos += 4; }}", .{ reg, rn, reg });
+                },
+                else => {
+                    self.lineFmt("_msg_buf[_mpos] = 0; _mpos += 1;", .{}); // ArgType.int64
+                    self.lineFmt("const _ib_{d}: [8]u8 = @bitCast({s}); @memcpy(_msg_buf[_mpos.._mpos+8], &_ib_{d}); _mpos += 8;", .{ reg, rn, reg });
+                },
+            }
         } else {
-            self.lineFmt("_msg_buf[_mpos] = 0; _mpos += 1;", .{}); // ArgType.int
+            self.lineFmt("_msg_buf[_mpos] = 0; _mpos += 1;", .{}); // ArgType.int64
             self.lineFmt("const _ib_{d}: [8]u8 = @bitCast({s}); @memcpy(_msg_buf[_mpos.._mpos+8], &_ib_{d}); _mpos += 8;", .{ reg, rn, reg });
         }
     }

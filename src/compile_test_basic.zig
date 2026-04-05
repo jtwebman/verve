@@ -814,3 +814,106 @@ test "compile: list append past capacity is safe" {
         \\}
     ));
 }
+
+// ── Sized integer types ─────────────────────────────────
+
+test "compile: int32 struct store and load" {
+    // Verify int32 fields store and load correctly, and widen for arithmetic
+    const r = try compileAndCapture(
+        \\struct Point { x: int32 = 0; y: int32 = 0; }
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
+        \\        p: Point = Point { x: 100, y: 200 };
+        \\        sum: int = p.x + p.y;
+        \\        Stdio.println(sum);
+        \\        return sum - 300;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("300\n", r.stdout);
+}
+
+test "compile: uint8 boundary values" {
+    // Verify uint8 handles 0 and 255 correctly
+    const r = try compileAndCapture(
+        \\struct Pixel { r: uint8 = 0; g: uint8 = 0; b: uint8 = 0; }
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
+        \\        p: Pixel = Pixel { r: 255, g: 128, b: 0 };
+        \\        total: int = p.r + p.g + p.b;
+        \\        Stdio.println(p.r);
+        \\        Stdio.println(total);
+        \\        return total - 383;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("255\n383\n", r.stdout);
+}
+
+test "compile: int16 arithmetic widening" {
+    // Verify int16 loads widen to i64 for computation
+    const r = try compileAndCapture(
+        \\struct Header { version: int16 = 0; flags: int16 = 0; }
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
+        \\        h: Header = Header { version: 3, flags: 256 };
+        \\        sum: int = h.version + h.flags;
+        \\        product: int = h.version * h.flags;
+        \\        Stdio.println(sum);
+        \\        Stdio.println(product);
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("259\n768\n", r.stdout);
+}
+
+test "compile: mixed sized int struct with function" {
+    // Verify sized ints work in function params and return arithmetic results
+    const r = try compileAndCapture(
+        \\struct Record { id: int32 = 0; tag: uint8 = 0; score: int16 = 0; }
+        \\module Util {
+        \\    fn total(r: Record) -> int {
+        \\        return r.id + r.tag + r.score;
+        \\    }
+        \\}
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
+        \\        r: Record = Record { id: 42, tag: 7, score: 1000 };
+        \\        Stdio.println(Util.total(r));
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("1049\n", r.stdout);
+}
+
+test "compile: sized int process handler params" {
+    // Verify sized ints work in process message passing
+    const r = try compileAndCapture(
+        \\process Adder {
+        \\    receive Add(a: int32, b: int32) -> int {
+        \\        return a + b;
+        \\    }
+        \\}
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
+        \\        adder: pid<Adder> = spawn Adder();
+        \\        match Process.send(adder.Add, 100, 200) {
+        \\            :ok{result} => {
+        \\                Stdio.println(result);
+        \\                return 0;
+        \\            }
+        \\            :error{e} => return 1;
+        \\        }
+        \\        return 1;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("300\n", r.stdout);
+}

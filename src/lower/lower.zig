@@ -787,12 +787,14 @@ pub const Lower = struct {
 
         // Look up process type from pid variable
         var handler_index: ?u32 = null;
+        var handler_decl: ?ast.ReceiveDecl = null;
         if (fa.target.* == .identifier) {
             if (self.process_vars.get(fa.target.identifier)) |proc_type| {
                 if (self.process_decls.get(proc_type)) |pdecl| {
                     for (pdecl.receive_handlers, 0..) |h, hi| {
                         if (std.mem.eql(u8, h.name, handler_name)) {
                             handler_index = @intCast(hi);
+                            handler_decl = h;
                             break;
                         }
                     }
@@ -801,9 +803,19 @@ pub const Lower = struct {
         }
         const hi = handler_index orelse return dest;
 
+        // Resolve handler param types for native-width message encoding
+        var param_types = std.ArrayListUnmanaged(ir.Type){};
+        if (handler_decl) |hd| {
+            for (hd.params) |p| {
+                param_types.append(self.alloc, self.resolveType(p.type_expr)) catch {};
+            }
+        }
+
         // Lower handler arguments (everything after the handler reference)
         var arg_regs = std.ArrayListUnmanaged(ir.Reg){};
         const handler_args = call_args[1..];
+
+        const ptypes = param_types.toOwnedSlice(self.alloc) catch &.{};
 
         if (std.mem.eql(u8, call_name, "send_timeout")) {
             // Second arg (index 0 in handler_args) is timeout_ms, rest are handler args
@@ -819,6 +831,7 @@ pub const Lower = struct {
                     .handler_index = hi,
                     .args = arg_regs.toOwnedSlice(self.alloc) catch &.{},
                     .timeout_ms = timeout_reg,
+                    .param_types = ptypes,
                 } });
             } else {
                 // No timeout specified — use 0 (no deadline, same as send)
@@ -830,6 +843,7 @@ pub const Lower = struct {
                     .handler_index = hi,
                     .args = &.{},
                     .timeout_ms = timeout_reg,
+                    .param_types = ptypes,
                 } });
             }
         } else {
@@ -845,6 +859,7 @@ pub const Lower = struct {
                     .target = target_reg,
                     .handler_index = hi,
                     .args = args,
+                    .param_types = ptypes,
                 } });
             } else {
                 self.appendInst(.{ .process_send = .{
@@ -852,6 +867,7 @@ pub const Lower = struct {
                     .target = target_reg,
                     .handler_index = hi,
                     .args = args,
+                    .param_types = ptypes,
                 } });
             }
         }
@@ -1272,6 +1288,14 @@ pub const Lower = struct {
         switch (type_expr) {
             .simple => |name| {
                 if (std.mem.eql(u8, name, "int")) return .i64;
+                if (std.mem.eql(u8, name, "int8")) return .i8;
+                if (std.mem.eql(u8, name, "int16")) return .i16;
+                if (std.mem.eql(u8, name, "int32")) return .i32;
+                if (std.mem.eql(u8, name, "int64")) return .i64;
+                if (std.mem.eql(u8, name, "uint8")) return .u8;
+                if (std.mem.eql(u8, name, "uint16")) return .u16;
+                if (std.mem.eql(u8, name, "uint32")) return .u32;
+                if (std.mem.eql(u8, name, "uint64")) return .u64;
                 if (std.mem.eql(u8, name, "float")) return .f64;
                 if (std.mem.eql(u8, name, "bool")) return .bool;
                 if (std.mem.eql(u8, name, "string")) return .string;

@@ -2788,3 +2788,70 @@ test "valid: different handlers no cycle" {
         \\}
     );
 }
+
+// ── Sized integer types ─────────────────────────────────
+
+test "valid: sized int types in struct fields" {
+    try expectNoErrors(
+        \\/// A point with 32-bit coordinates.
+        \\struct Point {
+        \\    x: int32 = 0;
+        \\    y: int32 = 0;
+        \\}
+        \\process Main {
+        \\    /// Entry point.
+        \\    receive main() -> int { return 0; }
+        \\}
+    );
+}
+
+test "valid: all sized int types in struct" {
+    try expectNoErrors(
+        \\/// A struct with all sized types.
+        \\struct AllSizes {
+        \\    a: int8 = 0;
+        \\    b: int16 = 0;
+        \\    c: int32 = 0;
+        \\    d: uint8 = 0;
+        \\    e: uint16 = 0;
+        \\    f: uint32 = 0;
+        \\    g: uint64 = 0;
+        \\}
+        \\process Main {
+        \\    /// Entry point.
+        \\    receive main() -> int { return 0; }
+        \\}
+    );
+}
+
+test "valid: sized int as function parameter" {
+    try expectNoErrors(
+        \\/// Math helpers.
+        \\module Math {
+        \\    /// Pack a byte value.
+        \\    fn pack(val: uint8) -> int {
+        \\        return val;
+        \\    }
+        \\}
+        \\process Main {
+        \\    /// Entry point.
+        \\    receive main() -> int { return 0; }
+        \\}
+    );
+}
+
+test "valid: sized int as handler parameter" {
+    try expectNoErrors(
+        \\/// A counter process.
+        \\process Counter {
+        \\    /// Set the value.
+        \\    receive Set(val: int32) -> int {
+        \\        return val;
+        \\    }
+        \\}
+        \\process Main {
+        \\    /// Entry point.
+        \\    receive main() -> int { return 0; }
+        \\}
+    );
+}

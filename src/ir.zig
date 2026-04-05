@@ -5,13 +5,59 @@ const std = @import("std");
 /// Types are monomorphized: int is bare i64, not a tagged union.
 /// No OS-specific operations — backends map builtins to syscalls/APIs.
 pub const Type = enum {
+    i8,
+    i16,
+    i32,
     i64,
+    u8,
+    u16,
+    u32,
+    u64,
     f64,
     bool,
     string,
     ptr, // opaque pointer — streams, struct refs, tagged values (platform-sized)
     pid, // process ID — packed { node_id: u12, process_id: u36 } in i64
     void,
+
+    /// Returns true for any integer type (signed or unsigned, any width).
+    pub fn isInt(self: Type) bool {
+        return switch (self) {
+            .i8, .i16, .i32, .i64, .u8, .u16, .u32, .u64 => true,
+            else => false,
+        };
+    }
+
+    /// Returns the byte width of an integer type.
+    pub fn intWidth(self: Type) u8 {
+        return switch (self) {
+            .i8, .u8 => 1,
+            .i16, .u16 => 2,
+            .i32, .u32 => 4,
+            .i64, .u64 => 8,
+            else => 8, // default to 8 for non-int types
+        };
+    }
+
+    /// Returns the Zig type name for code generation.
+    pub fn zigName(self: Type) []const u8 {
+        return switch (self) {
+            .i8 => "i8",
+            .i16 => "i16",
+            .i32 => "i32",
+            .i64 => "i64",
+            .u8 => "u8",
+            .u16 => "u16",
+            .u32 => "u32",
+            .u64 => "u64",
+            .f64 => "f64",
+            .bool => "bool",
+            .string => "[]const u8",
+            .ptr => "usize",
+            .pid => "i64",
+            .void => "void",
+        };
+    }
 };
 
 /// Virtual register. Instructions produce and consume these.
@@ -126,9 +172,9 @@ pub const Inst = union(enum) {
     /// Spawn a new process instance, returns PID in dest.
     process_spawn: struct { dest: Reg, process_type: u32 },
     /// Send a message to a process (synchronous call), result in dest.
-    process_send: struct { dest: Reg, target: Reg, handler_index: u32, args: []const Reg },
+    process_send: struct { dest: Reg, target: Reg, handler_index: u32, args: []const Reg, param_types: []const Type = &.{} },
     /// Tell a process (fire-and-forget). Returns Result<void> tagged value.
-    process_tell: struct { dest: Reg, target: Reg, handler_index: u32, args: []const Reg },
+    process_tell: struct { dest: Reg, target: Reg, handler_index: u32, args: []const Reg, param_types: []const Type = &.{} },
     /// Read process state field into dest.
     process_state_get: struct { dest: Reg, struct_name: []const u8, field_name: []const u8 },
     /// Write value to process state field.
@@ -136,7 +182,7 @@ pub const Inst = union(enum) {
     /// Register current process as watcher of target.
     process_watch: struct { target: Reg },
     /// Send with timeout (milliseconds). Returns :error{:timeout} if exceeded.
-    process_send_timeout: struct { dest: Reg, target: Reg, handler_index: u32, args: []const Reg, timeout_ms: Reg },
+    process_send_timeout: struct { dest: Reg, target: Reg, handler_index: u32, args: []const Reg, timeout_ms: Reg, param_types: []const Type = &.{} },
 
     pub const BinOp = struct { dest: Reg, lhs: Reg, rhs: Reg };
     pub const UnOp = struct { dest: Reg, operand: Reg };

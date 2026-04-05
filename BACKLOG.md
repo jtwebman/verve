@@ -24,6 +24,9 @@ These are things LANGUAGE-DESIGN.md and LANGUAGE.md claim that don't fully work 
 - [x] Enum types in compiler — real Zig enums, struct field boundaries, match support
 - [x] Tagged union types in compiler — :tag{expr} construction, makeTagged runtime, string-aware extraction
 - [x] Optional types (T?) in compiler — tagged values (some=0, none=1), match with :some{val}/none
+- [ ] Sized integer types — int8, int16, int32, uint8, uint16, uint32, uint64 with native-width message encoding, implicit widening, checked narrowing (overflow → poison)
+- [ ] Proper file I/O — write mode, seek, read_bytes for files, file_size, truncate, fsync
+- [ ] C FFI — extern function declarations, automatic string conversion at boundaries, C library linking
 
 ### Checker Gaps
 - [x] Doc comment enforcement in compiler — checker runs in build/run, errors are hard failures
@@ -81,7 +84,6 @@ What's needed to build the 20 benchmark apps.
 
 ### Needed
 - [x] Typed env var access — `Process.env_int("PORT", 8080)` / `env_string` / `env_bool` / `env_float`. Parsed once at startup, cached in globals. Invalid values crash. Required (no default) crashes if missing. Batch validation reports all errors at once.
-- [ ] Shared-immutable cross-process globals — `Process.global_set_int(name, value)` / `Process.global_get_int(name, default)` for typed key-value shared memory across all processes on a node. Set once, read from anywhere. No casting needed — type is in the function name. First candidate for shared config (e.g. populate from `Process.env_*` at startup, read from any handler).
 - [x] Http — keep-alive connections (reuse TCP, skip handshake per request)
 - [x] Http — chunked transfer encoding (server-side responses)
 - [x] Http client (for API-to-API calls, webhook sending)

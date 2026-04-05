@@ -7,6 +7,13 @@ Verve is a process-oriented compiled language with no exceptions, no recursion, 
 ### Primitives
 `int`, `float`, `string`, `bool`, `void`
 
+### Sized Integers
+For binary data, FFI, and memory-efficient structs:
+- Signed: `int8`, `int16`, `int32`, `int64` (alias for `int`)
+- Unsigned: `uint8`, `uint16`, `uint32`, `uint64`
+
+Sized integers widen to `int` (i64) for arithmetic. Narrowing on struct field assignment uses checked cast. All sized int types are compatible with `int` in function parameters and return types.
+
 ### Collections
 - `list<T>` — mutable ordered list. Create with `list()`.
 - `map<K, V>` — mutable key-value map. Create with `map()`.

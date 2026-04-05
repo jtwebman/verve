@@ -1438,6 +1438,14 @@ pub const Checker = struct {
         return self.typeExprsMatch(exp, act);
     }
 
+    fn isIntegerType(name: []const u8) bool {
+        return std.mem.eql(u8, name, "int") or std.mem.eql(u8, name, "int8") or
+            std.mem.eql(u8, name, "int16") or std.mem.eql(u8, name, "int32") or
+            std.mem.eql(u8, name, "int64") or std.mem.eql(u8, name, "uint8") or
+            std.mem.eql(u8, name, "uint16") or std.mem.eql(u8, name, "uint32") or
+            std.mem.eql(u8, name, "uint64");
+    }
+
     fn typeExprsMatch(self: *Checker, expected: ast.TypeExpr, actual: ast.TypeExpr) bool {
         switch (expected) {
             .simple => |exp_name| {
@@ -1445,7 +1453,10 @@ pub const Checker = struct {
                 switch (actual) {
                     .simple => |act_name| {
                         const resolved_act = self.resolveAlias(act_name);
-                        return std.mem.eql(u8, resolved_exp, resolved_act);
+                        if (std.mem.eql(u8, resolved_exp, resolved_act)) return true;
+                        // Implicit widening: any sized int is compatible with int (i64)
+                        if (std.mem.eql(u8, resolved_exp, "int") and isIntegerType(resolved_act)) return true;
+                        return false;
                     },
                     else => return false,
                 }
