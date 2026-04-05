@@ -119,6 +119,9 @@ pub const Inst = union(enum) {
     /// Examples: "exit", "write_stdout", "write_stderr"
     call_builtin: struct { dest: Reg, name: []const u8, args: []const Reg },
 
+    /// Load a pre-validated env var from a global. Populated at startup.
+    env_load: struct { dest: Reg, env_name: []const u8, type_name: []const u8 },
+
     // ── Process operations ──────────────────────────────────
     /// Spawn a new process instance, returns PID in dest.
     process_spawn: struct { dest: Reg, process_type: u32 },
@@ -240,12 +243,23 @@ pub const UnionInfo = struct {
     variants: []const UnionVariantInfo,
 };
 
+pub const EnvVarDecl = struct {
+    env_name: []const u8, // "PORT", "DB_URL"
+    type_name: []const u8, // "int", "float", "bool", "string"
+    has_default: bool,
+    default_int: i64 = 0,
+    default_float: f64 = 0.0,
+    default_bool: bool = false,
+    default_string: []const u8 = "",
+};
+
 pub const Program = struct {
     functions: std.ArrayListUnmanaged(Function),
     process_decls: std.ArrayListUnmanaged(ProcessInfo),
     struct_decls: std.ArrayListUnmanaged(StructInfo),
     enum_decls: std.ArrayListUnmanaged(EnumInfo),
     union_decls: std.ArrayListUnmanaged(UnionInfo),
+    env_decls: std.ArrayListUnmanaged(EnvVarDecl),
     test_names: std.ArrayListUnmanaged([]const u8), // "addition works"
     test_modules: std.ArrayListUnmanaged([]const u8), // "Math"
     test_fn_names: std.ArrayListUnmanaged([]const u8), // "__test_0"
@@ -260,6 +274,7 @@ pub const Program = struct {
             .struct_decls = .{},
             .enum_decls = .{},
             .union_decls = .{},
+            .env_decls = .{},
             .test_names = .{},
             .test_modules = .{},
             .test_fn_names = .{},

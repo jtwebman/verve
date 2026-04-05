@@ -80,7 +80,8 @@ The benchmark apps need real concurrency to show Verve's advantage.
 What's needed to build the 20 benchmark apps.
 
 ### Needed
-- [ ] Typed config from env vars — `config AppConfig { port: int = 8080; db_url: string; }` with compile-time + startup validation. Required fields (no default) must come from env or fail fast. Config is immutable after init → first candidate for shared-immutable cross-process data.
+- [x] Typed env var access — `Process.env_int("PORT", 8080)` / `env_string` / `env_bool` / `env_float`. Parsed once at startup, cached in globals. Invalid values crash. Required (no default) crashes if missing. Batch validation reports all errors at once.
+- [ ] Shared-immutable cross-process globals — `Process.global_set_int(name, value)` / `Process.global_get_int(name, default)` for typed key-value shared memory across all processes on a node. Set once, read from anywhere. No casting needed — type is in the function name. First candidate for shared config (e.g. populate from `Process.env_*` at startup, read from any handler).
 - [x] Http — keep-alive connections (reuse TCP, skip handshake per request)
 - [x] Http — chunked transfer encoding (server-side responses)
 - [x] Http client (for API-to-API calls, webhook sending)

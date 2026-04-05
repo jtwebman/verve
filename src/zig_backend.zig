@@ -143,6 +143,9 @@ pub const ZigBackend = struct {
                         const rt = builtinReturnType(c.name);
                         if (rt != .int) types[c.dest] = rt;
                     },
+                    .env_load => |e| {
+                        if (std.mem.eql(u8, e.type_name, "string")) types[e.dest] = .string else if (std.mem.eql(u8, e.type_name, "float")) types[e.dest] = .float else if (std.mem.eql(u8, e.type_name, "bool")) types[e.dest] = .boolean;
+                    },
                     .call => |c| {
                         for (self.program.functions.items) |f| {
                             if (std.mem.eql(u8, f.module, c.module) and std.mem.eql(u8, f.name, c.function)) {
@@ -333,6 +336,7 @@ pub const ZigBackend = struct {
         .{ "string_ends_with", S{ .module = "string", .rt_name = "!", .min_args = 2, .returns = .boolean } },
         // ── Env / System ────────────────────────────
         .{ "env_get", S{ .min_args = 1, .returns = .string } },
+        .{ "string_to_bool", S{ .module = "convert", .min_args = 1, .returns = .boolean } },
         .{ "system_exit", S{ .min_args = 1 } },
         .{ "system_time_ms", S{} },
         // ── Stream ──────────────────────────────────
@@ -516,6 +520,11 @@ pub const ZigBackend = struct {
             self.indent -= 1;
             self.line("}");
             self.line("");
+        }
+
+        // Emit env var globals and init function
+        if (program.env_decls.items.len > 0) {
+            self.emitEnvVarSupport(program);
         }
 
         // Emit struct_to_string functions
@@ -1029,6 +1038,9 @@ pub const ZigBackend = struct {
         self.line("pub fn main() void {");
         self.indent += 1;
         self.line("rt.verve_runtime_init();");
+        if (self.program.env_decls.items.len > 0) {
+            self.line("verve_env_init();");
+        }
         self.line("verve_init_dispatch();");
         self.line("_ = rt.process.verve_spawn_main(&verve_main_wrapper);");
         self.line("_ = rt.process.verve_scheduler_run_threaded(1);");
@@ -1195,6 +1207,10 @@ pub const ZigBackend = struct {
                 self.write(");\n");
             },
             .call_builtin => |c| self.emitBuiltin(c.dest, c.name, c.args, reg_types),
+            .env_load => |e| {
+                // Load pre-validated env var from global
+                self.lineFmt("{s} = verve_env_{s};", .{ self.regName(e.dest), e.env_name });
+            },
 
             .struct_alloc => |sa| {
                 self.lineFmt("{{ const _sm = rt.arena_alloc(@sizeOf(VerveStruct_{s})) orelse unreachable; const _sp = @as(*VerveStruct_{s}, @ptrCast(@alignCast(_sm))); _sp.* = .{{}}; {s} = @intFromPtr(_sp); }}", .{ sa.struct_name, sa.struct_name, self.regName(sa.dest) });
@@ -1541,6 +1557,130 @@ pub const ZigBackend = struct {
         }
     }
 
+    /// Emit global variables and init function for Process.env_* calls.
+    /// Reads and validates all env vars at startup, stores results in globals.
+    fn emitEnvVarSupport(self: *ZigBackend, program: ir.Program) void {
+        // Emit global variables for each env var
+        for (program.env_decls.items) |e| {
+            self.writeIndent();
+            if (std.mem.eql(u8, e.type_name, "int")) {
+                self.writeFmt("var verve_env_{s}: i64 = {d};\n", .{ e.env_name, e.default_int });
+            } else if (std.mem.eql(u8, e.type_name, "float")) {
+                self.writeFmt("var verve_env_{s}: f64 = {d};\n", .{ e.env_name, e.default_float });
+            } else if (std.mem.eql(u8, e.type_name, "bool")) {
+                self.writeFmt("var verve_env_{s}: bool = {s};\n", .{ e.env_name, if (e.default_bool) "true" else "false" });
+            } else if (std.mem.eql(u8, e.type_name, "string")) {
+                self.writeFmt("var verve_env_{s}: []const u8 = \"{s}\";\n", .{ e.env_name, e.default_string });
+            }
+        }
+        // Suppress "consider using const" warnings — these globals are mutated in verve_env_init
+        self.write("comptime {");
+        for (program.env_decls.items) |e| {
+            self.writeFmt(" _ = &verve_env_{s};", .{e.env_name});
+        }
+        self.write(" }\n");
+        self.line("");
+
+        // Emit init function that validates and loads all env vars at startup
+        self.line("fn verve_env_write_stderr(s: []const u8) void { _ = std.posix.write(std.posix.STDERR_FILENO, s) catch 0; }");
+        self.line("");
+        self.line("fn verve_env_init() void {");
+        self.indent += 1;
+        self.line("var _errors: usize = 0;");
+        self.line("_ = &_errors;");
+
+        for (program.env_decls.items) |e| {
+            self.line("{");
+            self.indent += 1;
+            self.lineFmt("const _val = std.posix.getenv(\"{s}\");", .{e.env_name});
+
+            if (e.has_default) {
+                // Has default: only validate if env var is set and non-empty
+                self.line("if (_val) |_v| {");
+                self.indent += 1;
+                self.line("if (_v.len > 0) {");
+                self.indent += 1;
+                self.emitEnvVarParse(e);
+                self.indent -= 1;
+                self.line("}");
+                self.indent -= 1;
+                self.line("}");
+            } else {
+                // Required: must be set and non-empty
+                self.line("if (_val == null or _val.?.len == 0) {");
+                self.indent += 1;
+                self.lineFmt("verve_env_write_stderr(\"  {s} ({s}): required but not set\\n\");", .{ e.env_name, e.type_name });
+                self.line("_errors += 1;");
+                self.indent -= 1;
+                self.line("} else {");
+                self.indent += 1;
+                self.line("const _v = _val.?;");
+                self.emitEnvVarParse(e);
+                self.indent -= 1;
+                self.line("}");
+            }
+
+            self.indent -= 1;
+            self.line("}");
+        }
+
+        self.line("if (_errors > 0) {");
+        self.indent += 1;
+        self.line("verve_env_write_stderr(\"Verve: environment variable validation failed\\n\");");
+        self.line("std.process.exit(1);");
+        self.indent -= 1;
+        self.line("}");
+        self.indent -= 1;
+        self.line("}");
+        self.line("");
+    }
+
+    /// Emit parsing logic for a single env var inside verve_env_init.
+    /// _v is the env value string, _errors is in scope from the caller.
+    fn emitEnvVarParse(self: *ZigBackend, e: ir.EnvVarDecl) void {
+        if (std.mem.eql(u8, e.type_name, "int")) {
+            self.lineFmt("if (std.fmt.parseInt(i64, _v, 10)) |_parsed| {{ verve_env_{s} = _parsed; }} else |_| {{", .{e.env_name});
+            self.indent += 1;
+            self.lineFmt("verve_env_write_stderr(\"  {s} (int): expected integer, got '\"); verve_env_write_stderr(_v); verve_env_write_stderr(\"'\\n\");", .{e.env_name});
+            self.line("_errors += 1;");
+            self.indent -= 1;
+            self.line("}");
+        } else if (std.mem.eql(u8, e.type_name, "float")) {
+            self.lineFmt("if (std.fmt.parseFloat(f64, _v)) |_parsed| {{ verve_env_{s} = _parsed; }} else |_| {{", .{e.env_name});
+            self.indent += 1;
+            self.lineFmt("verve_env_write_stderr(\"  {s} (float): expected float, got '\"); verve_env_write_stderr(_v); verve_env_write_stderr(\"'\\n\");", .{e.env_name});
+            self.line("_errors += 1;");
+            self.indent -= 1;
+            self.line("}");
+        } else if (std.mem.eql(u8, e.type_name, "bool")) {
+            // Bool validation: true/t/1 → true, false/f/0 → false, anything else is error
+            self.line("if (_v.len == 1 and (_v[0] == '1' or _v[0] == 't' or _v[0] == 'T')) {");
+            self.indent += 1;
+            self.lineFmt("verve_env_{s} = true;", .{e.env_name});
+            self.indent -= 1;
+            self.line("} else if (_v.len == 1 and (_v[0] == '0' or _v[0] == 'f' or _v[0] == 'F')) {");
+            self.indent += 1;
+            self.lineFmt("verve_env_{s} = false;", .{e.env_name});
+            self.indent -= 1;
+            self.line("} else if (_v.len == 4 and (_v[0] == 't' or _v[0] == 'T') and (_v[1] == 'r' or _v[1] == 'R') and (_v[2] == 'u' or _v[2] == 'U') and (_v[3] == 'e' or _v[3] == 'E')) {");
+            self.indent += 1;
+            self.lineFmt("verve_env_{s} = true;", .{e.env_name});
+            self.indent -= 1;
+            self.line("} else if (_v.len == 5 and (_v[0] == 'f' or _v[0] == 'F') and (_v[1] == 'a' or _v[1] == 'A') and (_v[2] == 'l' or _v[2] == 'L') and (_v[3] == 's' or _v[3] == 'S') and (_v[4] == 'e' or _v[4] == 'E')) {");
+            self.indent += 1;
+            self.lineFmt("verve_env_{s} = false;", .{e.env_name});
+            self.indent -= 1;
+            self.line("} else {");
+            self.indent += 1;
+            self.lineFmt("verve_env_write_stderr(\"  {s} (bool): expected true/false/t/f/1/0, got '\"); verve_env_write_stderr(_v); verve_env_write_stderr(\"'\\n\");", .{e.env_name});
+            self.line("_errors += 1;");
+            self.indent -= 1;
+            self.line("}");
+        } else if (std.mem.eql(u8, e.type_name, "string")) {
+            self.lineFmt("verve_env_{s} = _v;", .{e.env_name});
+        }
+    }
+
     /// Emit verve_struct_to_string_X functions for all structs.
     fn emitStructToStringFunctions(self: *ZigBackend, program: ir.Program) void {
         for (program.struct_decls.items) |sd| {
@@ -1742,6 +1882,7 @@ pub const ZigBackend = struct {
             .load_local => |l| l.dest,
             .call => |c| c.dest,
             .call_builtin => |c| c.dest,
+            .env_load => |e| e.dest,
             .struct_alloc => |sa| sa.dest,
             .struct_load => |sl| sl.dest,
             .list_new => |ln| ln.dest,

@@ -1278,6 +1278,10 @@ pub const Checker = struct {
                 return .{ .simple = "int" }; // outside handler, untyped fallback
             }
             if (std.mem.eql(u8, func, "exit")) return .{ .simple = "void" };
+            if (std.mem.eql(u8, func, "env_int")) return .{ .simple = "int" };
+            if (std.mem.eql(u8, func, "env_float")) return .{ .simple = "float" };
+            if (std.mem.eql(u8, func, "env_bool")) return .{ .simple = "bool" };
+            if (std.mem.eql(u8, func, "env_string")) return .{ .simple = "string" };
             return null;
         }
         return null;

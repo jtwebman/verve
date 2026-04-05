@@ -140,6 +140,101 @@ pub fn env_get(name: []const u8) []const u8 {
     return val;
 }
 
+fn envWriteStderr(s: []const u8) void {
+    _ = std.posix.write(std.posix.STDERR_FILENO, s) catch 0;
+}
+
+fn envDie(name: []const u8, expected: []const u8, got: []const u8) noreturn {
+    envWriteStderr("Verve: env var '");
+    envWriteStderr(name);
+    envWriteStderr("' expected ");
+    envWriteStderr(expected);
+    envWriteStderr(", got '");
+    envWriteStderr(got);
+    envWriteStderr("'\n");
+    std.process.exit(1);
+}
+
+fn envMissing(name: []const u8, expected: []const u8) noreturn {
+    envWriteStderr("Verve: env var '");
+    envWriteStderr(name);
+    envWriteStderr("' (");
+    envWriteStderr(expected);
+    envWriteStderr(") is required but not set\n");
+    std.process.exit(1);
+}
+
+pub fn env_int(name: []const u8, default: i64) i64 {
+    const val = std.posix.getenv(name) orelse return default;
+    if (val.len == 0) return default;
+    return std.fmt.parseInt(i64, val, 10) catch envDie(name, "int", val);
+}
+
+pub fn env_int_required(name: []const u8) i64 {
+    const val = std.posix.getenv(name) orelse envMissing(name, "int");
+    if (val.len == 0) envMissing(name, "int");
+    return std.fmt.parseInt(i64, val, 10) catch envDie(name, "int", val);
+}
+
+pub fn env_float(name: []const u8, default: f64) f64 {
+    const val = std.posix.getenv(name) orelse return default;
+    if (val.len == 0) return default;
+    return std.fmt.parseFloat(f64, val) catch envDie(name, "float", val);
+}
+
+pub fn env_float_required(name: []const u8) f64 {
+    const val = std.posix.getenv(name) orelse envMissing(name, "float");
+    if (val.len == 0) envMissing(name, "float");
+    return std.fmt.parseFloat(f64, val) catch envDie(name, "float", val);
+}
+
+pub fn env_bool(name: []const u8, default: bool) bool {
+    const val = std.posix.getenv(name) orelse return default;
+    if (val.len == 0) return default;
+    return parseBoolEnv(name, val);
+}
+
+pub fn env_bool_required(name: []const u8) bool {
+    const val = std.posix.getenv(name) orelse envMissing(name, "bool");
+    if (val.len == 0) envMissing(name, "bool");
+    return parseBoolEnv(name, val);
+}
+
+fn parseBoolEnv(name: []const u8, val: []const u8) bool {
+    // true: "true" (any case), "t"/"T", "1"
+    if (std.mem.eql(u8, val, "1")) return true;
+    if (val.len == 1 and (val[0] == 't' or val[0] == 'T')) return true;
+    if (val.len == 4 and
+        (val[0] == 't' or val[0] == 'T') and
+        (val[1] == 'r' or val[1] == 'R') and
+        (val[2] == 'u' or val[2] == 'U') and
+        (val[3] == 'e' or val[3] == 'E'))
+        return true;
+    // false: "false" (any case), "f"/"F", "0"
+    if (std.mem.eql(u8, val, "0")) return false;
+    if (val.len == 1 and (val[0] == 'f' or val[0] == 'F')) return false;
+    if (val.len == 5 and
+        (val[0] == 'f' or val[0] == 'F') and
+        (val[1] == 'a' or val[1] == 'A') and
+        (val[2] == 'l' or val[2] == 'L') and
+        (val[3] == 's' or val[3] == 'S') and
+        (val[4] == 'e' or val[4] == 'E'))
+        return false;
+    envDie(name, "bool (true/false/t/f/1/0)", val);
+}
+
+pub fn env_string(name: []const u8, default: []const u8) []const u8 {
+    const val = std.posix.getenv(name) orelse return default;
+    if (val.len == 0) return default;
+    return val;
+}
+
+pub fn env_string_required(name: []const u8) []const u8 {
+    const val = std.posix.getenv(name) orelse envMissing(name, "string");
+    if (val.len == 0) envMissing(name, "string");
+    return val;
+}
+
 // ── System ─────────────────────────────────────────
 
 fn handleShutdown(_: i32) callconv(.c) void {

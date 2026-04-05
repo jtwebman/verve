@@ -188,6 +188,22 @@ Process.tell(counter.Increment, 1);
 watch counter;               // get ProcessDied notification
 ```
 
+### Environment variables
+```
+// Typed env var access — parsed once at startup, cached in globals
+port: int = Process.env_int("PORT", 8080);          // default 8080
+host: string = Process.env_string("HOST", "localhost");
+debug: bool = Process.env_bool("DEBUG", false);      // true/t/1, false/f/0
+rate: float = Process.env_float("RATE", 1.5);
+
+// Required (no default) — crashes at startup if not set
+db_url: string = Process.env_string("DATABASE_URL");
+
+// All env vars validated at startup before main runs.
+// Invalid values crash with clear error: "PORT (int): expected integer, got 'abc'"
+// Multiple errors reported at once, not one at a time.
+```
+
 ### Imports
 ```
 import "./math.vv";

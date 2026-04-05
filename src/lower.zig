@@ -1300,6 +1300,50 @@ pub const Lower = struct {
                             }
                         }
                         if (std.mem.eql(u8, mod_name, "Process")) {
+                            if (std.mem.eql(u8, fn_name, "env_int") or
+                                std.mem.eql(u8, fn_name, "env_float") or
+                                std.mem.eql(u8, fn_name, "env_bool") or
+                                std.mem.eql(u8, fn_name, "env_string"))
+                            {
+                                // Extract type suffix: "env_int" → "int"
+                                const type_name = fn_name[4..]; // skip "env_"
+                                // Extract env var name from first AST arg (must be string literal)
+                                const env_name = if (c.args.len >= 1 and c.args[0] == .string_literal) c.args[0].string_literal else "UNKNOWN";
+                                // Register env var declaration with defaults
+                                var decl = ir.EnvVarDecl{
+                                    .env_name = env_name,
+                                    .type_name = type_name,
+                                    .has_default = c.args.len >= 2,
+                                };
+                                if (c.args.len >= 2) {
+                                    if (std.mem.eql(u8, type_name, "int")) {
+                                        if (c.args[1] == .int_literal) decl.default_int = c.args[1].int_literal;
+                                        if (c.args[1] == .unary_op and c.args[1].unary_op.op == .sub and c.args[1].unary_op.operand.* == .int_literal)
+                                            decl.default_int = -c.args[1].unary_op.operand.int_literal;
+                                    } else if (std.mem.eql(u8, type_name, "float")) {
+                                        if (c.args[1] == .float_literal) decl.default_float = c.args[1].float_literal;
+                                    } else if (std.mem.eql(u8, type_name, "bool")) {
+                                        if (c.args[1] == .bool_literal) decl.default_bool = c.args[1].bool_literal;
+                                    } else if (std.mem.eql(u8, type_name, "string")) {
+                                        if (c.args[1] == .string_literal) decl.default_string = c.args[1].string_literal;
+                                    }
+                                }
+                                // Deduplicate: only add if not already registered
+                                var found = false;
+                                for (self.program.env_decls.items) |existing| {
+                                    if (std.mem.eql(u8, existing.env_name, env_name)) {
+                                        found = true;
+                                        break;
+                                    }
+                                }
+                                if (!found) self.program.env_decls.append(self.alloc, decl) catch {};
+                                // Emit env_load instruction — reads from pre-validated global
+                                self.appendInst(.{ .env_load = .{ .dest = dest, .env_name = env_name, .type_name = type_name } });
+                                // Track register types for codegen
+                                if (std.mem.eql(u8, type_name, "float")) self.float_regs.put(self.alloc, dest, {}) catch {};
+                                if (std.mem.eql(u8, type_name, "string")) self.var_types.put(self.alloc, std.fmt.allocPrint(self.alloc, "__env_{d}", .{dest}) catch "", "string") catch {};
+                                return dest;
+                            }
                             const builtin_name = std.fmt.allocPrint(self.alloc, "process_{s}", .{fn_name}) catch fn_name;
                             self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = builtin_name, .args = args } });
                             return dest;

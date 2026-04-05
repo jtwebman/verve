@@ -41,6 +41,11 @@ pub fn bool_to_string(val: bool) []const u8 {
     return if (val) "true" else "false";
 }
 
+pub fn string_to_bool(s: []const u8) bool {
+    if (std.mem.eql(u8, s, "1") or std.mem.eql(u8, s, "true") or std.mem.eql(u8, s, "t")) return true;
+    return false;
+}
+
 /// Format a collection summary: "list<int>(3)"
 pub fn collection_to_string(type_label: []const u8, count: i64) []const u8 {
     var buf: [128]u8 = undefined;
