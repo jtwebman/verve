@@ -29,7 +29,7 @@ pub fn string_replace(str: []const u8, old: []const u8, new: []const u8) []const
     }
     if (count == 0) return str;
     const result_len = str.len - (count * old.len) + (count * new.len);
-    const buf = rt.arena_alloc(result_len) orelse rt.runtimeFail("Verve runtime error: out of memory replacing string contents");
+    const buf = rt.arena_alloc(result_len) orelse return "";
     var out: usize = 0;
     pos = 0;
     while (std.mem.indexOfPos(u8, str, pos, old)) |idx| {
@@ -57,41 +57,39 @@ pub fn string_char_len(str: []const u8) i64 {
 
 /// Return list of single-character strings stored as (ptr+len) pairs in a List.
 pub fn string_chars(str: []const u8) i64 {
-    const list_mem = rt.arena_alloc(@sizeOf(rt.List)) orelse rt.runtimeFail("Verve runtime error: out of memory allocating string chars list");
-    const list = @as(*rt.List, @ptrCast(@alignCast(list_mem)));
-    list.* = rt.List.init();
+    const list_ptr = rt.allocList();
+    const list = @as(*rt.List, @ptrFromInt(list_ptr));
     for (0..str.len) |i| {
-        list.append(@intCast(@intFromPtr(&str[i])));
-        list.append(1);
+        list.tryAppend(@intCast(@intFromPtr(&str[i]))) catch return rt.emptyListI64();
+        list.tryAppend(1) catch return rt.emptyListI64();
     }
-    return @intCast(@intFromPtr(list));
+    return @intCast(list_ptr);
 }
 
 /// Split a string by delimiter. Returns pointer to a List of (ptr, len) pairs.
 pub fn string_split(str: []const u8, delim: []const u8) i64 {
-    const list_mem = rt.arena_alloc(@sizeOf(rt.List)) orelse rt.runtimeFail("Verve runtime error: out of memory allocating string split list");
-    const list = @as(*rt.List, @ptrCast(@alignCast(list_mem)));
-    list.* = rt.List.init();
+    const list_ptr = rt.allocList();
+    const list = @as(*rt.List, @ptrFromInt(list_ptr));
     if (delim.len == 0) {
-        list.append(@intCast(@intFromPtr(str.ptr)));
-        list.append(@intCast(str.len));
-        return @intCast(@intFromPtr(list));
+        list.tryAppend(@intCast(@intFromPtr(str.ptr))) catch return rt.emptyListI64();
+        list.tryAppend(@intCast(str.len)) catch return rt.emptyListI64();
+        return @intCast(list_ptr);
     }
     var pos: usize = 0;
     while (pos <= str.len) {
         if (std.mem.indexOfPos(u8, str, pos, delim)) |idx| {
             const part = str[pos..idx];
-            list.append(@intCast(@intFromPtr(part.ptr)));
-            list.append(@intCast(part.len));
+            list.tryAppend(@intCast(@intFromPtr(part.ptr))) catch return rt.emptyListI64();
+            list.tryAppend(@intCast(part.len)) catch return rt.emptyListI64();
             pos = idx + delim.len;
         } else {
             const part = str[pos..];
-            list.append(@intCast(@intFromPtr(part.ptr)));
-            list.append(@intCast(part.len));
+            list.tryAppend(@intCast(@intFromPtr(part.ptr))) catch return rt.emptyListI64();
+            list.tryAppend(@intCast(part.len)) catch return rt.emptyListI64();
             break;
         }
     }
-    return @intCast(@intFromPtr(list));
+    return @intCast(list_ptr);
 }
 
 pub fn strEql(a: []const u8, b: []const u8) bool {
@@ -101,7 +99,7 @@ pub fn strEql(a: []const u8, b: []const u8) bool {
 /// Concatenate two strings. Returns new []const u8.
 pub fn verve_string_concat(a: []const u8, b: []const u8) []const u8 {
     const total = a.len + b.len;
-    const buf_ptr = rt.arena_alloc(total) orelse rt.runtimeFail("Verve runtime error: out of memory concatenating strings");
+    const buf_ptr = rt.arena_alloc(total) orelse return "";
     const buf = @as([*]u8, buf_ptr)[0..total];
     @memcpy(buf[0..a.len], a);
     @memcpy(buf[a.len..total], b);

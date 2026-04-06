@@ -104,7 +104,7 @@ pub fn main() !void {
 
         // Type check
         const Chk = @import("checker.zig").Checker;
-        var checker = Chk.initWithFile(alloc, loader.entry_source, file_path);
+        var checker = Chk.initWithSources(alloc, loader.entry_source, file_path, &loader.loaded_sources);
         checker.check(merged) catch {};
         if (checker.hasErrors()) {
             if (parsed.json_output) {
@@ -116,8 +116,12 @@ pub fn main() !void {
             std.process.exit(1);
         } else {
             if (parsed.json_output) {
-                std.debug.print("[]\n", .{});
+                checker.printErrorsJson();
             } else {
+                if (checker.hasWarnings()) {
+                    std.debug.print("Warnings in {s}:\n", .{file_path});
+                    checker.printWarnings();
+                }
                 std.debug.print("OK — no errors\n", .{});
                 std.debug.print("Loaded {d} declarations from {s}\n", .{ merged.decls.len, file_path });
                 for (merged.decls) |decl| {
@@ -161,12 +165,16 @@ pub fn main() !void {
 
         // Type check
         const Chk = @import("checker.zig").Checker;
-        var checker = Chk.initWithFile(alloc, loader.entry_source, file_path);
+        var checker = Chk.initWithSources(alloc, loader.entry_source, file_path, &loader.loaded_sources);
         checker.check(file) catch {};
         if (checker.hasErrors()) {
             std.debug.print("Type errors in {s}:\n", .{file_path});
             checker.printErrors();
             std.process.exit(1);
+        }
+        if (checker.hasWarnings()) {
+            std.debug.print("Warnings in {s}:\n", .{file_path});
+            checker.printWarnings();
         }
         if (!hasProcessEntryPoint(file)) {
             std.debug.print("Error: cannot run {s} because it has no process main entry point\n", .{file_path});
@@ -350,12 +358,16 @@ pub fn main() !void {
 
         // Type check
         const Chk2 = @import("checker.zig").Checker;
-        var checker2 = Chk2.initWithFile(alloc, loader.entry_source, file_path);
+        var checker2 = Chk2.initWithSources(alloc, loader.entry_source, file_path, &loader.loaded_sources);
         checker2.check(merged) catch {};
         if (checker2.hasErrors()) {
             std.debug.print("Type errors in {s}:\n", .{file_path});
             checker2.printErrors();
             std.process.exit(1);
+        }
+        if (checker2.hasWarnings()) {
+            std.debug.print("Warnings in {s}:\n", .{file_path});
+            checker2.printWarnings();
         }
         if (!hasProcessEntryPoint(merged)) {
             std.debug.print("Error: cannot build {s} because it has no process main entry point\n", .{file_path});

@@ -1,16 +1,23 @@
 const std = @import("std");
 const ast = @import("ast.zig");
 
+pub const Severity = enum {
+    @"error",
+    warning,
+};
+
 pub const TypeError = struct {
     message: []const u8,
     line: usize,
     col: usize,
     file: []const u8 = "",
+    severity: Severity = .@"error",
 };
 
 pub const Checker = struct {
     alloc: std.mem.Allocator,
     errors: std.ArrayListUnmanaged(TypeError),
+    warnings: std.ArrayListUnmanaged(TypeError),
     modules: std.StringHashMapUnmanaged(ast.ModuleDecl),
     process_decls: std.StringHashMapUnmanaged(ast.ProcessDecl),
     struct_decls: std.StringHashMapUnmanaged(ast.StructDecl),
@@ -24,6 +31,7 @@ pub const Checker = struct {
     send_graph: std.StringHashMapUnmanaged(std.ArrayListUnmanaged([]const u8)),
     source: []const u8,
     file_path: []const u8,
+    source_files: ?*const std.StringHashMapUnmanaged([]const u8),
 
     const FnSignature = struct {
         name: []const u8,
@@ -40,6 +48,7 @@ pub const Checker = struct {
         return .{
             .alloc = alloc,
             .errors = .{},
+            .warnings = .{},
             .modules = .{},
             .process_decls = .{},
             .struct_decls = .{},
@@ -53,13 +62,21 @@ pub const Checker = struct {
             .send_graph = .{},
             .source = source,
             .file_path = file_path,
+            .source_files = null,
         };
     }
 
-    fn getLineCol(self: *Checker, pos: usize) struct { line: usize, col: usize } {
+    pub fn initWithSources(alloc: std.mem.Allocator, source: []const u8, file_path: []const u8, source_files: *const std.StringHashMapUnmanaged([]const u8)) Checker {
+        var checker = initWithFile(alloc, source, file_path);
+        checker.source_files = source_files;
+        return checker;
+    }
+
+    fn getLineCol(self: *Checker, source: []const u8, pos: usize) struct { line: usize, col: usize } {
+        _ = self;
         var line: usize = 1;
         var col: usize = 1;
-        for (self.source[0..@min(pos, self.source.len)]) |c| {
+        for (source[0..@min(pos, source.len)]) |c| {
             if (c == '\n') {
                 line += 1;
                 col = 1;
@@ -68,6 +85,14 @@ pub const Checker = struct {
             }
         }
         return .{ .line = line, .col = col };
+    }
+
+    fn sourceForFile(self: *Checker, file_path: []const u8) []const u8 {
+        if (file_path.len == 0 or std.mem.eql(u8, file_path, self.file_path)) return self.source;
+        if (self.source_files) |source_files| {
+            if (source_files.get(file_path)) |source| return source;
+        }
+        return self.source;
     }
 
     pub fn check(self: *Checker, file: ast.File) !void {
@@ -598,7 +623,7 @@ pub const Checker = struct {
             .break_stmt, .continue_stmt => {},
             .receive_stmt => {
                 if (!self.in_receive_handler) {
-                    try self.addError("receive; can only be used inside a process", .{ .start = 0, .end = 0 });
+                    try self.addError("`receive;` can only be used inside a `receive` handler", .{ .start = 0, .end = 0 });
                 }
             },
             .watch_stmt => |w| {
@@ -728,9 +753,9 @@ pub const Checker = struct {
     fn checkExprIsBoolean(self: *Checker, expr: ast.Expr) !void {
         try self.checkExpr(expr);
         switch (expr) {
-            .string_literal => try self.addError("guard/while condition must be boolean, got string", .{ .start = 0, .end = 0 }),
-            .int_literal => try self.addError("guard/while condition must be boolean, got int", .{ .start = 0, .end = 0 }),
-            .float_literal => try self.addError("guard/while condition must be boolean, got float", .{ .start = 0, .end = 0 }),
+            .string_literal => try self.addError("guard and while conditions must be boolean, got string", .{ .start = 0, .end = 0 }),
+            .int_literal => try self.addError("guard and while conditions must be boolean, got int", .{ .start = 0, .end = 0 }),
+            .float_literal => try self.addError("guard and while conditions must be boolean, got float", .{ .start = 0, .end = 0 }),
             else => {},
         }
     }
@@ -743,7 +768,7 @@ pub const Checker = struct {
         for (guards) |guard| {
             // Check for always-false guards
             if (guard == .bool_literal and !guard.bool_literal) {
-                try self.addError("guard is always false — function can never execute", .{ .start = 0, .end = 0 });
+                try self.addWarning("guard is always false — this code path is unreachable", .{ .start = 0, .end = 0 });
             }
             // Check for contradictions: guard x > 0; guard x < 0;
             // (simplified: check literal contradictions)
@@ -754,7 +779,7 @@ pub const Checker = struct {
                     if (std.mem.eql(u8, op.left.identifier, op.right.identifier)) {
                         switch (op.op) {
                             .lt, .gt, .neq => {
-                                try self.addError(
+                                try self.addWarning(
                                     try std.fmt.allocPrint(self.alloc, "guard '{s}' compared to itself with '{s}' is always false", .{
                                         op.left.identifier,
                                         switch (op.op) {
@@ -784,7 +809,7 @@ pub const Checker = struct {
                     // while true { ... } with no reachable return/break is likely infinite
                     if (w.condition == .bool_literal and w.condition.bool_literal) {
                         if (!self.bodyHasExit(w.body)) {
-                            try self.addError("potential infinite loop — 'while true' with no return statement", w.span);
+                            try self.addWarning("potential infinite loop — `while true` has no reachable `break`, `return`, or exit call", w.span);
                         }
                     }
                 },
@@ -798,6 +823,9 @@ pub const Checker = struct {
             switch (stmt) {
                 .return_stmt => return true,
                 .break_stmt => return true,
+                .expr_stmt => |expr| {
+                    if (self.isTerminatingExpr(expr)) return true;
+                },
                 .if_stmt => |i| {
                     if (self.bodyHasExit(i.body)) return true;
                     if (i.else_body) |else_body| {
@@ -824,6 +852,9 @@ pub const Checker = struct {
         for (stmts) |stmt| {
             switch (stmt) {
                 .return_stmt => return true,
+                .expr_stmt => |expr| {
+                    if (self.isTerminatingExpr(expr)) return true;
+                },
                 .if_stmt => |i| {
                     if (i.else_body) |eb| {
                         if (self.allPathsReturn(i.body) and self.allPathsReturn(eb)) return true;
@@ -897,6 +928,18 @@ pub const Checker = struct {
             }
         }
         return false;
+    }
+
+    fn isTerminatingExpr(self: *Checker, expr: ast.Expr) bool {
+        _ = self;
+        if (expr != .call) return false;
+        const target = expr.call.target.*;
+        if (target != .field_access) return false;
+        const fa = target.field_access;
+        if (fa.target.* != .identifier) return false;
+        const module_name = fa.target.identifier;
+        return (std.mem.eql(u8, module_name, "System") and std.mem.eql(u8, fa.field, "exit")) or
+            (std.mem.eql(u8, module_name, "Process") and std.mem.eql(u8, fa.field, "exit"));
     }
 
     // ── Poison value warnings ─────────────────────────────────
@@ -1872,18 +1915,28 @@ pub const Checker = struct {
     // ── Error management ──────────────────────────────────────
 
     fn addError(self: *Checker, message: []const u8, span: ast.Span) !void {
+        try self.appendDiagnostic(&self.errors, .@"error", message, span);
+    }
+
+    fn addWarning(self: *Checker, message: []const u8, span: ast.Span) !void {
+        try self.appendDiagnostic(&self.warnings, .warning, message, span);
+    }
+
+    fn appendDiagnostic(self: *Checker, diagnostics: *std.ArrayListUnmanaged(TypeError), severity: Severity, message: []const u8, span: ast.Span) !void {
         var line: usize = 0;
         var col: usize = 0;
+        const diag_file = if (span.file_path.len > 0) span.file_path else self.file_path;
         if (span.start > 0 or span.end > 0) {
-            const loc = self.getLineCol(span.start);
+            const loc = self.getLineCol(self.sourceForFile(diag_file), span.start);
             line = loc.line;
             col = loc.col;
         }
-        try self.errors.append(self.alloc, .{
+        try diagnostics.append(self.alloc, .{
             .message = message,
             .line = line,
             .col = col,
-            .file = self.file_path,
+            .file = diag_file,
+            .severity = severity,
         });
     }
 
@@ -1891,10 +1944,39 @@ pub const Checker = struct {
         return self.errors.items.len > 0;
     }
 
+    pub fn hasWarnings(self: *Checker) bool {
+        return self.warnings.items.len > 0;
+    }
+
     pub fn printErrors(self: *Checker) void {
-        for (self.errors.items) |err| {
-            if (err.line > 0) {
-                std.debug.print("  line {d}, col {d}: {s}\n", .{ err.line, err.col, err.message });
+        self.printDiagnosticList(self.errors.items, false);
+    }
+
+    pub fn printWarnings(self: *Checker) void {
+        self.printDiagnosticList(self.warnings.items, true);
+    }
+
+    fn printDiagnosticList(self: *Checker, diagnostics: []const TypeError, include_severity: bool) void {
+        _ = self;
+        for (diagnostics) |err| {
+            const severity = switch (err.severity) {
+                .@"error" => "error",
+                .warning => "warning",
+            };
+            if (err.file.len > 0 and err.line > 0) {
+                if (include_severity) {
+                    std.debug.print("  {s}:{d}:{d}: {s}: {s}\n", .{ err.file, err.line, err.col, severity, err.message });
+                } else {
+                    std.debug.print("  {s}:{d}:{d}: {s}\n", .{ err.file, err.line, err.col, err.message });
+                }
+            } else if (err.line > 0) {
+                if (include_severity) {
+                    std.debug.print("  line {d}, col {d}: {s}: {s}\n", .{ err.line, err.col, severity, err.message });
+                } else {
+                    std.debug.print("  line {d}, col {d}: {s}\n", .{ err.line, err.col, err.message });
+                }
+            } else if (include_severity) {
+                std.debug.print("  {s}: {s}\n", .{ severity, err.message });
             } else {
                 std.debug.print("  {s}\n", .{err.message});
             }
@@ -1905,17 +1987,29 @@ pub const Checker = struct {
         // Build JSON string and output via std.debug.print
         var buf: std.ArrayListUnmanaged(u8) = .{};
         buf.appendSlice(self.alloc, "[") catch return;
-        for (self.errors.items, 0..) |err, i| {
-            if (i > 0) buf.appendSlice(self.alloc, ",") catch return;
-            buf.appendSlice(self.alloc, "{\"file\":\"") catch return;
-            appendJsonEscaped(&buf, self.alloc, err.file);
-            const loc = std.fmt.allocPrint(self.alloc, "\",\"line\":{d},\"col\":{d},\"message\":\"", .{ err.line, err.col }) catch return;
-            buf.appendSlice(self.alloc, loc) catch return;
-            appendJsonEscaped(&buf, self.alloc, err.message);
-            buf.appendSlice(self.alloc, "\",\"severity\":\"error\"}") catch return;
-        }
+        var first = true;
+        self.appendDiagnosticsJson(&buf, self.errors.items, &first);
+        self.appendDiagnosticsJson(&buf, self.warnings.items, &first);
         buf.appendSlice(self.alloc, "]\n") catch return;
         std.debug.print("{s}", .{buf.items});
+    }
+
+    fn appendDiagnosticsJson(self: *Checker, buf: *std.ArrayListUnmanaged(u8), diagnostics: []const TypeError, first: *bool) void {
+        for (diagnostics) |err| {
+            if (!first.*) buf.appendSlice(self.alloc, ",") catch return;
+            first.* = false;
+            buf.appendSlice(self.alloc, "{\"file\":\"") catch return;
+            appendJsonEscaped(buf, self.alloc, err.file);
+            const loc = std.fmt.allocPrint(self.alloc, "\",\"line\":{d},\"col\":{d},\"message\":\"", .{ err.line, err.col }) catch return;
+            buf.appendSlice(self.alloc, loc) catch return;
+            appendJsonEscaped(buf, self.alloc, err.message);
+            buf.appendSlice(self.alloc, "\",\"severity\":\"") catch return;
+            buf.appendSlice(self.alloc, switch (err.severity) {
+                .@"error" => "error",
+                .warning => "warning",
+            }) catch return;
+            buf.appendSlice(self.alloc, "\"}") catch return;
+        }
     }
 
     fn appendJsonEscaped(buf: *std.ArrayListUnmanaged(u8), alloc: std.mem.Allocator, s: []const u8) void {

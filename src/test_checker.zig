@@ -49,6 +49,47 @@ fn expectErrorCount(source: []const u8, expected: usize) !void {
     try testing.expectEqual(expected, checker.errors.items.len);
 }
 
+fn expectWarningNoError(source: []const u8, expected_substring: []const u8) !void {
+    var checker = try checkSource(source);
+    if (checker.hasErrors()) {
+        std.debug.print("\nUnexpected errors:\n", .{});
+        checker.printErrors();
+    }
+    try testing.expect(!checker.hasErrors());
+    try testing.expect(checker.hasWarnings());
+
+    var found = false;
+    for (checker.warnings.items) |warn| {
+        if (std.mem.indexOf(u8, warn.message, expected_substring) != null) {
+            found = true;
+            break;
+        }
+    }
+    if (!found) {
+        std.debug.print("\nExpected warning containing: '{s}'\nGot warnings:\n", .{expected_substring});
+        checker.printWarnings();
+    }
+    try testing.expect(found);
+}
+
+fn expectWarningWithLocation(source: []const u8, expected_substring: []const u8) !void {
+    var checker = try checkSource(source);
+    try testing.expect(!checker.hasErrors());
+    try testing.expect(checker.hasWarnings());
+    var found = false;
+    for (checker.warnings.items) |warn| {
+        if (std.mem.indexOf(u8, warn.message, expected_substring) != null and warn.line > 0) {
+            found = true;
+            break;
+        }
+    }
+    if (!found) {
+        std.debug.print("\nExpected warning with location containing: '{s}'\nGot warnings:\n", .{expected_substring});
+        checker.printWarnings();
+    }
+    try testing.expect(found);
+}
+
 // ── Entry point ───────────────────────────────────────────
 
 test "valid: process with main handler" {
@@ -258,7 +299,7 @@ test "error: string literal as guard" {
         \\        return 0;
         \\    }
         \\}
-    , "guard/while condition must be boolean, got string");
+    , "guard and while conditions must be boolean, got string");
 }
 
 test "error: int literal as guard" {
@@ -269,7 +310,7 @@ test "error: int literal as guard" {
         \\        return 0;
         \\    }
         \\}
-    , "guard/while condition must be boolean, got int");
+    , "guard and while conditions must be boolean, got int");
 }
 
 // ── Transition checks ─────────────────────────────────────
@@ -299,7 +340,7 @@ test "error: receive in module function" {
         \\        return 0;
         \\    }
         \\}
-    , "receive; can only be used inside a process");
+    , "can only be used inside a `receive` handler");
 }
 
 // ── Match checks ──────────────────────────────────────────
@@ -503,7 +544,7 @@ test "error: string condition in while" {
         \\        return 0;
         \\    }
         \\}
-    , "guard/while condition must be boolean, got string");
+    , "guard and while conditions must be boolean, got string");
 }
 
 // ── Struct checks ─────────────────────────────────────────
@@ -600,8 +641,8 @@ test "valid: full program with module and process" {
 
 // ── Guard consistency ─────────────────────────────────────
 
-test "error: guard always false" {
-    try expectError(
+test "warning: guard always false" {
+    try expectWarningNoError(
         \\process Main {
         \\    receive main() -> int {
         \\        guard false;
@@ -612,7 +653,7 @@ test "error: guard always false" {
 }
 
 test "error: guard x > x is always false" {
-    try expectError(
+    try expectWarningNoError(
         \\module Helpers {
         \\    fn check(x: int) -> int {
         \\        guard x > x;
@@ -626,7 +667,7 @@ test "error: guard x > x is always false" {
 }
 
 test "error: guard x != x is always false" {
-    try expectError(
+    try expectWarningNoError(
         \\module Helpers {
         \\    fn check(x: int) -> int {
         \\        guard x != x;
@@ -704,6 +745,18 @@ test "error: while true with no return" {
         \\}
         \\process Main {
         \\    receive main() -> int { return 0; }
+        \\}
+    , "does not return a value on all code paths");
+}
+
+test "warning: while true with no return does not hard fail void handler" {
+    try expectWarningNoError(
+        \\process Main {
+        \\    receive main() -> void {
+        \\        while true {
+        \\            Stdio.println("forever");
+        \\        }
+        \\    }
         \\}
     , "potential infinite loop");
 }
@@ -1876,6 +1929,16 @@ test "checker: File.open returns Result" {
     );
 }
 
+test "checker: handler return path accepts System.exit as terminating" {
+    try expectNoErrors(
+        \\process App {
+        \\    receive main() -> int {
+        \\        System.exit(1);
+        \\    }
+        \\}
+    );
+}
+
 // ── Error location tests ─────────────────────────────────
 
 fn expectErrorWithLocation(source: []const u8, expected_substring: []const u8) !void {
@@ -2194,10 +2257,10 @@ test "error location: non-exhaustive match" {
     , "not exhaustive");
 }
 
-test "error location: while true no return (divergence)" {
-    try expectErrorWithLocation(
+test "warning location: while true no return (divergence)" {
+    try expectWarningWithLocation(
         \\process App {
-        \\    receive main() -> int {
+        \\    receive main() -> void {
         \\        while true {
         \\            x: int = 1;
         \\        }
@@ -2498,7 +2561,7 @@ test "error: while condition must be boolean int" {
 }
 
 test "error: guard x compared to itself" {
-    try expectError(
+    try expectWarningNoError(
         \\module App {
         \\    fn bad(x: int) -> int {
         \\        guard x > x;
@@ -2606,7 +2669,7 @@ test "error: receive outside process" {
         \\        return 0;
         \\    }
         \\}
-    , "can only be used inside a process");
+    , "can only be used inside a `receive` handler");
 }
 
 test "error: missing entry point" {
@@ -2640,7 +2703,7 @@ test "error: match must have at least one arm" {
 }
 
 test "error: guard always false literal" {
-    try expectError(
+    try expectWarningNoError(
         \\module App {
         \\    fn bad() -> int {
         \\        guard false;

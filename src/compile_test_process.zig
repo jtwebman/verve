@@ -107,6 +107,35 @@ test "compile: process state mutation and read" {
     try testing.expectEqualStrings("5\n", r.stdout);
 }
 
+test "compile: watch death notification resumes receive" {
+    const r = try compileAndCapture(
+        \\process Worker {
+        \\    receive Stop() -> void {
+        \\        Process.exit();
+        \\    }
+        \\}
+        \\process App {
+        \\    receive main() -> int {
+        \\        worker: pid<Worker> = spawn Worker();
+        \\        watch worker;
+        \\        match Process.tell(worker.Stop) {
+        \\            :ok{} => {
+        \\                receive;
+        \\                Stdio.println("worker exited");
+        \\                return 0;
+        \\            }
+        \\            :error{reason} => {
+        \\                Stdio.println(reason);
+        \\                return 1;
+        \\            }
+        \\        }
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("worker exited\n", r.stdout);
+}
+
 test "compile: process main receives state and args together" {
     const r = try compileAndCapture(
         \\struct AppState {

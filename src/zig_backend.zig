@@ -327,6 +327,7 @@ pub const ZigBackend = struct {
         // ── Tags / Process ──────────────────────────
         .{ "make_tagged", S{ .rt_name = "!", .min_args = 2, .returns = .pointer } },
         .{ "process_exit", S{ .module = "process", .rt_name = "!", .void_result = true } },
+        .{ "process_receive", S{ .module = "process", .rt_name = "!", .void_result = true } },
         .{ "process_yield", S{ .module = "process", .rt_name = "!" } },
         .{ "process_self", S{ .module = "process", .rt_name = "!", .returns = .pointer } },
         .{ "process_run", S{ .module = "process", .rt_name = "!" } },
@@ -1216,7 +1217,7 @@ pub const ZigBackend = struct {
             },
 
             .list_new => |ln| {
-                self.lineFmt("{{ const lm = rt.arena_alloc(@sizeOf(rt.List)) orelse @as([*]u8, undefined); const lp = @as(*rt.List, @ptrCast(@alignCast(lm))); lp.* = rt.List.init(); {s} = @intFromPtr(lp); }}", .{self.regName(ln.dest)});
+                self.lineFmt("{s} = rt.allocList();", .{self.regName(ln.dest)});
             },
             .list_append => |la| {
                 const src_type = getRegType(reg_types, la.value);
@@ -1588,6 +1589,9 @@ pub const ZigBackend = struct {
             self.lineFmt("{s} = 0;", .{self.regName(dest)});
         } else if (std.mem.eql(u8, name, "process_exit")) {
             self.line("rt.process.verve_exit_self();");
+            self.lineFmt("{s} = 0;", .{self.regName(dest)});
+        } else if (std.mem.eql(u8, name, "process_receive")) {
+            self.line("rt.process.verve_receive();");
             self.lineFmt("{s} = 0;", .{self.regName(dest)});
         } else if (std.mem.eql(u8, name, "process_yield")) {
             self.lineFmt("{s} = rt.process.verve_yield();", .{self.regName(dest)});

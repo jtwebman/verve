@@ -114,6 +114,71 @@ test "cli: check exit codes and json behavior" {
     try testing.expect(!std.mem.containsAtLeast(u8, invalid_json_post.stderr, 1, "Type errors in"));
 }
 
+test "cli: check json includes warning severity and imported file path" {
+    const alloc = testing.allocator;
+    const repo_root = try std.fs.cwd().realpathAlloc(alloc, ".");
+    defer alloc.free(repo_root);
+    const bin_path = try buildCliBinary(alloc);
+    defer std.fs.cwd().deleteFile(bin_path) catch {};
+
+    const root_dir = "/tmp/verve_cli_import_case";
+    const entry_path = "/tmp/verve_cli_import_case/main.vv";
+    const helper_path = "/tmp/verve_cli_import_case/helper.vv";
+    std.fs.cwd().makePath(root_dir) catch {};
+    defer std.fs.cwd().deleteTree(root_dir) catch {};
+
+    try std.fs.cwd().writeFile(.{
+        .sub_path = helper_path,
+        .data =
+        \\export module Helper {
+        \\    fn broken() -> int {
+        \\        x: string = 1;
+        \\        return 0;
+        \\    }
+        \\}
+        ,
+    });
+
+    try std.fs.cwd().writeFile(.{
+        .sub_path = entry_path,
+        .data =
+        \\import "./helper.vv";
+        \\
+        \\process App {
+        \\    receive main() -> int {
+        \\        return 0;
+        \\    }
+        \\}
+        ,
+    });
+
+    const imported = try runCli(alloc, repo_root, bin_path, &.{ "check", "--json", entry_path });
+    defer alloc.free(imported.stdout);
+    defer alloc.free(imported.stderr);
+    try testing.expectEqual(@as(u8, 1), imported.exit);
+    try testing.expectEqualStrings("", imported.stdout);
+    try testing.expect(std.mem.containsAtLeast(u8, imported.stderr, 1, helper_path));
+    try testing.expect(std.mem.containsAtLeast(u8, imported.stderr, 1, "\"severity\":\"error\""));
+
+    try std.fs.cwd().writeFile(.{
+        .sub_path = entry_path,
+        .data =
+        \\process App {
+        \\    receive main() -> void {
+        \\        guard false;
+        \\    }
+        \\}
+        ,
+    });
+
+    const warning = try runCli(alloc, repo_root, bin_path, &.{ "check", "--json", entry_path });
+    defer alloc.free(warning.stdout);
+    defer alloc.free(warning.stderr);
+    try testing.expectEqual(@as(u8, 0), warning.exit);
+    try testing.expectEqualStrings("", warning.stdout);
+    try testing.expect(std.mem.containsAtLeast(u8, warning.stderr, 1, "\"severity\":\"warning\""));
+}
+
 test "cli: fmt supports --check before and after file" {
     const alloc = testing.allocator;
     const repo_root = try std.fs.cwd().realpathAlloc(alloc, ".");

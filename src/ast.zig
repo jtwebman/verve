@@ -3,6 +3,7 @@ const std = @import("std");
 pub const Span = struct {
     start: usize,
     end: usize,
+    file_path: []const u8 = "",
 };
 
 // File-level import

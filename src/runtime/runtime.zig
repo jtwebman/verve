@@ -58,6 +58,10 @@ fn isLikelyValidPtr(ptr_val: usize) bool {
     return ptr_val >= MIN_VALID_PTR;
 }
 
+fn isAlignedPtr(ptr_val: usize, alignment: usize) bool {
+    return (ptr_val & (alignment - 1)) == 0;
+}
+
 pub fn runtimeFail(msg: []const u8) noreturn {
     _ = std.posix.write(std.posix.STDERR_FILENO, msg) catch 0;
     _ = std.posix.write(std.posix.STDERR_FILENO, "\n") catch 0;
@@ -84,12 +88,12 @@ pub fn makeTagged(tag: i64, value: i64) usize {
 }
 
 pub fn getTag(ptr: usize) i64 {
-    if (ptr == 0) return -1;
+    if (ptr == 0 or !isLikelyValidPtr(ptr) or !isAlignedPtr(ptr, @alignOf(Tagged))) return -1;
     return @as(*const Tagged, @ptrFromInt(ptr)).tag;
 }
 
 pub fn getTagValue(ptr: usize) i64 {
-    if (ptr == 0) return 0;
+    if (ptr == 0 or !isLikelyValidPtr(ptr) or !isAlignedPtr(ptr, @alignOf(Tagged))) return 0;
     return @as(*const Tagged, @ptrFromInt(ptr)).value;
 }
 
@@ -108,9 +112,9 @@ pub fn getTagStr(ptr: usize) []const u8 {
     if (ptr == 0 or !isLikelyValidPtr(ptr)) return "";
     const val = getTagValue(ptr);
     if (val == 0) return "";
-    const meta_ptr: usize = @intCast(@as(u64, @bitCast(val)));
-    if (!isLikelyValidPtr(meta_ptr)) return "";
     const SliceMeta = struct { ptr: [*]const u8, len: usize };
+    const meta_ptr: usize = @intCast(@as(u64, @bitCast(val)));
+    if (!isLikelyValidPtr(meta_ptr) or !isAlignedPtr(meta_ptr, @alignOf(SliceMeta))) return "";
     const meta = @as(*const SliceMeta, @ptrFromInt(meta_ptr));
     if (meta.len > MAX_SLICE_LEN) return "";
     if (meta.len == 0) return "";
@@ -167,6 +171,28 @@ pub const List = struct {
         return self.items[@intCast(@as(u64, @bitCast(idx)))];
     }
 };
+
+var empty_list_storage = List{
+    .items = undefined,
+    .len = 0,
+    .cap = 0,
+};
+
+pub fn emptyListPtr() usize {
+    return @intFromPtr(&empty_list_storage);
+}
+
+pub fn emptyListI64() i64 {
+    return @intCast(emptyListPtr());
+}
+
+pub fn allocList() usize {
+    const raw = arena_alloc(@sizeOf(List)) orelse return emptyListPtr();
+    const list = @as(*List, @ptrCast(@alignCast(raw)));
+    list.* = List.init();
+    if (list.cap == 0) return emptyListPtr();
+    return @intFromPtr(list);
+}
 
 // ── Env ────────────────────────────────────────────
 
@@ -302,6 +328,7 @@ pub fn assert_check(cond: i64) void {
 
 const ARENA_PAGE_SIZE = 64 * 1024; // 64KB per page
 const ARENA_MAX_PAGES = 256; // 16MB max per arena
+pub const ARENA_MAX_BYTES = ARENA_PAGE_SIZE * ARENA_MAX_PAGES;
 
 pub const Arena = struct {
     pages: [ARENA_MAX_PAGES]?[*]align(8) u8 = .{null} ** ARENA_MAX_PAGES,
@@ -362,6 +389,11 @@ pub fn currentArena() *Arena {
 /// Allocate from the current arena. Drop-in replacement for page_allocator.alloc.
 pub fn arena_alloc(size: usize) ?[*]u8 {
     return currentArena().alloc(size);
+}
+
+pub fn arena_is_exhausted() bool {
+    const arena = currentArena();
+    return arena.page_count >= ARENA_MAX_PAGES and arena.offset >= ARENA_PAGE_SIZE;
 }
 
 // ── Tests ─────────────────────────────────────────
@@ -451,4 +483,41 @@ test "getTagStr roundtrip returns original string" {
     const tagged = makeTaggedStr(0, "hello");
     const s = getTagStr(tagged);
     try std.testing.expectEqualStrings("hello", s);
+}
+
+test "arena alloc stops cleanly at configured max" {
+    var arena = Arena{};
+    var pages: usize = 0;
+    while (pages < ARENA_MAX_PAGES) : (pages += 1) {
+        const mem = arena.alloc(ARENA_PAGE_SIZE) orelse return error.TestUnexpectedResult;
+        try std.testing.expect(@intFromPtr(mem) != 0);
+    }
+    try std.testing.expectEqual(@as(usize, ARENA_MAX_BYTES), arena.total_allocated);
+    try std.testing.expect(arena.alloc(8) == null);
+    arena.freeAll();
+}
+
+test "slice and tagged string helpers survive randomized metadata" {
+    var prng = std.Random.DefaultPrng.init(0xC0FFEE);
+    const random = prng.random();
+    const source = "hello";
+    const SliceMeta = struct { ptr: [*]const u8, len: usize };
+
+    var i: usize = 0;
+    while (i < 500) : (i += 1) {
+        const ptr_val = if (random.boolean()) @intFromPtr(source.ptr) else random.int(usize);
+        const len_val = random.intRangeAtMost(usize, 0, MAX_SLICE_LEN + 32);
+        const s = sliceFromPair(ptr_val, len_val);
+        try std.testing.expect(s.len <= MAX_SLICE_LEN);
+
+        const raw = arena_alloc(@sizeOf(SliceMeta)) orelse return error.OutOfMemory;
+        const meta = @as(*SliceMeta, @ptrCast(@alignCast(raw)));
+        meta.* = .{
+            .ptr = if (random.boolean()) source.ptr else @ptrFromInt(@max(@as(usize, 4096), random.int(usize))),
+            .len = random.intRangeAtMost(usize, 0, MAX_SLICE_LEN + 32),
+        };
+        const tagged = makeTagged(0, @intCast(@intFromPtr(meta)));
+        const recovered = getTagStr(tagged);
+        try std.testing.expect(recovered.len <= MAX_SLICE_LEN);
+    }
 }

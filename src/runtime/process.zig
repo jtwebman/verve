@@ -356,6 +356,12 @@ pub fn verve_watch(target_pid: usize) void {
     if (!pidValid(target_pid)) return;
     const idx = pidx(target_pid);
     const proc = &process_table[idx];
+    if (!proc.alive) {
+        if (current_process_id == 0) return;
+        const self_idx = pidx(current_process_id);
+        _ = process_table[self_idx].mailbox().push(&[_]u8{ 0xFF, 0 }, 2);
+        return;
+    }
     // Lazy alloc watcher list
     if (proc.watcher_ptr == null) {
         proc.watcher_ptr = std.heap.page_allocator.create(WatcherList) catch rt.runtimeFail("Verve runtime error: out of memory allocating watcher list");
@@ -379,11 +385,15 @@ fn kill_tree(pid: usize) void {
     const wc = if (proc.watcher_ptr) |w| w.count else 0;
     for (0..wc) |i| {
         const watcher_pid = proc.watcher_ptr.?.pids[i];
+        if (!pidValid(watcher_pid)) continue;
         const widx = pidx(watcher_pid);
         const watcher = &process_table[widx];
         if (!watcher.alive) continue;
         const death_msg = [_]u8{ 0xFF, 0 };
         _ = watcher.mailbox().push(&death_msg, 2);
+        if (current_thread) |ct| {
+            if (watcher.owner_thread != ct.id) wakeThread(watcher.owner_thread);
+        }
     }
     // Wake any process waiting on a send to this process
     // Kill all children (parent owns children)
@@ -449,6 +459,21 @@ fn drain_one(target_pid: usize) bool {
     _ = dispatch_fn(msg.ptr, msg.len);
     current_process_id = saved;
     return true;
+}
+
+/// Block until one mailbox item is available, then drain exactly one item.
+/// Death notifications from `watch` count as mailbox items and simply wake the
+/// current process without dispatching a handler.
+pub fn verve_receive() void {
+    if (current_process_id == 0) return;
+    const idx = pidx(current_process_id);
+    while (true) {
+        if (drain_one(current_process_id)) return;
+        const thread = current_thread orelse return;
+        process_table[idx].yielded = false;
+        fiber.context_switch(&process_table[idx].proc_fiber.?.context, &thread.scheduler_context);
+        if (!isAlive(idx)) return;
+    }
 }
 
 /// Synchronous send: push message to mailbox, yield until target processes it.
@@ -1028,6 +1053,46 @@ test "mailbox push and pop roundtrip" {
     try std.testing.expectEqual(@as(usize, 0), mbox.count);
 }
 
+test "mailbox property: random push/pop preserves byte payloads" {
+    var prng = std.Random.DefaultPrng.init(0x5EED1234);
+    const random = prng.random();
+    var mbox = Mailbox{};
+    var expected = std.ArrayListUnmanaged([]u8){};
+    defer {
+        for (expected.items) |msg| std.testing.allocator.free(msg);
+        expected.deinit(std.testing.allocator);
+    }
+
+    var scratch: [256]u8 = undefined;
+    var operations: usize = 0;
+    while (operations < 200) : (operations += 1) {
+        const should_push = expected.items.len == 0 or random.boolean();
+        if (should_push) {
+            const len = random.intRangeAtMost(usize, 1, 24);
+            const msg = try std.testing.allocator.alloc(u8, len);
+            for (msg) |*b| b.* = random.int(u8);
+            if (mbox.push(msg.ptr, msg.len)) {
+                try expected.append(std.testing.allocator, msg);
+            } else {
+                std.testing.allocator.free(msg);
+            }
+        } else {
+            const popped = mbox.pop(&scratch) orelse continue;
+            const want = expected.orderedRemove(0);
+            defer std.testing.allocator.free(want);
+            try std.testing.expectEqualSlices(u8, want, popped);
+        }
+    }
+
+    while (expected.items.len > 0) {
+        const popped = mbox.pop(&scratch) orelse break;
+        const want = expected.orderedRemove(0);
+        defer std.testing.allocator.free(want);
+        try std.testing.expectEqualSlices(u8, want, popped);
+    }
+    try std.testing.expectEqual(@as(usize, 0), expected.items.len);
+}
+
 test "mailbox pop resets when used bytes are too small for header" {
     var mbox = Mailbox{};
     mbox.count = 1;
@@ -1100,6 +1165,29 @@ test "reused process slot resets mailbox watcher and send state" {
     try std.testing.expectEqual(@as(i128, 0), proc2.timer_deadline_ns);
     try std.testing.expectEqual(@as(usize, 0), proc2.parent_pid);
     try std.testing.expectEqual(@as(usize, 9), proc2.process_type);
+}
+
+test "watch kill enqueues death notification for watcher" {
+    resetProcessTestState();
+    defer resetProcessTestState();
+
+    ensureProcessCapacity(2);
+    const watched = verve_spawn(1);
+    const watcher = verve_spawn(2);
+    current_process_id = watcher;
+    verve_watch(watched);
+    current_process_id = 0;
+
+    verve_kill(watched);
+
+    const watcher_idx = pidx(watcher);
+    const watcher_proc = &process_table[watcher_idx];
+    try std.testing.expectEqual(@as(usize, 1), watcher_proc.mailbox().count);
+
+    var out: [8]u8 = undefined;
+    const msg = watcher_proc.mailbox().pop(&out) orelse return error.TestUnexpectedResult;
+    try std.testing.expectEqual(@as(usize, 2), msg.len);
+    try std.testing.expectEqual(@as(u8, 0xFF), msg[0]);
 }
 
 test "wakeThread signals scheduler wake fd" {

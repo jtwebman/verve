@@ -114,7 +114,7 @@ fn json_extract_string(src: []const u8, start: usize, end: usize) struct { ptr: 
         return .{ .ptr = @intFromPtr(inner.ptr), .len = inner.len };
     }
     // Has escapes — need to copy and unescape
-    const buf = rt.arena_alloc(inner.len) orelse rt.runtimeFail("Verve runtime error: out of memory unescaping json string");
+    const buf = rt.arena_alloc(inner.len) orelse return "";
     var out: usize = 0;
     var i: usize = 0;
     while (i < inner.len) {
@@ -242,19 +242,18 @@ fn json_split_array(src: []const u8, start: usize, end: usize) i64 {
 
     // Build a list: pairs of (ptr, len) for each element as string
     // Allocate List struct in arena so pointer survives
-    const list_mem = rt.arena_alloc(@sizeOf(rt.List)) orelse rt.runtimeFail("Verve runtime error: out of memory allocating json array list");
-    const list = @as(*rt.List, @ptrCast(@alignCast(list_mem)));
-    list.* = rt.List.init();
+    const list_ptr = rt.allocList();
+    const list = @as(*rt.List, @ptrFromInt(list_ptr));
     while (p < src.len and src[p] != ']') {
         const elem_start = p;
         const elem_end = json_skip_value(src, p);
         // Store element as (ptr, len) pair in the list
-        list.append(@intCast(@intFromPtr(src[elem_start..elem_end].ptr)));
-        list.append(@intCast(elem_end - elem_start));
+        list.tryAppend(@intCast(@intFromPtr(src[elem_start..elem_end].ptr))) catch return rt.emptyListI64();
+        list.tryAppend(@intCast(elem_end - elem_start)) catch return rt.emptyListI64();
         p = json_skip_ws(src, elem_end);
         if (p < src.len and src[p] == ',') p = json_skip_ws(src, p + 1);
     }
-    return @intCast(@intFromPtr(list));
+    return @intCast(list_ptr);
 }
 
 // ── JSON builder (stringify) ───────────────────────
@@ -264,20 +263,29 @@ pub const JsonBuilder = struct {
     buf: [*]u8,
     len: usize,
     cap: usize,
+    failed: bool = false,
 
     pub fn init() JsonBuilder {
         const initial_cap: usize = 256;
-        const mem = rt.arena_alloc(initial_cap) orelse rt.runtimeFail("Verve runtime error: out of memory allocating json builder");
+        const mem = rt.arena_alloc(initial_cap) orelse {
+            return .{ .buf = undefined, .len = 0, .cap = 0, .failed = true };
+        };
         return .{ .buf = mem, .len = 0, .cap = initial_cap };
     }
 
     fn ensureCapacity(self: *JsonBuilder, additional: usize) void {
-        if (self.cap == 0) rt.runtimeFail("Verve runtime error: json builder used before initialization");
+        if (self.cap == 0) {
+            self.failed = true;
+            return;
+        }
         const needed = self.len + additional;
         if (needed <= self.cap) return;
         var new_cap = self.cap;
         while (new_cap < needed) new_cap *= 2;
-        const raw = rt.arena_alloc(new_cap) orelse rt.runtimeFail("Verve runtime error: out of memory growing json builder");
+        const raw = rt.arena_alloc(new_cap) orelse {
+            self.failed = true;
+            return;
+        };
         const new_buf: [*]u8 = @ptrCast(@alignCast(raw));
         if (self.len > 0) @memcpy(new_buf[0..self.len], self.buf[0..self.len]);
         self.buf = new_buf;
@@ -285,27 +293,30 @@ pub const JsonBuilder = struct {
     }
 
     pub fn append(self: *JsonBuilder, data: []const u8) void {
-        if (data.len == 0) return;
+        if (data.len == 0 or self.failed) return;
         self.ensureCapacity(data.len);
+        if (self.failed or self.len + data.len > self.cap) return;
         @memcpy(self.buf[self.len .. self.len + data.len], data);
         self.len += data.len;
     }
 
     pub fn appendByte(self: *JsonBuilder, b: u8) void {
+        if (self.failed) return;
         self.ensureCapacity(1);
+        if (self.failed or self.len >= self.cap) return;
         self.buf[self.len] = b;
         self.len += 1;
     }
 
     pub fn appendInt(self: *JsonBuilder, val: i64) void {
         var tmp: [32]u8 = undefined;
-        const s = std.fmt.bufPrint(&tmp, "{d}", .{val}) catch rt.runtimeFail("Verve runtime error: failed formatting json int");
+        const s = std.fmt.bufPrint(&tmp, "{d}", .{val}) catch return;
         self.append(s);
     }
 
     pub fn appendFloat(self: *JsonBuilder, val: f64) void {
         var tmp: [64]u8 = undefined;
-        const s = std.fmt.bufPrint(&tmp, "{d}", .{val}) catch rt.runtimeFail("Verve runtime error: failed formatting json float");
+        const s = std.fmt.bufPrint(&tmp, "{d}", .{val}) catch return;
         self.append(s);
     }
 
@@ -325,13 +336,14 @@ pub const JsonBuilder = struct {
     }
 
     pub fn result(self: *JsonBuilder) struct { ptr: usize, len: usize } {
+        if (self.failed or self.cap == 0) return .{ .ptr = 0, .len = 0 };
         return .{ .ptr = @intFromPtr(self.buf), .len = self.len };
     }
 };
 
 /// Start building a JSON object. Returns a builder handle (pointer to JsonBuilder in arena).
 pub fn json_build_object() usize {
-    const mem = rt.arena_alloc(@sizeOf(JsonBuilder)) orelse rt.runtimeFail("Verve runtime error: out of memory allocating json builder handle");
+    const mem = rt.arena_alloc(@sizeOf(JsonBuilder)) orelse return 0;
     const b = @as(*JsonBuilder, @ptrCast(@alignCast(mem)));
     b.* = JsonBuilder.init();
     b.appendByte('{');
@@ -401,7 +413,7 @@ pub fn json_build_add_raw(builder_ptr: usize, key: []const u8, val: []const u8) 
 
 /// Finish building a JSON object. Returns the JSON string as []const u8.
 pub fn json_build_end(builder_ptr: usize) []const u8 {
-    if (builder_ptr == 0) rt.runtimeFail("Verve runtime error: invalid json builder handle");
+    if (builder_ptr == 0) return "";
     const b = @as(*JsonBuilder, @ptrFromInt(builder_ptr));
     b.appendByte('}');
     const res = b.result();

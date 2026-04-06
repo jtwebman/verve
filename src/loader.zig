@@ -5,6 +5,7 @@ const Parser = @import("parser.zig").Parser;
 pub const Loader = struct {
     alloc: std.mem.Allocator,
     loaded_files: std.StringHashMapUnmanaged(ast.File),
+    loaded_sources: std.StringHashMapUnmanaged([]const u8),
     entry_source: []const u8 = "",
 
     pub const Error = error{
@@ -18,6 +19,7 @@ pub const Loader = struct {
         return .{
             .alloc = alloc,
             .loaded_files = .{},
+            .loaded_sources = .{},
         };
     }
 
@@ -97,12 +99,14 @@ pub const Loader = struct {
         }
 
         var parser = Parser.init(source, self.alloc);
-        const file = parser.parseFile() catch {
+        var file = parser.parseFile() catch {
             std.debug.print("  {s}: {s}\n", .{ file_path, parser.formatError() });
             return error.ParseFailed;
         };
+        annotateFileSpans(&file, file_path);
 
         try self.loaded_files.put(self.alloc, file_path, file);
+        try self.loaded_sources.put(self.alloc, file_path, source);
 
         // Recursively load imports
         const dir = std.fs.path.dirname(file_path) orelse ".";
@@ -122,5 +126,83 @@ pub const Loader = struct {
             };
             try self.parseRecursive(resolved, new_chain_buf[0..chain_len]);
         }
+    }
+
+    fn annotateFileSpans(file: *ast.File, file_path: []const u8) void {
+        for (file.imports) |*imp| annotateSpan(&@constCast(imp).span, file_path);
+        for (file.decls) |*decl| annotateDecl(@constCast(decl), file_path);
+    }
+
+    fn annotateDecl(decl: *ast.Decl, file_path: []const u8) void {
+        switch (decl.*) {
+            .module_decl => |*m| {
+                annotateSpan(&m.span, file_path);
+                for (m.constants) |*assign| annotateSpan(&@constCast(assign).span, file_path);
+                for (m.functions) |*func| annotateFnDecl(@constCast(func), file_path);
+                for (m.tests) |*test_decl| {
+                    annotateSpan(&@constCast(test_decl).span, file_path);
+                    annotateStmts(test_decl.body, file_path);
+                }
+                for (m.imports) |*imp| annotateSpan(&@constCast(imp).span, file_path);
+            },
+            .process_decl => |*p| {
+                annotateSpan(&p.span, file_path);
+                for (p.receive_handlers) |*handler| annotateReceiveDecl(@constCast(handler), file_path);
+            },
+            .type_decl => |*t| annotateSpan(&t.span, file_path),
+            .struct_decl => |*s| {
+                annotateSpan(&s.span, file_path);
+                for (s.fields) |*field| annotateSpan(&@constCast(field).span, file_path);
+            },
+        }
+    }
+
+    fn annotateFnDecl(func: *ast.FnDecl, file_path: []const u8) void {
+        annotateSpan(&func.span, file_path);
+        for (func.params) |*param| annotateSpan(&@constCast(param).span, file_path);
+        annotateStmts(func.body, file_path);
+    }
+
+    fn annotateReceiveDecl(handler: *ast.ReceiveDecl, file_path: []const u8) void {
+        annotateSpan(&handler.span, file_path);
+        for (handler.params) |*param| annotateSpan(&@constCast(param).span, file_path);
+        annotateStmts(handler.body, file_path);
+    }
+
+    fn annotateStmts(stmts: []const ast.Stmt, file_path: []const u8) void {
+        for (stmts) |*stmt| annotateStmt(@constCast(stmt), file_path);
+    }
+
+    fn annotateStmt(stmt: *ast.Stmt, file_path: []const u8) void {
+        switch (stmt.*) {
+            .assign => |*assign| annotateSpan(&assign.span, file_path),
+            .field_assign => |*assign| annotateSpan(&assign.span, file_path),
+            .append => |*append| annotateSpan(&append.span, file_path),
+            .match_stmt => |*match_stmt| {
+                annotateSpan(&match_stmt.span, file_path);
+                for (match_stmt.arms) |*arm| annotateStmts(arm.body, file_path);
+            },
+            .if_stmt => |*if_stmt| {
+                annotateSpan(&if_stmt.span, file_path);
+                annotateStmts(if_stmt.body, file_path);
+                if (if_stmt.else_body) |else_body| annotateStmts(else_body, file_path);
+            },
+            .while_stmt => |*while_stmt| {
+                annotateSpan(&while_stmt.span, file_path);
+                annotateStmts(while_stmt.body, file_path);
+            },
+            .send_stmt => |*send_stmt| annotateSpan(&send_stmt.span, file_path),
+            .return_stmt => |*return_stmt| annotateSpan(&return_stmt.span, file_path),
+            .break_stmt => |*span| annotateSpan(span, file_path),
+            .continue_stmt => |*span| annotateSpan(span, file_path),
+            .receive_stmt => |*span| annotateSpan(span, file_path),
+            .watch_stmt => |*watch_stmt| annotateSpan(&watch_stmt.span, file_path),
+            .assert_stmt => |*assert_stmt| annotateSpan(&assert_stmt.span, file_path),
+            .expr_stmt => {},
+        }
+    }
+
+    fn annotateSpan(span: *const ast.Span, file_path: []const u8) void {
+        @constCast(span).file_path = file_path;
     }
 };

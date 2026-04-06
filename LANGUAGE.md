@@ -199,6 +199,7 @@ match Process.send_timeout(counter.Increment, 3000, 5) {
 Process.tell(counter.Increment, 1);
 
 watch counter;               // registers the current process as a watcher
+receive;                     // blocks until one message or one watched-process death notification arrives
 ```
 
 ### Environment variables

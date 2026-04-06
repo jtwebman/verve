@@ -518,6 +518,10 @@ pub const Lower = struct {
             .continue_stmt => {
                 if (self.loop_cond_block) |cond_id| self.appendInst(.{ .jump = .{ .target = cond_id } });
             },
+            .receive_stmt => {
+                const dest = func.newReg(.void);
+                self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = "process_receive", .args = &.{} } });
+            },
             .append => |a| {
                 const list_reg = self.lowerExpr(a.target);
                 const val_reg = self.lowerExpr(a.value);

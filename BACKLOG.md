@@ -44,8 +44,8 @@ These are the tasks required before "humans can trust it" is a fair claim.
 ### Memory and boundary hardening
 - [x] Validate `sliceFromPair` inputs beyond a length cap
 - [x] Validate tagged string metadata before reconstructing slices
-- [ ] Stop panicking on ordinary runtime allocation failure where poison/error propagation is possible
-- [ ] Define clear behavior for arena exhaustion
+- [x] Stop panicking on ordinary runtime allocation failure where poison/error propagation is possible
+- [x] Define clear behavior for arena exhaustion
 
 ### Collection/runtime correctness
 - [x] Replace silent `List.append` capacity failure with growth or explicit failure semantics
@@ -55,13 +55,13 @@ These are the tasks required before "humans can trust it" is a fair claim.
 ### Mailbox/process hardening
 - [x] Review mailbox corruption handling and length-prefix validation
 - [x] Add more tests around mailbox full, process death, and cross-thread wake behavior
-- [ ] Define and implement user-visible watcher/death notification semantics for `watch`
+- [x] Define and implement user-visible watcher/death notification semantics for `watch`
 - [x] Audit process lifecycle cleanup paths for stale state reuse
 
 ### Validation discipline
 - [x] Run compile tests in ReleaseSafe regularly, not just as an optional path
 - [x] Add targeted runtime safety regression tests
-- [ ] Add fuzz/property-style testing for compiler/runtime invariants where practical
+- [x] Add fuzz/property-style testing for compiler/runtime invariants where practical
 
 ## Priority 2 — Checker And Compiler Credibility
 
@@ -69,13 +69,13 @@ The compiler should reject bad code, accept valid code, and avoid surprising use
 
 ### Control-flow analysis
 - [x] Fix false positives around `while true` loops with reachable `break` paths
-- [ ] Improve return-path analysis for realistic handler patterns
+- [x] Improve return-path analysis for realistic handler patterns
 - [x] Add regression tests for accepted first-party examples
 
 ### Diagnostics
-- [ ] Improve top error messages that currently read as internal/compiler-centric
-- [ ] Keep error locations accurate across loader/checker/lowering stages
-- [ ] Separate "hard error" from "warning-like heuristic" where appropriate
+- [x] Improve top error messages that currently read as internal/compiler-centric
+- [x] Keep error locations accurate across loader/checker/lowering stages
+- [x] Separate "hard error" from "warning-like heuristic" where appropriate
 
 ### Generated code correctness
 - [x] Fix type mismatches in generated test-runner dispatch
@@ -147,7 +147,6 @@ These stay explicitly out of the near-term critical path.
 
 ## Next Up
 
-1. Fix CLI/test/example trust issues.
-2. Harden the runtime safety story.
-3. Fix checker/codegen correctness issues that break first-party examples.
-4. Lock the first 3 benchmark apps and measure them honestly.
+1. Finish the remaining runtime safety hardening work.
+2. Lock the first 3 benchmark apps and write exact specs and test suites.
+3. Measure those benchmark apps honestly against the baseline set.
