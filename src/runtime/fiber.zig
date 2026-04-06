@@ -120,6 +120,7 @@ pub fn fiber_free(f: *Fiber) void {
 /// Trampoline: called when a fiber is entered for the first time.
 /// Reads entry_fn from r12 and arg from r13 (placed there by fiber_init).
 fn fiber_trampoline() callconv(.naked) void {
+    @setRuntimeSafety(false);
     // r12 = entry_fn, r13 = arg (set up in fiber_init's fake register frame)
     asm volatile (
         \\ mov %%r13, %%rdi

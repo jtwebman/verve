@@ -14,7 +14,6 @@ fn buildCliBinary(alloc: std.mem.Allocator) ![]const u8 {
         "-OReleaseFast",
         "-femit-bin=/tmp/verve_cli_test_bin",
     }, alloc);
-    child.cwd = "/home/jt/projects/verve";
     const term = try child.spawnAndWait();
     switch (term) {
         .Exited => |code| if (code != 0) return error.BuildFailed,
@@ -32,7 +31,6 @@ fn runCli(alloc: std.mem.Allocator, bin_path: []const u8, args: []const []const 
     var child = std.process.Child.init(argv, alloc);
     child.stdout_behavior = .Pipe;
     child.stderr_behavior = .Pipe;
-    child.cwd = "/home/jt/projects/verve";
     try child.spawn();
 
     const stdout_bytes = try child.stdout.?.readToEndAlloc(alloc, 64 * 1024);
