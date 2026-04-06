@@ -397,27 +397,27 @@ pub const ZigBackend = struct {
             for (sd.fields) |f| {
                 self.writeIndent();
                 if (std.mem.eql(u8, f.type_name, "int") or std.mem.eql(u8, f.type_name, "int64")) {
-                    self.writeFmt("{s}: i64 = 0,\n", .{f.name});
+                    self.writeFmt("{s}: i64 = {d},\n", .{ f.name, f.default_int });
                 } else if (std.mem.eql(u8, f.type_name, "int8")) {
-                    self.writeFmt("{s}: i8 = 0,\n", .{f.name});
+                    self.writeFmt("{s}: i8 = @as(i8, @intCast({d})),\n", .{ f.name, f.default_int });
                 } else if (std.mem.eql(u8, f.type_name, "int16")) {
-                    self.writeFmt("{s}: i16 = 0,\n", .{f.name});
+                    self.writeFmt("{s}: i16 = @as(i16, @intCast({d})),\n", .{ f.name, f.default_int });
                 } else if (std.mem.eql(u8, f.type_name, "int32")) {
-                    self.writeFmt("{s}: i32 = 0,\n", .{f.name});
+                    self.writeFmt("{s}: i32 = @as(i32, @intCast({d})),\n", .{ f.name, f.default_int });
                 } else if (std.mem.eql(u8, f.type_name, "uint8")) {
-                    self.writeFmt("{s}: u8 = 0,\n", .{f.name});
+                    self.writeFmt("{s}: u8 = @as(u8, @intCast({d})),\n", .{ f.name, f.default_int });
                 } else if (std.mem.eql(u8, f.type_name, "uint16")) {
-                    self.writeFmt("{s}: u16 = 0,\n", .{f.name});
+                    self.writeFmt("{s}: u16 = @as(u16, @intCast({d})),\n", .{ f.name, f.default_int });
                 } else if (std.mem.eql(u8, f.type_name, "uint32")) {
-                    self.writeFmt("{s}: u32 = 0,\n", .{f.name});
+                    self.writeFmt("{s}: u32 = @as(u32, @intCast({d})),\n", .{ f.name, f.default_int });
                 } else if (std.mem.eql(u8, f.type_name, "uint64")) {
-                    self.writeFmt("{s}: u64 = 0,\n", .{f.name});
+                    self.writeFmt("{s}: u64 = @as(u64, @intCast({d})),\n", .{ f.name, f.default_int });
                 } else if (std.mem.eql(u8, f.type_name, "float")) {
-                    self.writeFmt("{s}: f64 = 0.0,\n", .{f.name});
+                    self.writeFmt("{s}: f64 = {d},\n", .{ f.name, f.default_float });
                 } else if (std.mem.eql(u8, f.type_name, "bool")) {
-                    self.writeFmt("{s}: bool = false,\n", .{f.name});
+                    self.writeFmt("{s}: bool = {s},\n", .{ f.name, if (f.default_bool) "true" else "false" });
                 } else if (std.mem.eql(u8, f.type_name, "string")) {
-                    self.writeFmt("{s}: []const u8 = \"\",\n", .{f.name});
+                    self.writeFmt("{s}: []const u8 = \"{s}\",\n", .{ f.name, f.default_string });
                 } else if (self.isPointerTypeName(f.type_name)) {
                     self.writeFmt("{s}: usize = 0,\n", .{f.name});
                 } else if (self.isEnumType(f.type_name)) {
@@ -645,7 +645,20 @@ pub const ZigBackend = struct {
             self.indent += 1;
             for (sd.fields) |f| {
                 self.writeIndent();
-                if (std.mem.eql(u8, f.type_name, "int")) self.writeFmt("{s}: i64 = 0,\n", .{f.name}) else if (std.mem.eql(u8, f.type_name, "float")) self.writeFmt("{s}: f64 = 0.0,\n", .{f.name}) else if (std.mem.eql(u8, f.type_name, "bool")) self.writeFmt("{s}: bool = false,\n", .{f.name}) else if (std.mem.eql(u8, f.type_name, "string")) self.writeFmt("{s}: []const u8 = \"\",\n", .{f.name}) else if (self.isPointerTypeName(f.type_name)) self.writeFmt("{s}: usize = 0,\n", .{f.name}) else if (self.isEnumType(f.type_name)) self.writeFmt("{s}: VerveEnum_{s} = @enumFromInt(0),\n", .{ f.name, f.type_name }) else self.writeFmt("{s}: i64 = 0,\n", .{f.name});
+                if (std.mem.eql(u8, f.type_name, "int"))
+                    self.writeFmt("{s}: i64 = {d},\n", .{ f.name, f.default_int })
+                else if (std.mem.eql(u8, f.type_name, "float"))
+                    self.writeFmt("{s}: f64 = {d},\n", .{ f.name, f.default_float })
+                else if (std.mem.eql(u8, f.type_name, "bool"))
+                    self.writeFmt("{s}: bool = {s},\n", .{ f.name, if (f.default_bool) "true" else "false" })
+                else if (std.mem.eql(u8, f.type_name, "string"))
+                    self.writeFmt("{s}: []const u8 = \"{s}\",\n", .{ f.name, f.default_string })
+                else if (self.isPointerTypeName(f.type_name))
+                    self.writeFmt("{s}: usize = 0,\n", .{f.name})
+                else if (self.isEnumType(f.type_name))
+                    self.writeFmt("{s}: VerveEnum_{s} = @enumFromInt(0),\n", .{ f.name, f.type_name })
+                else
+                    self.writeFmt("{s}: i64 = 0,\n", .{f.name});
             }
             self.indent -= 1;
             self.line("};");
@@ -965,6 +978,8 @@ pub const ZigBackend = struct {
             if (i > 0) self.write(", ");
             if (std.mem.eql(u8, param.name, "args")) {
                 self.write("@intCast(@intFromPtr(&verve_args_list))");
+            } else if (param.type_ == .ptr or param.type_ == .void) {
+                self.write("rt.process.process_table[rt.process.pidx(pid)].state_ptr");
             } else {
                 self.write("0");
             }

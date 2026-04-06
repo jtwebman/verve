@@ -269,6 +269,11 @@ pub const StateFieldInfo = struct {
 pub const StructFieldInfo = struct {
     name: []const u8,
     type_name: []const u8, // "int", "float", "string", "bool", or struct name
+    has_default: bool = false,
+    default_int: i64 = 0,
+    default_float: f64 = 0.0,
+    default_bool: bool = false,
+    default_string: []const u8 = "",
 };
 
 pub const StructInfo = struct {

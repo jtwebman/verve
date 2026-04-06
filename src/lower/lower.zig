@@ -138,7 +138,32 @@ pub const Lower = struct {
                     var fields = std.ArrayListUnmanaged(ir.StructFieldInfo){};
                     for (s.fields) |f| {
                         const type_name = generics.typeExprName(self, f.type_expr);
-                        try fields.append(self.alloc, .{ .name = f.name, .type_name = type_name });
+                        var field_info = ir.StructFieldInfo{
+                            .name = f.name,
+                            .type_name = type_name,
+                        };
+                        if (f.default_value) |default_value| {
+                            switch (default_value) {
+                                .int_literal => |v| {
+                                    field_info.has_default = true;
+                                    field_info.default_int = v;
+                                },
+                                .float_literal => |v| {
+                                    field_info.has_default = true;
+                                    field_info.default_float = v;
+                                },
+                                .bool_literal => |v| {
+                                    field_info.has_default = true;
+                                    field_info.default_bool = v;
+                                },
+                                .string_literal => |v| {
+                                    field_info.has_default = true;
+                                    field_info.default_string = v;
+                                },
+                                else => {},
+                            }
+                        }
+                        try fields.append(self.alloc, field_info);
                     }
                     try self.program.struct_decls.append(self.alloc, .{
                         .name = s.name,

@@ -79,7 +79,7 @@ The compiler should reject bad code, accept valid code, and avoid surprising use
 
 ### Generated code correctness
 - [x] Fix type mismatches in generated test-runner dispatch
-- [ ] Audit generated dispatch and process wrapper signatures for consistency
+- [x] Audit generated dispatch and process wrapper signatures for consistency
 - [x] Add focused tests for process entry-point and handler codegen
 
 ## Priority 3 — Prove The Narrow Backend Thesis

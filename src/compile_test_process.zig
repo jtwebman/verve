@@ -107,6 +107,23 @@ test "compile: process state mutation and read" {
     try testing.expectEqualStrings("5\n", r.stdout);
 }
 
+test "compile: process main receives state and args together" {
+    const r = try compileAndCapture(
+        \\struct AppState {
+        \\    count: int = 7;
+        \\}
+        \\process App<AppState> {
+        \\    receive main(state: AppState, args: list<string>) -> int {
+        \\        Stdio.println(state.count);
+        \\        Stdio.println(args.len > 0);
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("7\nfalse\n", r.stdout);
+}
+
 test "compile: spawn and send" {
     const r = try compileAndCapture(
         \\struct CounterState { count: int = 0; }
