@@ -73,6 +73,7 @@ pub fn build(b: *std.Build) void {
         "src/compile_test_type.zig",
         "src/compile_test_file.zig",
         "src/compile_test_string.zig",
+        "src/compile_test_runner.zig",
         "src/compile_test_process.zig",
         "src/compile_test_scheduler.zig",
         "src/compile_test_env.zig",
