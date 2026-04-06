@@ -883,6 +883,8 @@ pub const ZigBackend = struct {
             self.line("return 0.0;");
         } else if (func.return_type == .bool) {
             self.line("return false;");
+        } else if (func.return_type == .string) {
+            self.line("return \"\";");
         } else {
             self.line("return 0;");
         }
@@ -1095,6 +1097,12 @@ pub const ZigBackend = struct {
                 } else {
                     if (fn_return_type == .void) {
                         self.line("return;");
+                    } else if (fn_return_type == .f64) {
+                        self.line("return 0.0;");
+                    } else if (fn_return_type == .bool) {
+                        self.line("return false;");
+                    } else if (fn_return_type == .string) {
+                        self.line("return \"\";");
                     } else {
                         self.line("return 0;");
                     }
