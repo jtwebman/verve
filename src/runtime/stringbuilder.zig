@@ -8,16 +8,17 @@ const StringBuilder = struct {
 
     fn init(cap: usize) StringBuilder {
         const actual_cap = if (cap == 0) 256 else cap;
-        const raw = rt.arena_alloc(actual_cap) orelse return .{ .buffer = undefined, .len = 0, .cap = 0 };
+        const raw = rt.arena_alloc(actual_cap) orelse rt.runtimeFail("Verve runtime error: out of memory allocating string builder buffer");
         return .{ .buffer = @ptrCast(@alignCast(raw)), .len = 0, .cap = actual_cap };
     }
 
     fn ensureCapacity(self: *StringBuilder, additional: usize) void {
+        if (self.cap == 0) rt.runtimeFail("Verve runtime error: string builder used before initialization");
         const needed = self.len + additional;
         if (needed <= self.cap) return;
         var new_cap = self.cap;
         while (new_cap < needed) new_cap *= 2;
-        const raw = rt.arena_alloc(new_cap) orelse return;
+        const raw = rt.arena_alloc(new_cap) orelse rt.runtimeFail("Verve runtime error: out of memory growing string builder");
         const new_buf: [*]u8 = @ptrCast(@alignCast(raw));
         if (self.len > 0) @memcpy(new_buf[0..self.len], self.buffer[0..self.len]);
         self.buffer = new_buf;
@@ -26,9 +27,9 @@ const StringBuilder = struct {
 
     fn appendBytes(self: *StringBuilder, data: []const u8) void {
         if (data.len == 0) return;
-        if (self.cap == 0) return;
+        if (self.cap == 0) rt.runtimeFail("Verve runtime error: string builder used before initialization");
         self.ensureCapacity(data.len);
-        if (self.len + data.len > self.cap) return;
+        if (self.len + data.len > self.cap) rt.runtimeFail("Verve runtime error: string builder append failed");
         @memcpy(self.buffer[self.len .. self.len + data.len], data);
         self.len += data.len;
     }
@@ -46,7 +47,7 @@ fn sbFromI64(val: i64) ?*StringBuilder {
 }
 
 pub fn verve_sb_new(cap: i64) usize {
-    const raw = rt.arena_alloc(@sizeOf(StringBuilder)) orelse return 0;
+    const raw = rt.arena_alloc(@sizeOf(StringBuilder)) orelse rt.runtimeFail("Verve runtime error: out of memory allocating string builder");
     const sb: *StringBuilder = @ptrCast(@alignCast(raw));
     const actual_cap: usize = if (cap <= 0) 0 else @intCast(cap);
     sb.* = StringBuilder.init(actual_cap);
@@ -54,37 +55,53 @@ pub fn verve_sb_new(cap: i64) usize {
 }
 
 pub fn verve_sb_append(sb_val: i64, data: []const u8) void {
-    const sb = sbFromI64(sb_val) orelse return;
+    const sb = sbFromI64(sb_val) orelse rt.runtimeFail("Verve runtime error: invalid string builder handle");
     sb.appendBytes(data);
 }
 
 pub fn verve_sb_append_int(sb_val: i64, val: i64) void {
-    const sb = sbFromI64(sb_val) orelse return;
+    const sb = sbFromI64(sb_val) orelse rt.runtimeFail("Verve runtime error: invalid string builder handle");
     var buf: [32]u8 = undefined;
-    const s = std.fmt.bufPrint(&buf, "{d}", .{val}) catch return;
+    const s = std.fmt.bufPrint(&buf, "{d}", .{val}) catch rt.runtimeFail("Verve runtime error: failed formatting int into string builder");
     sb.appendBytes(s);
 }
 
 pub fn verve_sb_append_float(sb_val: i64, val: f64) void {
-    const sb = sbFromI64(sb_val) orelse return;
+    const sb = sbFromI64(sb_val) orelse rt.runtimeFail("Verve runtime error: invalid string builder handle");
     var buf: [64]u8 = undefined;
-    const s = std.fmt.bufPrint(&buf, "{d}", .{val}) catch return;
+    const s = std.fmt.bufPrint(&buf, "{d}", .{val}) catch rt.runtimeFail("Verve runtime error: failed formatting float into string builder");
     sb.appendBytes(s);
 }
 
 pub fn verve_sb_to_string(sb_val: i64) []const u8 {
-    const sb_ptr = sbFromI64(sb_val) orelse return "";
+    const sb_ptr = sbFromI64(sb_val) orelse rt.runtimeFail("Verve runtime error: invalid string builder handle");
     const sb: *const StringBuilder = sb_ptr;
     return sb.toSlice();
 }
 
 pub fn verve_sb_len(sb_val: i64) i64 {
-    const sb_ptr = sbFromI64(sb_val) orelse return 0;
+    const sb_ptr = sbFromI64(sb_val) orelse rt.runtimeFail("Verve runtime error: invalid string builder handle");
     const sb: *const StringBuilder = sb_ptr;
     return @intCast(sb.len);
 }
 
 pub fn verve_sb_clear(sb_val: i64) void {
-    const sb = sbFromI64(sb_val) orelse return;
+    const sb = sbFromI64(sb_val) orelse rt.runtimeFail("Verve runtime error: invalid string builder handle");
     sb.len = 0;
+}
+
+test "string builder appends and grows" {
+    const sb_val = verve_sb_new(4);
+    verve_sb_append(@intCast(sb_val), "ab");
+    verve_sb_append(@intCast(sb_val), "cdef");
+    try std.testing.expectEqualStrings("abcdef", verve_sb_to_string(@intCast(sb_val)));
+    try std.testing.expectEqual(@as(i64, 6), verve_sb_len(@intCast(sb_val)));
+}
+
+test "string builder clear resets length" {
+    const sb_val = verve_sb_new(0);
+    verve_sb_append(@intCast(sb_val), "hello");
+    verve_sb_clear(@intCast(sb_val));
+    try std.testing.expectEqual(@as(i64, 0), verve_sb_len(@intCast(sb_val)));
+    try std.testing.expectEqualStrings("", verve_sb_to_string(@intCast(sb_val)));
 }
