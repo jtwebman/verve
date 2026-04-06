@@ -1,86 +1,73 @@
 # Verve Roadmap
 
-## Current Focus: Prove the Backend Story
+## The Narrow Goal
 
-Before expanding to desktop/mobile/ecosystem, prove one thing: **AI writes more correct backend services in Verve with fewer tokens and fewer errors than in Go, TypeScript, Java, or Python.**
+Verve does not need to prove that it is a better language for everything.
 
-### Step 1 — Harden the Runtime
-- Finish concurrency correctness (multi-threaded scheduler, proper process lifecycle)
-- Verifier validates the process model (supervision, mailbox overflow, dead process handling)
-- Database driver (SQLite or PostgreSQL)
-- HTTP client (for API-to-API calls)
+It needs to prove one narrower claim first:
 
-### Step 2 — Build 3 Serious Example Apps
-Real apps, not toys. Each has a test suite.
-1. HTTP API with JSON, auth, validation
-2. Job queue with retries, dead-letter, supervision
-3. TCP chat server with per-client processes
+**For some backend and concurrency-heavy tasks, AI can get to correct, auditable code in Verve with fewer mistakes and fewer repair loops than in Go, TypeScript, or Python.**
 
-### Step 3 — The 20-App Benchmark
-Build each app from a spec in Verve, TypeScript, Go, Java, and Python. Compare:
-- **Tokens used** by AI to complete the app
-- **Errors/retries** needed to pass the test suite
-- **Lines of code** from spec to working API
-- **Test suite pass rate** on first attempt
-- **Performance** (req/s, latency)
+If that claim is not true, the rest of the roadmap does not matter.
 
-#### Benchmark Mix (20 apps)
+## Immediate Roadmap
 
-**Familiar (4)** — prove Verve isn't worse at the basics:
-1. CRUD API with database
-2. CRUD + auth + input validation
-3. Admin API with file upload
-4. Multi-tenant config service
+### Phase 1 — Make The Current Story Honest
 
-**Workflow / Concurrency (8)** — where Verve's process model should shine:
-5. Job queue with retries
-6. Dead-letter queue processor
-7. Rate-limited email sender
-8. Multi-step order workflow (saga pattern)
-9. Payment authorization + compensation flow
-10. Webhook ingestion pipeline
-11. Cron-like scheduler process
-12. Leader/worker task dispatcher
+- Fix broken or misleading CLI behavior
+- Make first-party examples compile and run cleanly
+- Bring docs in line with reality
+- Remove or soften claims that are not yet defensible
 
-**Network / Stateful (4)** — TCP, sessions, real-time:
-13. TCP chat server with per-client process
-14. Chat session state manager
-15. HTTP worker pool with bounded mailbox
-16. Request fan-out / result aggregation
+### Phase 2 — Make The Runtime Trustworthy Enough To Evaluate
 
-**Reliability (4)** — where "always stays up" matters:
-17. Supervisor tree with worker restart
-18. Outbox pattern (DB + background sender)
-19. API poller with timeout/retry/backoff
-20. AI agent task orchestrator with tool-call stages
+- Harden runtime boundaries and failure behavior
+- Reduce panic-based behavior in ordinary runtime paths
+- Add stronger ReleaseSafe and regression coverage
+- Fix checker/codegen bugs that break realistic examples
 
-#### Benchmark Theme: "20 Ways Concurrency and Failure Make Normal Backend Code Ugly"
+### Phase 3 — Prove The Backend Thesis With 3 Serious Apps
 
-Every app stresses the same claims:
-- **Explicit state ownership** — process state vs shared mutable state
-- **Process isolation** — one crash doesn't take down the system
-- **Timeout/retry behavior** — built into the language, not bolted on
-- **Supervision** — automatic restart, not manual error handling
-- **Typed messages** — send/tell with Result, not unchecked async
-- **AI generation quality** — fewer retries to pass the test suite
+Build three real examples from written specs and test suites:
 
-Each app has:
-- A written spec (what it does, API endpoints, expected behavior)
-- A test suite (30-50 tests covering happy path, errors, edge cases)
-- Built in Verve, TypeScript, and Go from the same spec by the same AI
-- Measured on:
-  - **Lines of code** from spec to working app
-  - **Number of async/concurrency concepts** the developer must juggle
-  - **AI repair loops** to get to green (retries, errors, fixes)
-  - **Timeout/retry/restart bugs** in the final code
-  - **Performance** (req/s, latency under load)
+1. HTTP JSON API with validation and env config
+2. Job queue with retries and dead-letter behavior
+3. TCP/stateful service with explicit ownership per connection
 
-### After the Benchmark
-If Verve wins (fewer tokens, fewer errors, comparable performance):
-- Publish results
-- LSP for editor support
-- Package manager
-- Website + docs
-- Community building
+For each comparison language, measure:
 
-If Verve doesn't win, fix what's losing and re-run.
+- AI repair loops to green
+- Test pass rate
+- Code size
+- Complexity of failure handling
+- Performance
+
+## What Comes After That
+
+Only after the narrow claim is proven:
+
+- Expand the benchmark set
+- Improve editor tooling
+- Add packaging/docs infrastructure
+- Broaden the stdlib carefully
+- Revisit bigger ambitions like WASM, clustering, or broader adoption
+
+## Success Criteria
+
+This phase is a success if Verve can honestly show:
+
+- a smaller correctness gap from spec to working backend code
+- cleaner failure/concurrency structure
+- competitive-enough performance for the target class of services
+
+This phase is not a success if the result is only:
+
+- "interesting language design"
+- "promising benchmark anecdotes"
+- "works after lots of manual cleanup"
+
+## Current Position
+
+Verve is already beyond the concept stage, but still before the proof stage.
+
+The right move now is not to widen scope. The right move is to tighten the core and force the project to earn its thesis.

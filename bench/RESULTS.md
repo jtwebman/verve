@@ -1,5 +1,9 @@
 # Benchmark Results
 
+These results are useful signal, but they should be treated as exploratory rather than definitive.
+
+They cover a narrow HTTP microbenchmark on one machine. They do not, by themselves, prove that Verve is broadly faster, more correct, or better for backend work.
+
 Most recent results at top. Machine: 4-core x86-64, Linux (WSL2). Results vary ±15% between runs.
 
 ---

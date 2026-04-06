@@ -2,6 +2,8 @@
 
 Syntax highlighting for `.vv` files.
 
+Current scope: syntax highlighting only. This is not an LSP or full editor integration yet.
+
 ## Install (local)
 
 1. Copy or symlink this folder to your VS Code extensions directory:

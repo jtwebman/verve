@@ -1,104 +1,82 @@
 # Verve Language Design
 
-A process-oriented compiled language designed for AI to write and humans to audit.
+A process-oriented compiled language designed to make some classes of backend code more explicit and more auditable.
+
+## Status Note
+
+This document describes the intended design direction of Verve.
+
+It is not a guarantee that every claim here is fully realized in the current compiler/runtime. When the implementation and the design document disagree, the implementation wins and the backlog should be updated.
 
 ## Philosophy
 
-- **AI writes it, humans verify it** — the language is optimized for machine authorship and human auditability. Explicit types, no exceptions, no hidden behavior.
-- **One way to do things** — no style debates, every problem has one idiomatic solution
-- **Verbose is fine** — explicitness helps verification, AI doesn't care about boilerplate
-- **Docs are code** — `@example` annotations are tests, doc comments are required on exports
-- **Processes are the unit of concurrency** — no shared mutable state, message passing only
+- **AI writes it, humans verify it**: optimize for explicit code that is easier to inspect
+- **One clear way to do things**: reduce stylistic and semantic ambiguity
+- **Explicitness over cleverness**: boilerplate is acceptable if it improves correctness
+- **Processes are the concurrency unit**: avoid shared mutable state as the default model
+- **Prove a narrow win before broadening**: target backend/concurrency workloads first
 
-## Syntax
+## Why This Project Exists
 
-C/JavaScript style. Curly braces, semicolons. Chosen because AI training data contains more of this syntax than any other.
+Most language projects fail because they try to replace everything at once.
+
+Verve is trying to do less:
+
+- constrain the language enough that AI-generated code is less likely to go wrong
+- make concurrency/state ownership more obvious
+- make human audit easier by removing hidden behavior
+
+If it works, it should work first for backend services where concurrency and failure handling usually create the most mess.
 
 ## Core Design Decisions
 
-### Types are explicit, always
+### Types are explicit
 
-Every variable declaration must have a type annotation. No type inference on declarations.
+Every variable declaration requires a type annotation. The language prefers visible structure over inference-heavy convenience.
 
-```verve
-x: int = 42;
-name: string = "alice";
-items: list<int> = list();
-```
+### Errors are values
 
-### Errors are values, not exceptions
-
-Functions return `Result<T>` for fallible operations. No try/catch, no throw. Match forces exhaustive handling.
-
-```verve
-match File.open("config.json", "r") {
-    :ok{stream} => { ... }
-    :error{reason} => { ... }
-}
-```
+Verve does not use exceptions. Fallible work should return values that the program handles explicitly.
 
 ### Processes own state
 
-State lives inside processes, accessed via explicit struct parameters. No global mutable state. Processes communicate via `send` (synchronous, returns Result) and `tell` (fire-and-forget).
+The design bias is toward isolated state plus message passing rather than shared mutable state.
 
-```verve
-struct CounterState {
-    count: int = 0;
-}
+### Arithmetic should fail visibly
 
-process Counter<CounterState> {
-    receive Increment(state: CounterState) -> int {
-        state.count = state.count + 1;
-        return state.count;
-    }
-}
-```
-
-### Arithmetic is overflow-safe
-
-Integer overflow produces `:overflow` poison values that propagate through all operations. Division by zero produces `:div_zero`. No silent wrapping.
+Overflow and other invalid numeric operations should not silently become unrelated values.
 
 ### No recursion
 
-The compiler rejects call graph cycles. Use while loops with explicit stacks. This makes call depth predictable and stack overflow impossible.
+Verve rejects call graph cycles. This keeps control flow simpler and prevents stack growth surprises.
 
 ### No implicit null
 
-Optional types (`T?`) are explicit. `none` is a value keyword, not a type. A non-optional value is never absent.
-
-### Strings are fat pointers
-
-Strings carry both pointer and length. No null-terminated C strings. String concatenation with `+` works natively.
+Absence is explicit through optional types.
 
 ### Per-process memory
 
-Each process has its own arena allocator. When a process exits, its entire arena is freed in one operation. No garbage collector needed for short-lived processes.
+The runtime design centers around process-local allocation and cleanup.
 
-## Compilation
+## Intended Compilation Model
 
-Verve source → AST → typed IR (SSA) → Zig source → native binary.
+Verve source -> AST -> typed IR -> Zig source -> native binary
 
-The compiler generates Zig code that links against `verve_runtime.zig` — a real Zig source file containing the process scheduler, mailbox, TCP/HTTP/JSON runtime, and arena allocator. The Zig compiler handles optimization and native code generation.
+That is a pragmatic implementation strategy, not part of the user-facing language identity.
 
 ## Process Model
 
-Based on Erlang/BEAM but simpler:
+The process model is inspired by Erlang/BEAM ideas, but the project is not trying to recreate BEAM wholesale.
 
-- **Spawn**: `handler: pid<ConnectionHandler> = spawn ConnectionHandler();` — creates a lightweight process
-- **Send**: `match counter.Increment() { :ok{v} => ... }` — synchronous, returns Result
-- **Tell**: `tell handler.Handle(fd, n);` — fire-and-forget, process executes asynchronously
-- **Exit**: `Process.exit();` — handler self-terminates, slot recycled
-- **Watch**: `watch worker;` — get `ProcessDied` notification when watched process dies
-- **Bounded mailbox**: ring buffer with backpressure. `send` returns `:error` when full, `tell` drops silently
+What matters in the near term:
 
-## What Verve Does NOT Have
+- typed process identifiers
+- explicit send/tell APIs
+- bounded mailboxes
+- predictable process ownership and cleanup
 
-- No exceptions (use Result and poison values)
-- No implicit null (use optional T?)
-- No recursion (use while loops)
-- No inheritance (use structs and modules)
-- No operator overloading
-- No macros
-- No implicit type conversions
-- No global mutable state
-- No garbage collector (per-process arenas)
+## What This Document Should Not Be Used For
+
+This document should not be treated as a marketing checklist.
+
+It exists to explain the intended shape of the language. Public claims about reliability, trust, or production readiness should only be made when the implementation and tests support them.

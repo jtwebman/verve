@@ -1,6 +1,12 @@
 # Verve Language Reference
 
-Verve is a process-oriented compiled language with no exceptions, no recursion, and no implicit nulls. Compiles to native binaries via Zig backend. Designed for building reliable concurrent systems.
+Verve is a process-oriented compiled language with no exceptions, no recursion, and no implicit nulls. It compiles to native binaries via a Zig backend.
+
+## Status Note
+
+This file is a reference for the language as currently intended and mostly implemented.
+
+It is not a promise that every listed feature or behavioral claim is bug-free today. Verve is still experimental, and the immediate project goal is to make this reference match the implementation more closely.
 
 ## Types
 
@@ -197,7 +203,7 @@ watch counter;               // get ProcessDied notification
 
 ### Environment variables
 ```
-// Typed env var access — parsed once at startup, cached in globals
+// Typed env var access — parsed and validated during program startup
 port: int = Process.env_int("PORT", 8080);          // default 8080
 host: string = Process.env_string("HOST", "localhost");
 debug: bool = Process.env_bool("DEBUG", false);      // true/t/1, false/f/0
@@ -206,9 +212,8 @@ rate: float = Process.env_float("RATE", 1.5);
 // Required (no default) — crashes at startup if not set
 db_url: string = Process.env_string("DATABASE_URL");
 
-// All env vars validated at startup before main runs.
-// Invalid values crash with clear error: "PORT (int): expected integer, got 'abc'"
-// Multiple errors reported at once, not one at a time.
+// Invalid values stop startup with a clear error.
+// The implementation is moving toward stronger startup validation discipline.
 ```
 
 ### Imports

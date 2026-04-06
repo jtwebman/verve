@@ -1,6 +1,8 @@
 # Verve HTTP Benchmark
 
-Compares a minimal HTTP server across Verve, Node.js, and Go.
+This benchmark is an early performance probe, not proof of the full Verve thesis.
+
+It compares a minimal HTTP server across Verve, Node.js, and Go.
 
 Each server implements the same three endpoints:
 - `GET /` — returns `Hello from {language}!` (text/plain)
@@ -22,6 +24,8 @@ Each server implements the same three endpoints:
 ```
 
 This starts each server, runs `hey` against all three endpoints, kills the server, and prints results.
+
+Use it to spot rough performance direction, not to make broad production or language-quality claims on its own.
 
 ## Servers
 
