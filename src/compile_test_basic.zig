@@ -4,6 +4,7 @@ const Lower = @import("lower/lower.zig").Lower;
 const ZigBackend = @import("zig_backend.zig").ZigBackend;
 const testing = std.testing;
 const alloc = std.heap.page_allocator;
+var temp_counter: std.atomic.Value(u64) = .init(0);
 
 fn getZigPath() []const u8 {
     return std.posix.getenv("VERVE_ZIG") orelse "/home/jt/.local/zig/zig";
@@ -11,6 +12,11 @@ fn getZigPath() []const u8 {
 
 fn getOptimizeMode() []const u8 {
     return std.posix.getenv("VERVE_OPTIMIZE") orelse "-OReleaseFast";
+}
+
+fn uniquePath(prefix: []const u8) ![]const u8 {
+    const id = temp_counter.fetchAdd(1, .monotonic);
+    return std.fmt.allocPrint(alloc, "/tmp/{s}_{d}_{d}", .{ prefix, std.time.nanoTimestamp(), id });
 }
 
 /// Compile Verve source to native binary, run it, return exit code.
@@ -22,8 +28,10 @@ fn compileAndRun(source: []const u8) !u8 {
     var backend = ZigBackend.init(alloc);
     backend.emit(program);
     backend.optimize_mode = getOptimizeMode();
-    const path = "/tmp/verve_ct_basic";
+    const path = try uniquePath("verve_ct_basic");
+    defer alloc.free(path);
     try backend.build(path, getZigPath());
+    defer std.fs.cwd().deleteFile(path) catch {};
     var child = std.process.Child.init(&.{path}, alloc);
     const term = try child.spawnAndWait();
     return switch (term) {
@@ -41,8 +49,10 @@ fn compileAndCapture(source: []const u8) !struct { exit: u8, stdout: []const u8 
     var backend = ZigBackend.init(alloc);
     backend.emit(program);
     backend.optimize_mode = getOptimizeMode();
-    const path = "/tmp/verve_ct_basic_cap";
+    const path = try uniquePath("verve_ct_basic_cap");
+    defer alloc.free(path);
     try backend.build(path, getZigPath());
+    defer std.fs.cwd().deleteFile(path) catch {};
     var child = std.process.Child.init(&.{path}, alloc);
     child.stdout_behavior = .Pipe;
     try child.spawn();
@@ -321,8 +331,8 @@ test "compile: list get negative index returns poison" {
     try testing.expectEqualStrings("poison\n", r.stdout);
 }
 
-test "compile: list append past capacity is safe" {
-    try testing.expectEqual(@as(u8, 0), try compileAndRun(
+test "compile: list append past capacity fails fast" {
+    try testing.expectEqual(@as(u8, 1), try compileAndRun(
         \\process App {
         \\    receive main(args: list<string>) -> int {
         \\        l: list<int> = list();
@@ -331,7 +341,6 @@ test "compile: list append past capacity is safe" {
         \\            append l { i; }
         \\            i = i + 1;
         \\        }
-        \\        if l.len > 256 { return 1; }
         \\        return 0;
         \\    }
         \\}

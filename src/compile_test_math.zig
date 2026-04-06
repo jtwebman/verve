@@ -4,6 +4,7 @@ const Lower = @import("lower/lower.zig").Lower;
 const ZigBackend = @import("zig_backend.zig").ZigBackend;
 const testing = std.testing;
 const alloc = std.heap.page_allocator;
+var temp_counter: std.atomic.Value(u64) = .init(0);
 
 fn getZigPath() []const u8 {
     return std.posix.getenv("VERVE_ZIG") orelse "/home/jt/.local/zig/zig";
@@ -11,6 +12,11 @@ fn getZigPath() []const u8 {
 
 fn getOptimizeMode() []const u8 {
     return std.posix.getenv("VERVE_OPTIMIZE") orelse "-OReleaseFast";
+}
+
+fn uniquePath(prefix: []const u8) ![]const u8 {
+    const id = temp_counter.fetchAdd(1, .monotonic);
+    return std.fmt.allocPrint(alloc, "/tmp/{s}_{d}_{d}", .{ prefix, std.time.nanoTimestamp(), id });
 }
 
 /// Compile Verve source to native binary, run it, return exit code.
@@ -22,7 +28,8 @@ fn compileAndRun(source: []const u8) !u8 {
     var backend = ZigBackend.init(alloc);
     backend.emit(program);
     backend.optimize_mode = getOptimizeMode();
-    const path = "/tmp/verve_ct_math";
+    const path = try uniquePath("verve_ct_math");
+    defer alloc.free(path);
     try backend.build(path, getZigPath());
     defer std.fs.cwd().deleteFile(path) catch {};
     var child = std.process.Child.init(&.{path}, alloc);
@@ -42,7 +49,8 @@ fn compileAndCapture(source: []const u8) !struct { exit: u8, stdout: []const u8 
     var backend = ZigBackend.init(alloc);
     backend.emit(program);
     backend.optimize_mode = getOptimizeMode();
-    const path = "/tmp/verve_ct_math_cap";
+    const path = try uniquePath("verve_ct_math_cap");
+    defer alloc.free(path);
     try backend.build(path, getZigPath());
     defer std.fs.cwd().deleteFile(path) catch {};
     var child = std.process.Child.init(&.{path}, alloc);
