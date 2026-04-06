@@ -49,7 +49,7 @@ These are the tasks required before "humans can trust it" is a fair claim.
 
 ### Collection/runtime correctness
 - [x] Replace silent `List.append` capacity failure with growth or explicit failure semantics
-- [ ] Audit similar silent-failure behavior in other runtime data structures
+- [x] Audit similar silent-failure behavior in other runtime data structures
 - [x] Add tests for collection boundary behavior under load
 
 ### Mailbox/process hardening

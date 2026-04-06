@@ -475,6 +475,22 @@ test "compile: json build with special chars in string" {
     try testing.expectEqualStrings("{\"msg\":\"hello world!\"}\n", r.stdout);
 }
 
+test "compile: json build grows beyond initial capacity" {
+    const r = try compileAndCapture(
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
+        \\        b: int = Json.build_object();
+        \\        Json.build_add_string(b, "msg", "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx");
+        \\        result: string = Json.build_end(b);
+        \\        Stdio.println(String.len(result));
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("310\n", r.stdout);
+}
+
 test "compile: json array length" {
     const r = try compileAndCapture(
         \\process App {

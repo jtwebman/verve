@@ -29,7 +29,7 @@ pub fn string_replace(str: []const u8, old: []const u8, new: []const u8) []const
     }
     if (count == 0) return str;
     const result_len = str.len - (count * old.len) + (count * new.len);
-    const buf = rt.arena_alloc(result_len) orelse return str;
+    const buf = rt.arena_alloc(result_len) orelse rt.runtimeFail("Verve runtime error: out of memory replacing string contents");
     var out: usize = 0;
     pos = 0;
     while (std.mem.indexOfPos(u8, str, pos, old)) |idx| {
@@ -57,7 +57,7 @@ pub fn string_char_len(str: []const u8) i64 {
 
 /// Return list of single-character strings stored as (ptr+len) pairs in a List.
 pub fn string_chars(str: []const u8) i64 {
-    const list_mem = rt.arena_alloc(@sizeOf(rt.List)) orelse return 0;
+    const list_mem = rt.arena_alloc(@sizeOf(rt.List)) orelse rt.runtimeFail("Verve runtime error: out of memory allocating string chars list");
     const list = @as(*rt.List, @ptrCast(@alignCast(list_mem)));
     list.* = rt.List.init();
     for (0..str.len) |i| {
@@ -69,7 +69,7 @@ pub fn string_chars(str: []const u8) i64 {
 
 /// Split a string by delimiter. Returns pointer to a List of (ptr, len) pairs.
 pub fn string_split(str: []const u8, delim: []const u8) i64 {
-    const list_mem = rt.arena_alloc(@sizeOf(rt.List)) orelse return 0;
+    const list_mem = rt.arena_alloc(@sizeOf(rt.List)) orelse rt.runtimeFail("Verve runtime error: out of memory allocating string split list");
     const list = @as(*rt.List, @ptrCast(@alignCast(list_mem)));
     list.* = rt.List.init();
     if (delim.len == 0) {
@@ -101,9 +101,23 @@ pub fn strEql(a: []const u8, b: []const u8) bool {
 /// Concatenate two strings. Returns new []const u8.
 pub fn verve_string_concat(a: []const u8, b: []const u8) []const u8 {
     const total = a.len + b.len;
-    const buf_ptr = rt.arena_alloc(total) orelse return "";
+    const buf_ptr = rt.arena_alloc(total) orelse rt.runtimeFail("Verve runtime error: out of memory concatenating strings");
     const buf = @as([*]u8, buf_ptr)[0..total];
     @memcpy(buf[0..a.len], a);
     @memcpy(buf[a.len..total], b);
     return buf;
+}
+
+test "string helpers split replace and concat" {
+    const replaced = string_replace("hello world", "world", "verve");
+    try std.testing.expectEqualStrings("hello verve", replaced);
+
+    const split_ptr = string_split("a,b,c", ",");
+    const list = @as(*rt.List, @ptrFromInt(@as(usize, @intCast(split_ptr))));
+    try std.testing.expectEqual(@as(i64, 6), list.len);
+    try std.testing.expectEqualStrings("a", rt.sliceFromPair(@intCast(list.get(0)), @intCast(list.get(1))));
+    try std.testing.expectEqualStrings("b", rt.sliceFromPair(@intCast(list.get(2)), @intCast(list.get(3))));
+    try std.testing.expectEqualStrings("c", rt.sliceFromPair(@intCast(list.get(4)), @intCast(list.get(5))));
+
+    try std.testing.expectEqualStrings("foobar", verve_string_concat("foo", "bar"));
 }

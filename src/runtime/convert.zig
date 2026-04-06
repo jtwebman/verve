@@ -13,8 +13,8 @@ pub fn convert_to_int_f(x: f64) i64 {
 
 pub fn float_to_string(val: f64) []const u8 {
     var buf: [64]u8 = undefined;
-    const s = std.fmt.bufPrint(&buf, "{d}", .{val}) catch return "";
-    const result_mem = rt.arena_alloc(s.len) orelse return "";
+    const s = std.fmt.bufPrint(&buf, "{d}", .{val}) catch rt.runtimeFail("Verve runtime error: failed formatting float");
+    const result_mem = rt.arena_alloc(s.len) orelse rt.runtimeFail("Verve runtime error: out of memory converting float to string");
     const result = @as([*]u8, result_mem);
     @memcpy(result[0..s.len], s);
     return result[0..s.len];
@@ -26,8 +26,8 @@ pub fn string_to_float(s: []const u8) f64 {
 
 pub fn int_to_string(val: i64) []const u8 {
     var buf: [32]u8 = undefined;
-    const s = std.fmt.bufPrint(&buf, "{d}", .{val}) catch return "";
-    const result_mem = rt.arena_alloc(s.len) orelse return "";
+    const s = std.fmt.bufPrint(&buf, "{d}", .{val}) catch rt.runtimeFail("Verve runtime error: failed formatting int");
+    const result_mem = rt.arena_alloc(s.len) orelse rt.runtimeFail("Verve runtime error: out of memory converting int to string");
     const result = @as([*]u8, result_mem);
     @memcpy(result[0..s.len], s);
     return result[0..s.len];
@@ -49,9 +49,17 @@ pub fn string_to_bool(s: []const u8) bool {
 /// Format a collection summary: "list<int>(3)"
 pub fn collection_to_string(type_label: []const u8, count: i64) []const u8 {
     var buf: [128]u8 = undefined;
-    const s = std.fmt.bufPrint(&buf, "{s}({d})", .{ type_label, count }) catch return type_label;
-    const result_mem = rt.arena_alloc(s.len) orelse return type_label;
+    const s = std.fmt.bufPrint(&buf, "{s}({d})", .{ type_label, count }) catch rt.runtimeFail("Verve runtime error: failed formatting collection");
+    const result_mem = rt.arena_alloc(s.len) orelse rt.runtimeFail("Verve runtime error: out of memory formatting collection");
     const result = @as([*]u8, result_mem);
     @memcpy(result[0..s.len], s);
     return result[0..s.len];
+}
+
+test "convert string helpers format values" {
+    try std.testing.expectEqualStrings("42", int_to_string(42));
+    try std.testing.expectEqualStrings("true", bool_to_string(true));
+    try std.testing.expectEqualStrings("list<int>(3)", collection_to_string("list<int>", 3));
+    try std.testing.expect(string_to_bool("true"));
+    try std.testing.expectEqual(@as(i64, 12), string_to_int("12"));
 }

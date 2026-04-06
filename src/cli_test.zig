@@ -22,13 +22,14 @@ fn buildCliBinary(alloc: std.mem.Allocator) ![]const u8 {
     return bin_path;
 }
 
-fn runCli(alloc: std.mem.Allocator, bin_path: []const u8, args: []const []const u8) !struct { exit: u8, stdout: []const u8, stderr: []const u8 } {
+fn runCli(alloc: std.mem.Allocator, cwd_path: []const u8, bin_path: []const u8, args: []const []const u8) !struct { exit: u8, stdout: []const u8, stderr: []const u8 } {
     const argv = try alloc.alloc([]const u8, args.len + 1);
     defer alloc.free(argv);
     argv[0] = bin_path;
     for (args, 0..) |arg, i| argv[i + 1] = arg;
 
     var child = std.process.Child.init(argv, alloc);
+    child.cwd = cwd_path;
     child.stdout_behavior = .Pipe;
     child.stderr_behavior = .Pipe;
     try child.spawn();
@@ -48,6 +49,8 @@ fn runCli(alloc: std.mem.Allocator, bin_path: []const u8, args: []const []const 
 
 test "cli: check exit codes and json behavior" {
     const alloc = testing.allocator;
+    const repo_root = try std.fs.cwd().realpathAlloc(alloc, ".");
+    defer alloc.free(repo_root);
     const bin_path = try buildCliBinary(alloc);
     defer std.fs.cwd().deleteFile(bin_path) catch {};
 
@@ -79,14 +82,14 @@ test "cli: check exit codes and json behavior" {
         ,
     });
 
-    const invalid = try runCli(alloc, bin_path, &.{ "check", invalid_path });
+    const invalid = try runCli(alloc, repo_root, bin_path, &.{ "check", invalid_path });
     defer alloc.free(invalid.stdout);
     defer alloc.free(invalid.stderr);
     try testing.expectEqual(@as(u8, 1), invalid.exit);
     try testing.expectEqualStrings("", invalid.stdout);
     try testing.expect(std.mem.containsAtLeast(u8, invalid.stderr, 1, "Type errors in"));
 
-    const invalid_json = try runCli(alloc, bin_path, &.{ "check", "--json", invalid_path });
+    const invalid_json = try runCli(alloc, repo_root, bin_path, &.{ "check", "--json", invalid_path });
     defer alloc.free(invalid_json.stdout);
     defer alloc.free(invalid_json.stderr);
     try testing.expectEqual(@as(u8, 1), invalid_json.exit);
@@ -95,14 +98,14 @@ test "cli: check exit codes and json behavior" {
     try testing.expect(std.mem.endsWith(u8, invalid_json.stderr, "]\n") or std.mem.endsWith(u8, invalid_json.stderr, "]"));
     try testing.expect(!std.mem.containsAtLeast(u8, invalid_json.stderr, 1, "Type errors in"));
 
-    const valid_json = try runCli(alloc, bin_path, &.{ "check", "--json", valid_path });
+    const valid_json = try runCli(alloc, repo_root, bin_path, &.{ "check", "--json", valid_path });
     defer alloc.free(valid_json.stdout);
     defer alloc.free(valid_json.stderr);
     try testing.expectEqual(@as(u8, 0), valid_json.exit);
     try testing.expectEqualStrings("", valid_json.stdout);
     try testing.expectEqualStrings("[]\n", valid_json.stderr);
 
-    const invalid_json_post = try runCli(alloc, bin_path, &.{ "check", invalid_path, "--json" });
+    const invalid_json_post = try runCli(alloc, repo_root, bin_path, &.{ "check", invalid_path, "--json" });
     defer alloc.free(invalid_json_post.stdout);
     defer alloc.free(invalid_json_post.stderr);
     try testing.expectEqual(@as(u8, 1), invalid_json_post.exit);
@@ -113,6 +116,8 @@ test "cli: check exit codes and json behavior" {
 
 test "cli: fmt supports --check before and after file" {
     const alloc = testing.allocator;
+    const repo_root = try std.fs.cwd().realpathAlloc(alloc, ".");
+    defer alloc.free(repo_root);
     const bin_path = try buildCliBinary(alloc);
     defer std.fs.cwd().deleteFile(bin_path) catch {};
 
@@ -130,17 +135,17 @@ test "cli: fmt supports --check before and after file" {
         ,
     });
 
-    const fmt_run = try runCli(alloc, bin_path, &.{ "fmt", fmt_path });
+    const fmt_run = try runCli(alloc, repo_root, bin_path, &.{ "fmt", fmt_path });
     defer alloc.free(fmt_run.stdout);
     defer alloc.free(fmt_run.stderr);
     try testing.expectEqual(@as(u8, 0), fmt_run.exit);
 
-    const fmt_check_after = try runCli(alloc, bin_path, &.{ "fmt", fmt_path, "--check" });
+    const fmt_check_after = try runCli(alloc, repo_root, bin_path, &.{ "fmt", fmt_path, "--check" });
     defer alloc.free(fmt_check_after.stdout);
     defer alloc.free(fmt_check_after.stderr);
     try testing.expectEqual(@as(u8, 0), fmt_check_after.exit);
 
-    const fmt_check_before = try runCli(alloc, bin_path, &.{ "fmt", "--check", fmt_path });
+    const fmt_check_before = try runCli(alloc, repo_root, bin_path, &.{ "fmt", "--check", fmt_path });
     defer alloc.free(fmt_check_before.stdout);
     defer alloc.free(fmt_check_before.stderr);
     try testing.expectEqual(@as(u8, 0), fmt_check_before.exit);
@@ -148,16 +153,18 @@ test "cli: fmt supports --check before and after file" {
 
 test "cli: test command succeeds on test file and fails on file with no tests" {
     const alloc = testing.allocator;
+    const repo_root = try std.fs.cwd().realpathAlloc(alloc, ".");
+    defer alloc.free(repo_root);
     const bin_path = try buildCliBinary(alloc);
     defer std.fs.cwd().deleteFile(bin_path) catch {};
 
-    const ok = try runCli(alloc, bin_path, &.{ "test", "examples/tested.vv" });
+    const ok = try runCli(alloc, repo_root, bin_path, &.{ "test", "examples/tested.vv" });
     defer alloc.free(ok.stdout);
     defer alloc.free(ok.stderr);
     try testing.expectEqual(@as(u8, 0), ok.exit);
     try testing.expect(std.mem.containsAtLeast(u8, ok.stdout, 1, "12 passed, 0 failed"));
 
-    const no_tests = try runCli(alloc, bin_path, &.{ "test", "examples/math.vv" });
+    const no_tests = try runCli(alloc, repo_root, bin_path, &.{ "test", "examples/math.vv" });
     defer alloc.free(no_tests.stdout);
     defer alloc.free(no_tests.stderr);
     try testing.expectEqual(@as(u8, 1), no_tests.exit);
