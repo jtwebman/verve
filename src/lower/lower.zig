@@ -1181,8 +1181,13 @@ pub const Lower = struct {
                         }
                         return dest;
                     }
-                    if (std.mem.eql(u8, name, "map") or std.mem.eql(u8, name, "stack") or std.mem.eql(u8, name, "queue") or std.mem.eql(u8, name, "spawn")) {
-                        if (!std.mem.eql(u8, name, "spawn")) {
+                    if (std.mem.eql(u8, name, "stack") or std.mem.eql(u8, name, "queue")) {
+                        func.reg_types.items[dest] = .ptr;
+                        self.appendInst(.{ .list_new = .{ .dest = dest } });
+                        return dest;
+                    }
+                    if (std.mem.eql(u8, name, "map") or std.mem.eql(u8, name, "spawn")) {
+                        if (std.mem.eql(u8, name, "map")) {
                             func.reg_types.items[dest] = .ptr;
                         }
                         self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = name, .args = args } });

@@ -77,6 +77,7 @@ pub fn build(b: *std.Build) void {
         "src/compile_test_env.zig",
         "src/compile_test_math.zig",
         "src/compile_test_json.zig",
+        "src/compile_test_runtime.zig",
         "src/compile_test_examples.zig",
     };
     for (compile_tests) |file| {
