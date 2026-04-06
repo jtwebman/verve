@@ -21,7 +21,8 @@ struct AppState {
 
 process App<AppState> {
 	receive main(state: AppState) -> int {
-		// Spawn and watch a worker
+		// Spawn a worker. Watch registration exists, but user-visible death
+		// notifications are not surfaced yet.
 		worker: pid<Worker> = spawn Worker();
 		watch worker;
 

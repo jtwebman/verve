@@ -198,7 +198,7 @@ match Process.send_timeout(counter.Increment, 3000, 5) {
 // Fire-and-forget — returns Result<void> for mailbox overflow detection
 Process.tell(counter.Increment, 1);
 
-watch counter;               // get ProcessDied notification
+watch counter;               // registers the current process as a watcher
 ```
 
 ### Environment variables

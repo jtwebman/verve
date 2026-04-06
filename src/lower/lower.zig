@@ -612,6 +612,7 @@ pub const Lower = struct {
                                 if (t.bindings.len > 0) {
                                     // Determine if this variant carries a string value
                                     const is_string_variant = blk: {
+                                        const subject_type_name = self.exprTypeName(m.subject);
                                         // Check union declarations
                                         var uiter = self.union_decls.iterator();
                                         while (uiter.next()) |entry| {
@@ -633,6 +634,16 @@ pub const Lower = struct {
                                             if (m.subject == .identifier) {
                                                 if (self.var_types.get(m.subject.identifier)) |vt| {
                                                     if (std.mem.eql(u8, vt, "optional_string")) break :blk true;
+                                                }
+                                            }
+                                        }
+                                        // Built-in Result<T>: :error always carries a string, :ok carries T
+                                        if (subject_type_name) |stn| {
+                                            if (std.mem.startsWith(u8, stn, "Result<") and std.mem.endsWith(u8, stn, ">")) {
+                                                if (std.mem.eql(u8, t.tag, "error")) break :blk true;
+                                                if (std.mem.eql(u8, t.tag, "ok")) {
+                                                    const ok_type = stn["Result<".len .. stn.len - 1];
+                                                    if (std.mem.eql(u8, ok_type, "string")) break :blk true;
                                                 }
                                             }
                                         }
@@ -1448,6 +1459,25 @@ pub const Lower = struct {
                     const fa = c.target.field_access;
                     if (fa.target.* == .identifier) {
                         const mod_name = fa.target.identifier;
+                        if (std.mem.eql(u8, mod_name, "Process")) {
+                            if (std.mem.eql(u8, fa.field, "tell")) break :blk "Result<void>";
+                            if ((std.mem.eql(u8, fa.field, "send") or std.mem.eql(u8, fa.field, "send_timeout")) and c.args.len > 0) {
+                                const handler_ref = c.args[0];
+                                if (handler_ref == .field_access and handler_ref.field_access.target.* == .identifier) {
+                                    if (self.process_vars.get(handler_ref.field_access.target.identifier)) |proc_type| {
+                                        if (self.process_decls.get(proc_type)) |pdecl| {
+                                            for (pdecl.receive_handlers) |h| {
+                                                if (std.mem.eql(u8, h.name, handler_ref.field_access.field)) {
+                                                    const ret_name = generics.typeExprName(self, h.return_type);
+                                                    const result_name = std.fmt.allocPrint(self.alloc, "Result<{s}>", .{ret_name}) catch null;
+                                                    if (result_name) |rn| break :blk rn;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                         const fn_key = std.fmt.allocPrint(self.alloc, "{s}.{s}", .{ mod_name, fa.field }) catch "";
                         if (self.function_return_types.get(fn_key)) |ret_name| {
                             break :blk ret_name;

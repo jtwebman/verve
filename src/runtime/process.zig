@@ -347,6 +347,7 @@ pub fn verve_state_init(ptr: usize) void {
 }
 
 pub fn verve_watch(target_pid: usize) void {
+    if (!pidValid(target_pid)) return;
     const idx = pidx(target_pid);
     const proc = &process_table[idx];
     // Lazy alloc watcher list
@@ -448,6 +449,7 @@ fn drain_one(target_pid: usize) bool {
 /// The generated send dispatch function writes the result to our send_result field.
 /// If the mailbox is full, yields to let the target drain before retrying.
 pub fn verve_send(target_pid: usize, msg_ptr: [*]const u8, msg_len: usize) usize {
+    if (!pidValid(target_pid)) return rt.makeTaggedStr(1, "process_dead");
     const idx = pidx(target_pid);
     const proc = &process_table[idx];
     if (!proc.alive) return rt.makeTaggedStr(1, "process_dead");
@@ -521,6 +523,7 @@ pub fn verve_set_mailbox_size(target_pid: usize, max_messages: usize) void {
 /// Actual wait may exceed the deadline by up to one scheduling quantum.
 pub fn verve_send_timeout(target_pid: usize, msg_ptr: [*]const u8, msg_len: usize, timeout_ms: i64) usize {
     if (timeout_ms <= 0) return verve_send(target_pid, msg_ptr, msg_len);
+    if (!pidValid(target_pid)) return rt.makeTaggedStr(1, "process_dead");
 
     const idx = pidx(target_pid);
     const proc = &process_table[idx];

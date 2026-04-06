@@ -22,18 +22,18 @@ That means:
 These are the highest-leverage tasks because they affect whether users can trust the repo at all.
 
 ### CLI correctness
-- [ ] `verve check` exits non-zero on errors
-- [ ] `verve check --json file.vv` and `verve check file.vv --json` both work
-- [ ] JSON mode emits JSON only, with no human text after it
-- [ ] `verve run`, `build`, `test`, and `fmt` have consistent argument parsing and exit codes
+- [x] `verve check` exits non-zero on errors
+- [x] `verve check --json file.vv` and `verve check file.vv --json` both work
+- [x] JSON mode emits JSON only, with no human text after it
+- [x] `verve run`, `build`, `test`, and `fmt` have consistent argument parsing and exit codes
 
 ### Example correctness
-- [ ] Every example in `examples/` passes the workflow it is meant to demonstrate
-- [ ] README example matches current language syntax and current compiler behavior
+- [x] Every example in `examples/` passes the workflow it is meant to demonstrate
+- [x] README example matches current language syntax and current compiler behavior
 - [ ] Remove or fix any example that needs caveats to compile or run
 
 ### Test workflow correctness
-- [ ] Fix `verve test` on bundled examples
+- [x] Fix `verve test` on bundled examples
 - [ ] Add regression tests for test-runner code generation
 - [ ] Add regression tests for CLI exit-code behavior
 
@@ -42,19 +42,20 @@ These are the highest-leverage tasks because they affect whether users can trust
 These are the tasks required before "humans can trust it" is a fair claim.
 
 ### Memory and boundary hardening
-- [ ] Validate `sliceFromPair` inputs beyond a length cap
-- [ ] Validate tagged string metadata before reconstructing slices
+- [x] Validate `sliceFromPair` inputs beyond a length cap
+- [x] Validate tagged string metadata before reconstructing slices
 - [ ] Stop panicking on ordinary runtime allocation failure where poison/error propagation is possible
 - [ ] Define clear behavior for arena exhaustion
 
 ### Collection/runtime correctness
-- [ ] Replace silent `List.append` capacity failure with growth or explicit failure semantics
+- [x] Replace silent `List.append` capacity failure with growth or explicit failure semantics
 - [ ] Audit similar silent-failure behavior in other runtime data structures
-- [ ] Add tests for collection boundary behavior under load
+- [x] Add tests for collection boundary behavior under load
 
 ### Mailbox/process hardening
 - [ ] Review mailbox corruption handling and length-prefix validation
 - [ ] Add more tests around mailbox full, process death, and cross-thread wake behavior
+- [ ] Define and implement user-visible watcher/death notification semantics for `watch`
 - [ ] Audit process lifecycle cleanup paths for stale state reuse
 
 ### Validation discipline
@@ -67,9 +68,9 @@ These are the tasks required before "humans can trust it" is a fair claim.
 The compiler should reject bad code, accept valid code, and avoid surprising users.
 
 ### Control-flow analysis
-- [ ] Fix false positives around `while true` loops with reachable `break` paths
+- [x] Fix false positives around `while true` loops with reachable `break` paths
 - [ ] Improve return-path analysis for realistic handler patterns
-- [ ] Add regression tests for accepted first-party examples
+- [x] Add regression tests for accepted first-party examples
 
 ### Diagnostics
 - [ ] Improve top error messages that currently read as internal/compiler-centric
@@ -77,9 +78,9 @@ The compiler should reject bad code, accept valid code, and avoid surprising use
 - [ ] Separate "hard error" from "warning-like heuristic" where appropriate
 
 ### Generated code correctness
-- [ ] Fix type mismatches in generated test-runner dispatch
+- [x] Fix type mismatches in generated test-runner dispatch
 - [ ] Audit generated dispatch and process wrapper signatures for consistency
-- [ ] Add focused tests for process entry-point and handler codegen
+- [x] Add focused tests for process entry-point and handler codegen
 
 ## Priority 3 — Prove The Narrow Backend Thesis
 

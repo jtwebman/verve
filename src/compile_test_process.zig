@@ -710,3 +710,57 @@ test "compile: match tell returns Result" {
     try testing.expectEqual(@as(u8, 0), r.exit);
     try testing.expectEqualStrings("sent\n1\n", r.stdout);
 }
+
+test "compile: tell returns mailbox_full when mailbox size is zero" {
+    const r = try compileAndCapture(
+        \\struct BusyState { started: bool = false; }
+        \\process Busy<BusyState> [mailbox: 0] {
+        \\    receive Ping(state: BusyState) -> void {
+        \\    }
+        \\}
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
+        \\        b: pid<Busy> = spawn Busy();
+        \\        match Process.tell(b.Ping) {
+        \\            :ok{v} => Stdio.println("unexpected");
+        \\            :error{e} => Stdio.println(e);
+        \\        }
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("mailbox_full\n", r.stdout);
+}
+
+test "compile: process exit surfaces process_dead on subsequent send and tell" {
+    const r = try compileAndCapture(
+        \\struct WorkerState { started: bool = false; }
+        \\process Worker<WorkerState> {
+        \\    receive Stop(state: WorkerState) -> int {
+        \\        Process.exit();
+        \\        return 0;
+        \\    }
+        \\}
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
+        \\        w: pid<Worker> = spawn Worker();
+        \\        match Process.send(w.Stop) {
+        \\            :ok{v} => Stdio.println(v);
+        \\            :error{e} => Stdio.println(e);
+        \\        }
+        \\        match Process.tell(w.Stop) {
+        \\            :ok{v} => Stdio.println("unexpected-tell");
+        \\            :error{e} => Stdio.println(e);
+        \\        }
+        \\        match Process.send(w.Stop) {
+        \\            :ok{v} => Stdio.println("unexpected-send");
+        \\            :error{e} => Stdio.println(e);
+        \\        }
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("0\nprocess_dead\nprocess_dead\n", r.stdout);
+}
