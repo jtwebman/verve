@@ -228,6 +228,7 @@ pub const Lower = struct {
                 else => {},
             }
         }
+        self.fixupRegTypes();
         return self.program;
     }
 
@@ -287,7 +288,14 @@ pub const Lower = struct {
             }
         }
         f.params = try params.toOwnedSlice(self.alloc);
-        f.return_type = self.resolveType(handler.return_type);
+        const resolved_ret = self.resolveType(handler.return_type);
+        // Non-main handlers always return tagged values (pointers) at runtime.
+        // Main handler returns its declared type directly.
+        if (std.mem.eql(u8, handler.name, "main")) {
+            f.return_type = resolved_ret;
+        } else {
+            f.return_type = .ptr;
+        }
 
         self.current_fn = &f;
         self.current_process_decl = proc_decl;
@@ -300,11 +308,11 @@ pub const Lower = struct {
             const fail_id = f.newBlock().id;
             self.appendInst(.{ .branch = .{ .cond = guard_reg, .then_block = pass_id, .else_block = fail_id } });
             self.current_block_id = fail_id;
-            const tag_id_reg = f.newReg();
+            const tag_id_reg = f.newReg(.i64);
             self.appendInst(.{ .const_int = .{ .dest = tag_id_reg, .value = 1 } });
-            const val_reg = f.newReg();
+            const val_reg = f.newReg(.i64);
             self.appendInst(.{ .const_int = .{ .dest = val_reg, .value = 99 } });
-            const tagged_reg = f.newReg();
+            const tagged_reg = f.newReg(.ptr);
             self.appendInst(.{ .call_builtin = .{ .dest = tagged_reg, .name = "make_tagged", .args = blk: {
                 const a = self.alloc.alloc(ir.Reg, 2) catch break :blk &.{};
                 a[0] = tag_id_reg;
@@ -344,7 +352,7 @@ pub const Lower = struct {
                             const proc_name = a.value.call.args[0].string_literal;
                             for (self.program.process_decls.items, 0..) |pd, pi| {
                                 if (std.mem.eql(u8, pd.name, proc_name)) {
-                                    const dest = func.newReg();
+                                    const dest = func.newReg(.i64);
                                     self.appendInst(.{ .process_spawn = .{ .dest = dest, .process_type = @intCast(pi) } });
                                     self.appendInst(.{ .store_local = .{ .name = a.name, .src = dest } });
                                     self.process_vars.put(self.alloc, a.name, proc_name) catch {};
@@ -373,8 +381,8 @@ pub const Lower = struct {
                 // Optional type: wrap non-none values in :some{value}
                 if (a.type_expr) |te| {
                     if (te == .optional and a.value != .none_literal) {
-                        const wrapped = func.newReg();
-                        const tag_reg = func.newReg();
+                        const wrapped = func.newReg(.ptr);
+                        const tag_reg = func.newReg(.i64);
                         self.appendInst(.{ .const_int = .{ .dest = tag_reg, .value = 0 } }); // some=0
                         self.appendInst(.{ .call_builtin = .{ .dest = wrapped, .name = "make_tagged", .args = self.allocRegs(&.{ tag_reg, reg }) } });
                         reg = wrapped;
@@ -521,11 +529,11 @@ pub const Lower = struct {
                         .literal => |lit| {
                             if (lit == .none_literal) {
                                 // none pattern: check tag == 1 (none tag)
-                                const tag_reg = func.newReg();
+                                const tag_reg = func.newReg(.i64);
                                 self.appendInst(.{ .tag_get = .{ .dest = tag_reg, .tagged = subject_reg } });
-                                const one_reg = func.newReg();
+                                const one_reg = func.newReg(.i64);
                                 self.appendInst(.{ .const_int = .{ .dest = one_reg, .value = 1 } });
-                                const cmp_reg = func.newReg();
+                                const cmp_reg = func.newReg(.bool);
                                 self.appendInst(.{ .eq_i64 = .{ .dest = cmp_reg, .lhs = tag_reg, .rhs = one_reg } });
                                 const arm_id = func.newBlock().id;
                                 const next_id = func.newBlock().id;
@@ -537,7 +545,7 @@ pub const Lower = struct {
                                 continue;
                             }
                             const pat_reg = self.lowerExpr(lit);
-                            const cmp_reg = func.newReg();
+                            const cmp_reg = func.newReg(.bool);
                             self.appendInst(.{ .eq_i64 = .{ .dest = cmp_reg, .lhs = subject_reg, .rhs = pat_reg } });
                             const arm_id = func.newBlock().id;
                             const next_id = func.newBlock().id;
@@ -557,9 +565,9 @@ pub const Lower = struct {
                                         break;
                                     }
                                 }
-                                const id_reg = func.newReg();
+                                const id_reg = func.newReg(.i64);
                                 self.appendInst(.{ .const_int = .{ .dest = id_reg, .value = tag_id } });
-                                const cmp_reg = func.newReg();
+                                const cmp_reg = func.newReg(.bool);
                                 self.appendInst(.{ .eq_i64 = .{ .dest = cmp_reg, .lhs = subject_reg, .rhs = id_reg } });
                                 const arm_id = func.newBlock().id;
                                 const next_id = func.newBlock().id;
@@ -570,12 +578,12 @@ pub const Lower = struct {
                                 self.current_block_id = next_id;
                             } else {
                                 // Tagged union match (Result, custom unions, etc.): extract tag from tagged value
-                                const tag_reg = func.newReg();
+                                const tag_reg = func.newReg(.i64);
                                 self.appendInst(.{ .tag_get = .{ .dest = tag_reg, .tagged = subject_reg } });
                                 const tag_id = self.resolveTagId(t.tag);
-                                const id_reg = func.newReg();
+                                const id_reg = func.newReg(.i64);
                                 self.appendInst(.{ .const_int = .{ .dest = id_reg, .value = tag_id } });
-                                const cmp_reg = func.newReg();
+                                const cmp_reg = func.newReg(.bool);
                                 self.appendInst(.{ .eq_i64 = .{ .dest = cmp_reg, .lhs = tag_reg, .rhs = id_reg } });
                                 const arm_id = func.newBlock().id;
                                 const next_id = func.newBlock().id;
@@ -610,7 +618,11 @@ pub const Lower = struct {
                                         }
                                         break :blk false;
                                     };
-                                    const val_reg = func.newReg();
+                                    // Determine payload type: struct → ptr, string → string, else → i64
+                                    const tag_key = std.fmt.allocPrint(self.alloc, "__tagged_struct_{d}", .{subject_reg}) catch "";
+                                    const is_struct_payload = self.var_types.get(tag_key) != null;
+                                    const val_type: ir.Type = if (is_string_variant) .string else if (is_struct_payload) .ptr else .i64;
+                                    const val_reg = func.newReg(val_type);
                                     if (is_string_variant) {
                                         self.appendInst(.{ .tag_value_str = .{ .dest = val_reg, .tagged = subject_reg } });
                                         self.var_types.put(self.alloc, t.bindings[0], "string") catch {};
@@ -618,7 +630,6 @@ pub const Lower = struct {
                                         self.appendInst(.{ .tag_value = .{ .dest = val_reg, .tagged = subject_reg } });
                                     }
                                     self.appendInst(.{ .store_local = .{ .name = t.bindings[0], .src = val_reg } });
-                                    const tag_key = std.fmt.allocPrint(self.alloc, "__tagged_struct_{d}", .{subject_reg}) catch "";
                                     if (self.var_types.get(tag_key)) |struct_type| {
                                         self.var_types.put(self.alloc, t.bindings[0], struct_type) catch {};
                                     }
@@ -660,7 +671,7 @@ pub const Lower = struct {
             },
             .assert_stmt => |a| {
                 const cond_reg = self.lowerExpr(a.condition);
-                const dest = func.newReg();
+                const dest = func.newReg(.i64);
                 self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = "assert_check", .args = blk: {
                     const args = self.alloc.alloc(ir.Reg, 1) catch break :blk &.{};
                     args[0] = cond_reg;
@@ -835,7 +846,7 @@ pub const Lower = struct {
                 } });
             } else {
                 // No timeout specified — use 0 (no deadline, same as send)
-                const timeout_reg = func.newReg();
+                const timeout_reg = func.newReg(.i64);
                 self.appendInst(.{ .const_int = .{ .dest = timeout_reg, .value = 0 } });
                 self.appendInst(.{ .process_send_timeout = .{
                     .dest = dest,
@@ -879,23 +890,23 @@ pub const Lower = struct {
 
         switch (expr) {
             .int_literal => |v| {
-                const dest = func.newReg();
+                const dest = func.newReg(.i64);
                 self.appendInst(.{ .const_int = .{ .dest = dest, .value = v } });
                 return dest;
             },
             .float_literal => |v| {
-                const dest = func.newReg();
+                const dest = func.newReg(.f64);
                 self.appendInst(.{ .const_float = .{ .dest = dest, .value = v } });
                 self.float_regs.put(self.alloc, dest, {}) catch {};
                 return dest;
             },
             .bool_literal => |v| {
-                const dest = func.newReg();
+                const dest = func.newReg(.bool);
                 self.appendInst(.{ .const_bool = .{ .dest = dest, .value = v } });
                 return dest;
             },
             .string_literal => |v| {
-                const dest = func.newReg();
+                const dest = func.newReg(.string);
                 self.appendInst(.{ .const_string = .{ .dest = dest, .value = v } });
                 return dest;
             },
@@ -905,14 +916,14 @@ pub const Lower = struct {
                 for (si.parts) |part| {
                     const part_reg = switch (part) {
                         .literal => |lit| blk: {
-                            const r = func.newReg();
+                            const r = func.newReg(.string);
                             self.appendInst(.{ .const_string = .{ .dest = r, .value = lit } });
                             break :blk r;
                         },
                         .expr => |e| blk: {
                             const r = self.lowerExpr(e);
                             if (!self.isStringExpr(e)) {
-                                const conv = func.newReg();
+                                const conv = func.newReg(.string);
                                 const builtin_name = self.toStringBuiltinName(e);
                                 self.appendInst(.{ .call_builtin = .{ .dest = conv, .name = builtin_name, .args = self.allocRegs(&.{r}) } });
                                 break :blk conv;
@@ -921,7 +932,7 @@ pub const Lower = struct {
                         },
                     };
                     if (result) |prev| {
-                        const concat = func.newReg();
+                        const concat = func.newReg(.string);
                         self.appendInst(.{ .call_builtin = .{ .dest = concat, .name = "string_concat", .args = self.allocRegs(&.{ prev, part_reg }) } });
                         result = concat;
                     } else {
@@ -929,26 +940,26 @@ pub const Lower = struct {
                     }
                 }
                 return result orelse blk: {
-                    const empty = func.newReg();
+                    const empty = func.newReg(.string);
                     self.appendInst(.{ .const_string = .{ .dest = empty, .value = "" } });
                     break :blk empty;
                 };
             },
             .tag => |tag_name| {
                 // Look up the variant index across all enum declarations
-                const dest = func.newReg();
+                const dest = func.newReg(.i64);
                 const tag_id = self.resolveTagId(tag_name);
                 self.appendInst(.{ .const_int = .{ .dest = dest, .value = tag_id } });
                 return dest;
             },
             .tagged_value => |tv| {
                 // Construct a tagged value: :tag{expr} → makeTagged(tag_id, value)
-                const dest = func.newReg();
+                const dest = func.newReg(.ptr);
                 const tag_id = self.resolveTagId(tv.tag);
-                const tag_id_reg = func.newReg();
+                const tag_id_reg = func.newReg(.i64);
                 self.appendInst(.{ .const_int = .{ .dest = tag_id_reg, .value = tag_id } });
                 const val_reg = if (tv.value) |v| self.lowerExpr(v.*) else blk: {
-                    const zero = func.newReg();
+                    const zero = func.newReg(.i64);
                     self.appendInst(.{ .const_int = .{ .dest = zero, .value = 0 } });
                     break :blk zero;
                 };
@@ -959,7 +970,7 @@ pub const Lower = struct {
                 return dest;
             },
             .identifier => |name| {
-                const dest = func.newReg();
+                const dest = func.newReg(self.varIrType(name));
                 self.appendInst(.{ .load_local = .{ .dest = dest, .name = name } });
                 if (self.isVarFloat(name)) {
                     self.float_regs.put(self.alloc, dest, {}) catch {};
@@ -972,10 +983,10 @@ pub const Lower = struct {
                     if (self.isStringExpr(op.left.*) or self.isStringExpr(op.right.*)) {
                         const lhs = self.lowerExpr(op.left.*);
                         const rhs = self.lowerExpr(op.right.*);
-                        const dest = func.newReg();
+                        const dest = func.newReg(.bool);
                         self.appendInst(.{ .string_eq = .{ .dest = dest, .lhs = lhs, .rhs = rhs } });
                         if (op.op == .neq) {
-                            const neg = func.newReg();
+                            const neg = func.newReg(.bool);
                             self.appendInst(.{ .not_bool = .{ .dest = neg, .operand = dest } });
                             return neg;
                         }
@@ -987,7 +998,7 @@ pub const Lower = struct {
                     if (self.isStringExpr(op.left.*) or self.isStringExpr(op.right.*)) {
                         const lhs = self.lowerExpr(op.left.*);
                         const rhs = self.lowerExpr(op.right.*);
-                        const dest = func.newReg();
+                        const dest = func.newReg(.string);
                         var concat_args = std.ArrayListUnmanaged(ir.Reg){};
                         concat_args.append(self.alloc, lhs) catch {};
                         concat_args.append(self.alloc, rhs) catch {};
@@ -997,11 +1008,14 @@ pub const Lower = struct {
                 }
                 const lhs = self.lowerExpr(op.left.*);
                 const rhs = self.lowerExpr(op.right.*);
-                const dest = func.newReg();
                 const is_float = self.float_regs.get(lhs) != null or self.float_regs.get(rhs) != null or
                     (op.left.* == .float_literal) or (op.right.* == .float_literal) or
                     (op.left.* == .identifier and self.isVarFloat(op.left.identifier)) or
                     (op.right.* == .identifier and self.isVarFloat(op.right.identifier));
+                const is_cmp = op.op == .eq or op.op == .neq or op.op == .lt or op.op == .gt or op.op == .lte or op.op == .gte;
+                const is_bool_op = op.op == .@"and" or op.op == .@"or" or op.op == .not;
+                const dest_type: ir.Type = if (is_cmp or is_bool_op) .bool else if (is_float) .f64 else .i64;
+                const dest = func.newReg(dest_type);
                 const inst_val: ir.Inst = if (is_float) switch (op.op) {
                     .add => .{ .add_f64 = .{ .dest = dest, .lhs = lhs, .rhs = rhs } },
                     .sub => .{ .sub_f64 = .{ .dest = dest, .lhs = lhs, .rhs = rhs } },
@@ -1043,10 +1057,11 @@ pub const Lower = struct {
             },
             .unary_op => |op| {
                 const operand = self.lowerExpr(op.operand.*);
-                const dest = func.newReg();
                 const is_float_op = self.float_regs.get(operand) != null or
                     (op.operand.* == .float_literal) or
                     (op.operand.* == .identifier and self.isVarFloat(op.operand.identifier));
+                const dest_type: ir.Type = if (op.op == .not) .bool else if (is_float_op) .f64 else .i64;
+                const dest = func.newReg(dest_type);
                 switch (op.op) {
                     .not => self.appendInst(.{ .not_bool = .{ .dest = dest, .operand = operand } }),
                     .sub => {
@@ -1062,7 +1077,7 @@ pub const Lower = struct {
                 return dest;
             },
             .call => |c| {
-                const dest = func.newReg();
+                const dest = func.newReg(.i64);
 
                 // Process.send / Process.send_timeout / Process.tell — handle before generic arg lowering
                 if (c.target.* == .field_access) {
@@ -1111,10 +1126,12 @@ pub const Lower = struct {
                 if (c.target.* == .identifier) {
                     const name = c.target.identifier;
                     if (std.mem.eql(u8, name, "list")) {
+                        func.reg_types.items[dest] = .ptr;
                         self.appendInst(.{ .list_new = .{ .dest = dest } });
                         return dest;
                     }
                     if (std.mem.eql(u8, name, "set")) {
+                        func.reg_types.items[dest] = .ptr;
                         self.appendInst(.{ .list_new = .{ .dest = dest } });
                         for (c.args) |arg| {
                             const val_reg = self.lowerExpr(arg);
@@ -1145,7 +1162,7 @@ pub const Lower = struct {
                 else
                     sl.name;
 
-                const base = func.newReg();
+                const base = func.newReg(.ptr);
                 self.appendInst(.{ .struct_alloc = .{ .dest = base, .struct_name = struct_name } });
 
                 if (self.struct_decls.get(struct_name)) |d| {
@@ -1176,7 +1193,7 @@ pub const Lower = struct {
                                 if (self.struct_decls.get(st)) |sd| {
                                     for (sd.fields) |f| {
                                         if (std.mem.eql(u8, f.name, fa.field)) {
-                                            const dest = func.newReg();
+                                            const dest = func.newReg(self.fieldIrType(st, f.name));
                                             self.appendInst(.{ .process_state_get = .{ .dest = dest, .struct_name = st, .field_name = f.name } });
                                             return dest;
                                         }
@@ -1190,7 +1207,7 @@ pub const Lower = struct {
                             for (sd.fields) |f| {
                                 if (std.mem.eql(u8, f.name, fa.field)) {
                                     const base_reg = self.lowerExpr(fa.target.*);
-                                    const dest = func.newReg();
+                                    const dest = func.newReg(self.fieldIrType(type_name, f.name));
                                     self.appendInst(.{ .struct_load = .{ .dest = dest, .base = base_reg, .struct_name = type_name, .field_name = f.name } });
                                     return dest;
                                 }
@@ -1200,24 +1217,25 @@ pub const Lower = struct {
                     if (std.mem.eql(u8, fa.field, "len")) {
                         if (self.isVarString(target_name)) {
                             const str_reg = self.lowerExpr(fa.target.*);
-                            const dest = func.newReg();
+                            const dest = func.newReg(.i64);
                             self.appendInst(.{ .string_len = .{ .dest = dest, .str = str_reg } });
                             return dest;
                         }
                         const list_reg = self.lowerExpr(fa.target.*);
-                        const dest = func.newReg();
+                        const dest = func.newReg(.i64);
                         self.appendInst(.{ .list_len = .{ .dest = dest, .list = list_reg } });
                         return dest;
                     }
                 }
-                const dest = func.newReg();
+                const dest = func.newReg(.i64);
                 self.appendInst(.{ .const_int = .{ .dest = dest, .value = 0 } });
                 return dest;
             },
             .index_access => |ia| {
                 const target_reg = self.lowerExpr(ia.target.*);
                 const index_reg = self.lowerExpr(ia.index.*);
-                const dest = func.newReg();
+                const is_str_idx = ia.target.* == .identifier and self.isVarString(ia.target.identifier);
+                const dest = func.newReg(if (is_str_idx) .string else .i64);
                 if (ia.target.* == .identifier) {
                     if (self.isVarString(ia.target.identifier)) {
                         self.appendInst(.{ .string_index = .{ .dest = dest, .str = target_reg, .index = index_reg } });
@@ -1229,10 +1247,10 @@ pub const Lower = struct {
             },
             .none_literal => {
                 // none → makeTagged(1, 0)
-                const dest = func.newReg();
-                const tag_reg = func.newReg();
+                const dest = func.newReg(.ptr);
+                const tag_reg = func.newReg(.i64);
                 self.appendInst(.{ .const_int = .{ .dest = tag_reg, .value = 1 } });
-                const zero_reg = func.newReg();
+                const zero_reg = func.newReg(.i64);
                 self.appendInst(.{ .const_int = .{ .dest = zero_reg, .value = 0 } });
                 var args = self.alloc.alloc(ir.Reg, 2) catch return dest;
                 args[0] = tag_reg;
@@ -1241,11 +1259,41 @@ pub const Lower = struct {
                 return dest;
             },
             else => {
-                const dest = func.newReg();
+                const dest = func.newReg(.i64);
                 self.appendInst(.{ .const_int = .{ .dest = dest, .value = 0 } });
                 return dest;
             },
         }
+    }
+
+    /// Map a variable name to its ir.Type using var_types tracking.
+    fn varIrType(self: *Lower, name: []const u8) ir.Type {
+        const t = self.var_types.get(name) orelse return .i64;
+        if (std.mem.eql(u8, t, "string")) return .string;
+        if (std.mem.eql(u8, t, "float")) return .f64;
+        if (std.mem.eql(u8, t, "bool")) return .bool;
+        if (std.mem.eql(u8, t, "int")) return .i64;
+        if (std.mem.eql(u8, t, "stream")) return .ptr;
+        if (self.struct_decls.contains(t)) return .ptr;
+        return .i64;
+    }
+
+    /// Map a struct field to its ir.Type using the program's struct_decls.
+    fn fieldIrType(self: *Lower, struct_name: []const u8, field_name: []const u8) ir.Type {
+        for (self.program.struct_decls.items) |sd| {
+            if (std.mem.eql(u8, sd.name, struct_name)) {
+                for (sd.fields) |f| {
+                    if (std.mem.eql(u8, f.name, field_name)) {
+                        if (std.mem.eql(u8, f.type_name, "string")) return .string;
+                        if (std.mem.eql(u8, f.type_name, "float")) return .f64;
+                        if (std.mem.eql(u8, f.type_name, "bool")) return .bool;
+                        if (std.mem.eql(u8, f.type_name, "stream")) return .ptr;
+                        return .i64;
+                    }
+                }
+            }
+        }
+        return .i64;
     }
 
     fn isVarString(self: *Lower, name: []const u8) bool {
@@ -1284,6 +1332,75 @@ pub const Lower = struct {
         return false;
     }
 
+    /// Post-lowering fixup: patches register types that couldn't be determined at newReg() time.
+    /// Handles: call return types (forward refs), tag_value propagation, load_local propagation.
+    fn fixupRegTypes(self: *Lower) void {
+        for (self.program.functions.items) |*func| {
+            const rt = func.reg_types.items;
+            if (rt.len == 0) continue;
+
+            // Build local_type_map from params
+            var local_types = std.StringHashMapUnmanaged(ir.Type){};
+            for (func.params) |p| {
+                const pt = if (p.type_ == .void) ir.Type.ptr else p.type_;
+                local_types.put(self.alloc, p.name, pt) catch {};
+            }
+
+            for (func.blocks.items) |block| {
+                for (block.insts.items) |inst| {
+                    switch (inst) {
+                        .call => |c| {
+                            if (c.dest >= rt.len) continue;
+                            // Look up callee's return type
+                            for (self.program.functions.items) |f| {
+                                if (std.mem.eql(u8, f.module, c.module) and std.mem.eql(u8, f.name, c.function)) {
+                                    const ret = f.return_type;
+                                    if (ret != .void) rt[c.dest] = ret;
+                                    break;
+                                }
+                            }
+                        },
+                        .call_builtin => |c| {
+                            if (c.dest >= rt.len) continue;
+                            rt[c.dest] = builtinIrType(c.name);
+                        },
+                        .env_load => |e| {
+                            if (e.dest >= rt.len) continue;
+                            if (std.mem.eql(u8, e.type_name, "string")) {
+                                rt[e.dest] = .string;
+                            } else if (std.mem.eql(u8, e.type_name, "float")) {
+                                rt[e.dest] = .f64;
+                            } else if (std.mem.eql(u8, e.type_name, "bool")) {
+                                rt[e.dest] = .bool;
+                            }
+                        },
+                        .process_send => |ps| {
+                            if (ps.dest < rt.len) rt[ps.dest] = .ptr;
+                        },
+                        .process_tell => |pt| {
+                            if (pt.dest < rt.len) rt[pt.dest] = .ptr;
+                        },
+                        .process_send_timeout => |ps| {
+                            if (ps.dest < rt.len) rt[ps.dest] = .ptr;
+                        },
+                        .store_local => |s| {
+                            if (s.src < rt.len) {
+                                local_types.put(self.alloc, s.name, rt[s.src]) catch {};
+                            }
+                        },
+                        .load_local => |l| {
+                            if (l.dest >= rt.len) continue;
+                            if (local_types.get(l.name)) |lt| {
+                                rt[l.dest] = lt;
+                            }
+                        },
+                        else => {},
+                    }
+                }
+            }
+        }
+    }
+
     fn resolveType(self: *Lower, type_expr: ast.TypeExpr) ir.Type {
         switch (type_expr) {
             .simple => |name| {
@@ -1304,6 +1421,7 @@ pub const Lower = struct {
                 if (self.enum_decls.contains(name)) return .i64;
                 // Structs/unions are pointer-backed
                 if (self.struct_decls.get(name) != null) return .ptr;
+                if (self.union_decls.contains(name)) return .ptr;
                 return .void;
             },
             .generic => |g| {
@@ -1314,3 +1432,57 @@ pub const Lower = struct {
         }
     }
 };
+
+/// Map a call_builtin name to its return ir.Type.
+fn builtinIrType(name: []const u8) ir.Type {
+    // Pointer-returning builtins
+    const ptr_builtins = [_][]const u8{
+        "file_open",          "tcp_open",        "tcp_listen",       "tcp_accept",
+        "http_parse_request", "http_client_get", "http_client_post", "http_client_request",
+        "make_tagged",        "sb_new",          "process_self",     "json_build_object",
+        "map",                "stack",           "queue",
+    };
+    for (ptr_builtins) |b| {
+        if (std.mem.eql(u8, name, b)) return .ptr;
+    }
+    if (std.mem.startsWith(u8, name, "json_parse_struct:")) return .ptr;
+
+    // String-returning builtins
+    const str_builtins = [_][]const u8{
+        "string_concat",        "string_trim",         "string_replace",              "string_char_at",
+        "int_to_string",        "float_to_string",     "bool_to_string",              "to_string",
+        "collection_to_string", "stream_read_line",    "stream_read_bytes",           "stream_read_all",
+        "http_read_request",    "http_req_method",     "http_req_path",               "http_req_body",
+        "http_req_header",      "http_build_response", "http_build_response_chunked", "http_resp_body",
+        "http_resp_header",     "json_get_string",     "json_get_object",             "json_to_string",
+        "json_build_end",       "sb_to_string",        "env_get",                     "stdio_read_line",
+    };
+    for (str_builtins) |b| {
+        if (std.mem.eql(u8, name, b)) return .string;
+    }
+    if (std.mem.startsWith(u8, name, "json_stringify_struct:")) return .string;
+    if (std.mem.startsWith(u8, name, "to_string:")) return .string;
+
+    // Float-returning builtins
+    const float_builtins = [_][]const u8{
+        "math_abs_f",      "math_sin",   "math_cos",   "math_tan",
+        "math_sqrt_f",     "math_pow_f", "math_log",   "math_log10",
+        "math_exp",        "math_min_f", "math_max_f", "convert_to_float",
+        "string_to_float",
+    };
+    for (float_builtins) |b| {
+        if (std.mem.eql(u8, name, b)) return .f64;
+    }
+
+    // Bool-returning builtins
+    const bool_builtins = [_][]const u8{
+        "string_contains", "string_starts_with", "string_ends_with",
+        "string_is_digit", "string_is_alpha",    "string_is_whitespace",
+        "string_is_alnum", "string_to_bool",
+    };
+    for (bool_builtins) |b| {
+        if (std.mem.eql(u8, name, b)) return .bool;
+    }
+
+    return .i64;
+}

@@ -51,30 +51,15 @@ pub const ZigBackend = struct {
         return std.fmt.allocPrint(self.alloc, "r{d}", .{reg}) catch "r0";
     }
 
-    /// Check if a function returns a pointer-typed register (e.g., tagged value).
-    fn returnsPointer(self: *ZigBackend, func: ir.Function, reg_types: []const RegType) bool {
-        _ = self;
-        for (func.blocks.items) |block| {
-            for (block.insts.items) |inst| {
-                switch (inst) {
-                    .ret => |r| {
-                        if (r.value) |reg| {
-                            if (reg < reg_types.len and reg_types[reg] == .pointer) return true;
-                        }
-                    },
-                    else => {},
-                }
-            }
+    /// Convert IR-level register types to backend RegType array.
+    fn regTypesFromIr(self: *ZigBackend, func: ir.Function) []RegType {
+        const ir_types = func.reg_types.items;
+        if (ir_types.len == 0) return &.{};
+        const types = self.alloc.alloc(RegType, ir_types.len) catch return &.{};
+        for (ir_types, 0..) |t, i| {
+            types[i] = regTypeFromIr(t);
         }
-        return false;
-    }
-
-    /// Check if a function is a process handler (its module matches a process decl name).
-    fn isProcessHandler(self: *ZigBackend, func: ir.Function) bool {
-        for (self.program.process_decls.items) |pd| {
-            if (std.mem.eql(u8, func.module, pd.name)) return true;
-        }
-        return false;
+        return types;
     }
 
     // ── Register type tracking ───────────────────────────────
@@ -91,135 +76,6 @@ pub const ZigBackend = struct {
             .pid => .int, // PIDs are packed i64 at runtime
             .void => .int,
         };
-    }
-
-    /// Map IR param type to RegType — treats void (struct/union) and stream params as pointers.
-    fn regTypeFromIrParam(t: ir.Type) RegType {
-        if (t == .ptr) return .pointer;
-        if (t != .void) return regTypeFromIr(t);
-        return .pointer;
-    }
-
-    /// Determine the type of each register in a function by scanning all instructions.
-    /// Also tracks local variable types for load_local propagation.
-    fn buildRegTypes(self: *ZigBackend, func: ir.Function) []RegType {
-        var max_reg: ir.Reg = 0;
-        for (func.blocks.items) |block| {
-            for (block.insts.items) |inst| {
-                if (instDest(inst)) |d| {
-                    if (d >= max_reg) max_reg = d + 1;
-                }
-            }
-        }
-        if (max_reg == 0) return &.{};
-        const types = self.alloc.alloc(RegType, max_reg) catch return &.{};
-        @memset(types, .int);
-
-        // Build local name → type map by scanning store_local instructions
-        var local_type_map = std.StringHashMapUnmanaged(RegType){};
-
-        // Params set initial local types
-        for (func.params) |param| {
-            local_type_map.put(self.alloc, param.name, regTypeFromIrParam(param.type_)) catch {};
-        }
-
-        // First pass: determine types from direct sources
-        for (func.blocks.items) |block| {
-            for (block.insts.items) |inst| {
-                switch (inst) {
-                    .const_string => |c| types[c.dest] = .string,
-                    .const_float => |c| types[c.dest] = .float,
-                    .const_bool => |c| types[c.dest] = .boolean,
-                    .add_f64, .sub_f64, .mul_f64, .div_f64, .mod_f64 => |op| types[op.dest] = .float,
-                    .neg_f64 => |op| types[op.dest] = .float,
-                    .eq_i64, .neq_i64, .lt_i64, .gt_i64, .lte_i64, .gte_i64 => |op| types[op.dest] = .boolean,
-                    .eq_f64, .neq_f64, .lt_f64, .gt_f64, .lte_f64, .gte_f64 => |op| types[op.dest] = .boolean,
-                    .and_bool, .or_bool => |op| types[op.dest] = .boolean,
-                    .not_bool => |op| types[op.dest] = .boolean,
-                    .string_eq => |se| types[se.dest] = .boolean,
-                    .string_slice => |ss| types[ss.dest] = .string,
-                    .string_index => |si| types[si.dest] = .string,
-                    .call_builtin => |c| {
-                        const rt = builtinReturnType(c.name);
-                        if (rt != .int) types[c.dest] = rt;
-                    },
-                    .env_load => |e| {
-                        if (std.mem.eql(u8, e.type_name, "string")) types[e.dest] = .string else if (std.mem.eql(u8, e.type_name, "float")) types[e.dest] = .float else if (std.mem.eql(u8, e.type_name, "bool")) types[e.dest] = .boolean;
-                    },
-                    .call => |c| {
-                        for (self.program.functions.items) |f| {
-                            if (std.mem.eql(u8, f.module, c.module) and std.mem.eql(u8, f.name, c.function)) {
-                                const called_reg_types = self.buildRegTypes(f);
-                                if (self.isProcessHandler(f) or self.returnsPointer(f, called_reg_types)) {
-                                    types[c.dest] = .pointer;
-                                } else {
-                                    types[c.dest] = regTypeFromIr(f.return_type);
-                                }
-                                break;
-                            }
-                        }
-                    },
-                    .struct_load => |sl| {
-                        types[sl.dest] = self.lookupFieldType(sl.struct_name, sl.field_name);
-                    },
-                    .process_state_get => |sg| {
-                        types[sg.dest] = self.lookupFieldType(sg.struct_name, sg.field_name);
-                    },
-                    .tag_value => |tv| {
-                        // If the tagged source is a pointer (from tcp_open, etc.),
-                        // the extracted value is also a pointer.
-                        if (tv.tagged < types.len and types[tv.tagged] == .pointer) {
-                            types[tv.dest] = .pointer;
-                        }
-                    },
-                    .tag_value_str => |tv| {
-                        types[tv.dest] = .string;
-                    },
-                    .struct_alloc => |sa| {
-                        types[sa.dest] = .pointer;
-                    },
-                    .list_new => |ln| {
-                        types[ln.dest] = .pointer;
-                    },
-                    .process_spawn => |ps| {
-                        types[ps.dest] = .int; // PIDs are plain integers
-                    },
-                    .process_send => |ps| {
-                        types[ps.dest] = .pointer;
-                    },
-                    .process_tell => |pt| {
-                        types[pt.dest] = .pointer;
-                    },
-                    .process_send_timeout => |ps| {
-                        types[ps.dest] = .pointer;
-                    },
-                    else => {},
-                }
-            }
-        }
-
-        // Second pass: propagate through store_local / load_local
-        for (func.blocks.items) |block| {
-            for (block.insts.items) |inst| {
-                switch (inst) {
-                    .store_local => |s| {
-                        if (s.src < types.len) {
-                            local_type_map.put(self.alloc, s.name, types[s.src]) catch {};
-                        }
-                    },
-                    .load_local => |l| {
-                        if (local_type_map.get(l.name)) |lt| {
-                            if (l.dest < types.len) {
-                                types[l.dest] = lt;
-                            }
-                        }
-                    },
-                    else => {},
-                }
-            }
-        }
-
-        return types;
     }
 
     /// Emit state struct allocation for a process after spawn.
@@ -470,14 +326,6 @@ pub const ZigBackend = struct {
         .{ "assert_check", S{ .rt_name = "!", .void_result = true } },
         .{ "json_build_add_bool", S{ .module = "json", .rt_name = "!", .void_result = true } },
     });
-
-    fn builtinReturnType(name: []const u8) RegType {
-        if (builtin_specs.get(name)) |spec| return spec.returns;
-        if (std.mem.startsWith(u8, name, "json_parse_struct:")) return .pointer;
-        if (std.mem.startsWith(u8, name, "json_stringify_struct:")) return .string;
-        if (std.mem.startsWith(u8, name, "to_string:")) return .string;
-        return .int;
-    }
 
     // ── Emit program ─────────────────────────────────────────
 
@@ -889,7 +737,7 @@ pub const ZigBackend = struct {
     }
 
     fn emitFunction(self: *ZigBackend, func: ir.Function) void {
-        const reg_types = self.buildRegTypes(func);
+        const reg_types = self.regTypesFromIr(func);
 
         {
             self.writeIndent();
@@ -916,8 +764,10 @@ pub const ZigBackend = struct {
                 self.write(") f64 {\n");
             } else if (func.return_type == .bool) {
                 self.write(") bool {\n");
-            } else if (self.isProcessHandler(func) or self.returnsPointer(func, reg_types)) {
+            } else if (func.return_type == .ptr) {
                 self.write(") usize {\n");
+            } else if (func.return_type == .string) {
+                self.write(") []const u8 {\n");
             } else {
                 self.write(") i64 {\n");
             }
@@ -971,7 +821,7 @@ pub const ZigBackend = struct {
 
         // Map param names to locals
         for (func.params) |param| {
-            const pt = regTypeFromIrParam(param.type_);
+            const pt = if (param.type_ == .void) RegType.pointer else regTypeFromIr(param.type_);
             if (pt == .string) {
                 self.lineFmt("locals_str[{d}] = param_{s};", .{ local_count, param.name });
             } else if (pt == .float) {
@@ -1003,7 +853,7 @@ pub const ZigBackend = struct {
             var terminated = false;
             for (block.insts.items) |inst| {
                 if (terminated) break;
-                const fn_returns_ptr = self.isProcessHandler(func) or self.returnsPointer(func, reg_types);
+                const fn_returns_ptr = func.return_type == .ptr;
                 self.emitInst(inst, &local_names, &local_count, &local_types, reg_types, fn_returns_ptr, func.return_type);
                 if (isTerminator(inst)) terminated = true;
             }

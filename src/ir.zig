@@ -208,6 +208,7 @@ pub const Function = struct {
     params: []const Param,
     return_type: Type,
     blocks: std.ArrayListUnmanaged(Block),
+    reg_types: std.ArrayListUnmanaged(Type),
     next_reg: Reg,
     next_block: BlockId,
     alloc: std.mem.Allocator,
@@ -224,16 +225,18 @@ pub const Function = struct {
             .params = &.{},
             .return_type = .void,
             .blocks = .{},
+            .reg_types = .{},
             .next_reg = 0,
             .next_block = 0,
             .alloc = alloc,
         };
     }
 
-    /// Allocate a new virtual register.
-    pub fn newReg(self: *Function) Reg {
+    /// Allocate a new virtual register with an explicit type.
+    pub fn newReg(self: *Function, t: Type) Reg {
         const r = self.next_reg;
         self.next_reg += 1;
+        self.reg_types.append(self.alloc, t) catch {};
         return r;
     }
 

@@ -21,7 +21,7 @@ pub fn lowerBuiltinModuleCall(
     if (std.mem.eql(u8, mod_name, "StringBuilder")) {
         if (std.mem.eql(u8, fn_name, "new") and args.len == 0) {
             const func = self.current_fn orelse return dest;
-            const zero_reg = func.newReg();
+            const zero_reg = func.newReg(.i64);
             self.appendInst(.{ .const_int = .{ .dest = zero_reg, .value = 0 } });
             const default_args = self.alloc.alloc(ir.Reg, 1) catch return dest;
             default_args[0] = zero_reg;
