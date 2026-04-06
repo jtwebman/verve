@@ -285,15 +285,23 @@ pub fn main() !void {
             else => std.process.exit(1),
         }
     } else if (std.mem.eql(u8, command, "fmt")) {
-        const file_path = args.next() orelse {
+        var file_path_opt: ?[]const u8 = null;
+        var check_only = false;
+        while (args.next()) |arg| {
+            if (std.mem.eql(u8, arg, "--check")) {
+                check_only = true;
+                continue;
+            }
+            if (file_path_opt == null) {
+                file_path_opt = arg;
+                continue;
+            }
+            std.debug.print("Error: unexpected argument: {s}\n", .{arg});
+            std.process.exit(1);
+        }
+        const file_path = file_path_opt orelse {
             std.debug.print("Error: no file specified\n", .{});
             std.process.exit(1);
-        };
-        const check_only = blk: {
-            if (args.next()) |arg| {
-                break :blk std.mem.eql(u8, arg, "--check");
-            }
-            break :blk false;
         };
         const source = std.fs.cwd().readFileAlloc(alloc, file_path, 1024 * 1024) catch |err| {
             std.debug.print("Error reading {s}: {}\n", .{ file_path, err });

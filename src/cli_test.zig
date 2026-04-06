@@ -110,3 +110,57 @@ test "cli: check exit codes and json behavior" {
     try testing.expect(std.mem.startsWith(u8, invalid_json_post.stderr, "["));
     try testing.expect(!std.mem.containsAtLeast(u8, invalid_json_post.stderr, 1, "Type errors in"));
 }
+
+test "cli: fmt supports --check before and after file" {
+    const alloc = testing.allocator;
+    const bin_path = try buildCliBinary(alloc);
+    defer std.fs.cwd().deleteFile(bin_path) catch {};
+
+    const fmt_path = "/tmp/verve_cli_fmt.vv";
+    defer std.fs.cwd().deleteFile(fmt_path) catch {};
+
+    try std.fs.cwd().writeFile(.{
+        .sub_path = fmt_path,
+        .data =
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
+        \\        return 0;
+        \\    }
+        \\}
+        ,
+    });
+
+    const fmt_run = try runCli(alloc, bin_path, &.{ "fmt", fmt_path });
+    defer alloc.free(fmt_run.stdout);
+    defer alloc.free(fmt_run.stderr);
+    try testing.expectEqual(@as(u8, 0), fmt_run.exit);
+
+    const fmt_check_after = try runCli(alloc, bin_path, &.{ "fmt", fmt_path, "--check" });
+    defer alloc.free(fmt_check_after.stdout);
+    defer alloc.free(fmt_check_after.stderr);
+    try testing.expectEqual(@as(u8, 0), fmt_check_after.exit);
+
+    const fmt_check_before = try runCli(alloc, bin_path, &.{ "fmt", "--check", fmt_path });
+    defer alloc.free(fmt_check_before.stdout);
+    defer alloc.free(fmt_check_before.stderr);
+    try testing.expectEqual(@as(u8, 0), fmt_check_before.exit);
+}
+
+test "cli: test command succeeds on test file and fails on file with no tests" {
+    const alloc = testing.allocator;
+    const bin_path = try buildCliBinary(alloc);
+    defer std.fs.cwd().deleteFile(bin_path) catch {};
+
+    const ok = try runCli(alloc, bin_path, &.{ "test", "examples/tested.vv" });
+    defer alloc.free(ok.stdout);
+    defer alloc.free(ok.stderr);
+    try testing.expectEqual(@as(u8, 0), ok.exit);
+    try testing.expect(std.mem.containsAtLeast(u8, ok.stdout, 1, "12 passed, 0 failed"));
+
+    const no_tests = try runCli(alloc, bin_path, &.{ "test", "examples/math.vv" });
+    defer alloc.free(no_tests.stdout);
+    defer alloc.free(no_tests.stderr);
+    try testing.expectEqual(@as(u8, 1), no_tests.exit);
+    try testing.expectEqualStrings("", no_tests.stdout);
+    try testing.expect(std.mem.containsAtLeast(u8, no_tests.stderr, 1, "No test blocks found"));
+}
