@@ -985,6 +985,19 @@ pub fn verve_io_wait(fd: i64) void {
     process_table[idx].io_wait_fd = @intCast(fd);
 }
 
+fn resetProcessTestState() void {
+    process_count = 0;
+    current_process_id = 0;
+    dispatch_table = &.{};
+    process_table = &.{};
+    free_slots.items.len = 0;
+    pid_to_idx.clearRetainingCapacity();
+    next_pid_counter = 1;
+    thread_count = 0;
+    next_thread_idx = 0;
+    for (0..MAX_THREADS) |i| scheduler_threads[i] = null;
+}
+
 // ── Tests ─────────────────────────────────────────
 
 test "mailbox pop validates corrupted length" {
@@ -1043,4 +1056,48 @@ test "mailbox pop validates corrupted wrapped header length" {
     try std.testing.expectEqual(@as(usize, 0), mbox.head);
     try std.testing.expectEqual(@as(usize, 0), mbox.used);
     try std.testing.expectEqual(@as(usize, 0), mbox.count);
+}
+
+test "reused process slot resets mailbox watcher and send state" {
+    resetProcessTestState();
+    defer resetProcessTestState();
+
+    ensureProcessCapacity(1);
+    const pid1 = verve_spawn(7);
+    const idx1 = pidx(pid1);
+    const proc1 = &process_table[idx1];
+
+    const msg = [_]u8{ 0x01, 0x02, 0x03 };
+    try std.testing.expect(proc1.mailbox().push(&msg, msg.len));
+    current_process_id = 999;
+    verve_watch(pid1);
+    current_process_id = 0;
+    proc1.send_result = 42;
+    proc1.send_result_ready = true;
+    proc1.send_slot_owner = 77;
+    proc1.send_waiting = true;
+    proc1.send_deadline_ns = 12345;
+    proc1.timer_waiting = true;
+    proc1.timer_deadline_ns = 67890;
+    proc1.parent_pid = 321;
+
+    verve_kill(pid1);
+    const pid2 = verve_spawn(9);
+    const idx2 = pidx(pid2);
+    const proc2 = &process_table[idx2];
+
+    try std.testing.expectEqual(idx1, idx2);
+    try std.testing.expect(proc2.alive);
+    try std.testing.expectEqual(@as(usize, 0), proc2.mailbox().count);
+    try std.testing.expectEqual(@as(usize, 0), proc2.mailbox().used);
+    try std.testing.expectEqual(@as(usize, 0), if (proc2.watcher_ptr) |w| w.count else 0);
+    try std.testing.expectEqual(@as(usize, 0), proc2.send_result);
+    try std.testing.expectEqual(false, proc2.send_result_ready);
+    try std.testing.expectEqual(@as(usize, 0), proc2.send_slot_owner);
+    try std.testing.expectEqual(false, proc2.send_waiting);
+    try std.testing.expectEqual(@as(i128, 0), proc2.send_deadline_ns);
+    try std.testing.expectEqual(false, proc2.timer_waiting);
+    try std.testing.expectEqual(@as(i128, 0), proc2.timer_deadline_ns);
+    try std.testing.expectEqual(@as(usize, 0), proc2.parent_pid);
+    try std.testing.expectEqual(@as(usize, 9), proc2.process_type);
 }

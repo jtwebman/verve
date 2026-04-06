@@ -34,8 +34,8 @@ These are the highest-leverage tasks because they affect whether users can trust
 
 ### Test workflow correctness
 - [x] Fix `verve test` on bundled examples
-- [ ] Add regression tests for test-runner code generation
-- [ ] Add regression tests for CLI exit-code behavior
+- [x] Add regression tests for test-runner code generation
+- [x] Add regression tests for CLI exit-code behavior
 
 ## Priority 1 — Runtime Safety Story
 
@@ -53,14 +53,14 @@ These are the tasks required before "humans can trust it" is a fair claim.
 - [x] Add tests for collection boundary behavior under load
 
 ### Mailbox/process hardening
-- [ ] Review mailbox corruption handling and length-prefix validation
+- [x] Review mailbox corruption handling and length-prefix validation
 - [ ] Add more tests around mailbox full, process death, and cross-thread wake behavior
 - [ ] Define and implement user-visible watcher/death notification semantics for `watch`
-- [ ] Audit process lifecycle cleanup paths for stale state reuse
+- [x] Audit process lifecycle cleanup paths for stale state reuse
 
 ### Validation discipline
 - [x] Run compile tests in ReleaseSafe regularly, not just as an optional path
-- [ ] Add targeted runtime safety regression tests
+- [x] Add targeted runtime safety regression tests
 - [ ] Add fuzz/property-style testing for compiler/runtime invariants where practical
 
 ## Priority 2 — Checker And Compiler Credibility
