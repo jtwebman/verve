@@ -54,7 +54,7 @@ These are the tasks required before "humans can trust it" is a fair claim.
 
 ### Mailbox/process hardening
 - [x] Review mailbox corruption handling and length-prefix validation
-- [ ] Add more tests around mailbox full, process death, and cross-thread wake behavior
+- [x] Add more tests around mailbox full, process death, and cross-thread wake behavior
 - [ ] Define and implement user-visible watcher/death notification semantics for `watch`
 - [x] Audit process lifecycle cleanup paths for stale state reuse
 

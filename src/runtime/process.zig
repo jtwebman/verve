@@ -1101,3 +1101,25 @@ test "reused process slot resets mailbox watcher and send state" {
     try std.testing.expectEqual(@as(usize, 0), proc2.parent_pid);
     try std.testing.expectEqual(@as(usize, 9), proc2.process_type);
 }
+
+test "wakeThread signals scheduler wake fd" {
+    resetProcessTestState();
+    defer resetProcessTestState();
+
+    var thread = SchedulerThread.init(0, std.testing.allocator);
+    defer {
+        if (thread.wake_fd >= 0) std.posix.close(@intCast(thread.wake_fd));
+        if (thread.epoll_fd >= 0) std.posix.close(@intCast(thread.epoll_fd));
+    }
+
+    thread.initWakeFd();
+    try std.testing.expect(thread.wake_fd >= 0);
+    scheduler_threads[0] = &thread;
+
+    wakeThread(0);
+
+    var buf: [8]u8 = undefined;
+    const n = try std.posix.read(@intCast(thread.wake_fd), &buf);
+    try std.testing.expectEqual(@as(usize, 8), n);
+    try std.testing.expectEqual(@as(u64, 1), std.mem.bytesToValue(u64, &buf));
+}
