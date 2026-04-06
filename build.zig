@@ -64,6 +64,15 @@ pub fn build(b: *std.Build) void {
     });
     test_step.dependOn(&b.addRunArtifact(process_tests).step);
 
+    const stringbuilder_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/runtime/stringbuilder.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    test_step.dependOn(&b.addRunArtifact(stringbuilder_tests).step);
+
     // Compile pipeline tests (each invokes zig build-exe)
     // Run with: zig build test-compile
     const compile_test_step = b.step("test-compile", "Run compile pipeline tests");
