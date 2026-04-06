@@ -32,6 +32,7 @@ pub fn build(b: *std.Build) void {
         "src/test_parser_error.zig",
         "src/test_checker.zig",
         "src/test_ir.zig",
+        "src/test_examples_smoke.zig",
     };
     for (fast_tests) |file| {
         const t = b.addTest(.{
