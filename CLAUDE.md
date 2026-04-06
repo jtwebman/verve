@@ -14,7 +14,7 @@ Process-oriented language. Zig 0.15. See `LANGUAGE.md` for syntax and API refere
 
 ## Before every commit
 
-1. `/home/jt/.local/zig/zig fmt src/file.zig` on changed files
+1. `/home/jt/.local/zig/zig fmt src/file.zig` on changed files (also `src/test_*.zig` and `src/compile_test_*.zig`)
 2. `/home/jt/.local/zig/zig build`
 3. `/home/jt/.local/zig/zig build test` — fast tests pass
 4. `/home/jt/.local/zig/zig build test-compile` — compile tests pass

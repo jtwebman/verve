@@ -23,47 +23,26 @@ pub fn build(b: *std.Build) void {
         run_cmd.addArgs(args);
     }
 
+    // Fast tests — parser, checker, IR, runtime
+    // Run with: zig build test
     const test_step = b.step("test", "Run tests");
 
-    // Parser tests
-    const parser_tests = b.addTest(.{
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("src/parser_test.zig"),
-            .target = target,
-            .optimize = optimize,
-        }),
-    });
-    test_step.dependOn(&b.addRunArtifact(parser_tests).step);
-
-    // Parser error tests
-    const parser_error_tests = b.addTest(.{
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("src/parser_error_test.zig"),
-            .target = target,
-            .optimize = optimize,
-        }),
-    });
-    test_step.dependOn(&b.addRunArtifact(parser_error_tests).step);
-
-    // Checker tests
-    const checker_tests = b.addTest(.{
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("src/checker_test.zig"),
-            .target = target,
-            .optimize = optimize,
-        }),
-    });
-    test_step.dependOn(&b.addRunArtifact(checker_tests).step);
-
-    // IR-level tests (no backend needed)
-    const ir_tests = b.addTest(.{
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("src/ir_test.zig"),
-            .target = target,
-            .optimize = optimize,
-        }),
-    });
-    test_step.dependOn(&b.addRunArtifact(ir_tests).step);
+    const fast_tests = [_][]const u8{
+        "src/test_parser.zig",
+        "src/test_parser_error.zig",
+        "src/test_checker.zig",
+        "src/test_ir.zig",
+    };
+    for (fast_tests) |file| {
+        const t = b.addTest(.{
+            .root_module = b.createModule(.{
+                .root_source_file = b.path(file),
+                .target = target,
+                .optimize = optimize,
+            }),
+        });
+        test_step.dependOn(&b.addRunArtifact(t).step);
+    }
 
     // Runtime unit tests (List, sliceFromPair, Mailbox safety checks)
     const runtime_tests = b.addTest(.{
@@ -84,13 +63,17 @@ pub fn build(b: *std.Build) void {
     });
     test_step.dependOn(&b.addRunArtifact(process_tests).step);
 
-    // Compile pipeline tests (each invokes zig build-exe, ~7 min total)
+    // Compile pipeline tests (each invokes zig build-exe)
     // Run with: zig build test-compile
     const compile_test_step = b.step("test-compile", "Run compile pipeline tests");
     const compile_tests = [_][]const u8{
         "src/compile_test_basic.zig",
+        "src/compile_test_type.zig",
+        "src/compile_test_file.zig",
         "src/compile_test_string.zig",
         "src/compile_test_process.zig",
+        "src/compile_test_scheduler.zig",
+        "src/compile_test_env.zig",
         "src/compile_test_math.zig",
         "src/compile_test_json.zig",
     };

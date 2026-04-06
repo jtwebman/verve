@@ -303,7 +303,11 @@ Map indexing: `m["key"]` returns value or `none`. `.len` returns entry count.
 ### File
 | Function | Signature | Description |
 |----------|-----------|-------------|
-| `File.open(path, mode)` | `string, string -> Result<stream>` | Open file. mode: `"r"` or `"w"` |
+| `File.open(path, mode)` | `string, string -> Result<stream>` | Open file. mode: `"r"` (read) or `"w"` (write/create/truncate) |
+| `File.size(s)` | `stream -> int` | File size in bytes via fstat |
+| `File.seek(s, pos)` | `stream, int -> void` | Seek to byte position (absolute) |
+| `File.truncate(s, size)` | `stream, int -> void` | Truncate file to size bytes |
+| `File.fsync(s)` | `stream -> void` | Flush file data to disk |
 
 ### StringBuilder
 

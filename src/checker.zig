@@ -1289,6 +1289,10 @@ pub const Checker = struct {
 
     fn inferFileFn(self: *Checker, func: []const u8) ?ast.TypeExpr {
         if (std.mem.eql(u8, func, "open")) return self.makeResultType("stream");
+        if (std.mem.eql(u8, func, "size")) return .{ .simple = "int" };
+        if (std.mem.eql(u8, func, "seek") or
+            std.mem.eql(u8, func, "truncate") or
+            std.mem.eql(u8, func, "fsync")) return .{ .simple = "void" };
         return null;
     }
 

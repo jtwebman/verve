@@ -21,9 +21,6 @@ pub fn tcp_open(host: []const u8, port: i64) usize {
         .read_buf = undefined,
         .read_pos = 0,
         .read_len = 0,
-        .file_data = null,
-        .file_len = 0,
-        .file_pos = 0,
         .closed = false,
     };
     return rt.makeTagged(0, @intCast(s.streamPtr()));
@@ -59,9 +56,6 @@ pub fn tcp_listen(host: []const u8, port: i64) usize {
         .read_buf = undefined,
         .read_pos = 0,
         .read_len = 0,
-        .file_data = null,
-        .file_len = 0,
-        .file_pos = 0,
         .closed = false,
     };
     return rt.makeTagged(0, @intCast(s.streamPtr()));
@@ -104,11 +98,11 @@ fn popAcceptBuffer() ?std.posix.fd_t {
     return fd;
 }
 
-pub fn tcp_accept(listener_ptr: usize) usize {
+pub fn tcp_accept(listener_val: i64) usize {
     const t = rt.profile.begin();
     defer rt.profile.end(.accept, t);
 
-    const listener = io.toStream(listener_ptr) orelse return rt.makeTagged(1, 0);
+    const listener = io.toStreamFromI64(listener_val) orelse return rt.makeTagged(1, 0);
     if (listener.closed or listener.kind != .tcp_listener) return rt.makeTagged(1, 0);
 
     // Try the pre-accept buffer first
@@ -144,9 +138,6 @@ fn wrapClientFd(client_fd: std.posix.fd_t) usize {
         .read_buf = undefined,
         .read_pos = 0,
         .read_len = 0,
-        .file_data = null,
-        .file_len = 0,
-        .file_pos = 0,
         .closed = false,
     };
     return rt.makeTagged(0, @intCast(s.streamPtr()));
@@ -158,8 +149,8 @@ fn setNonBlocking(fd: std.posix.fd_t) void {
 }
 
 /// Get the local port of a listener socket. Useful after listen with port 0.
-pub fn tcp_port(stream_ptr: usize) i64 {
-    const s = io.toStream(stream_ptr) orelse return 0;
+pub fn tcp_port(stream_val: i64) i64 {
+    const s = io.toStreamFromI64(stream_val) orelse return 0;
     if (s.kind != .tcp_listener and s.kind != .tcp_client) return 0;
     var addr: std.posix.sockaddr.in = undefined;
     var addr_len: std.posix.socklen_t = @sizeOf(std.posix.sockaddr.in);

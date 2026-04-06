@@ -118,31 +118,35 @@ pub fn http_parse_request(data: []const u8) usize {
     return @intFromPtr(req);
 }
 
+fn ptrFromI64(val: i64) usize {
+    return @intCast(@as(u64, @bitCast(val)));
+}
+
 pub fn toHttpReq(ptr: usize) ?*HttpRequest {
     if (ptr == 0) return null;
     return @as(*HttpRequest, @ptrFromInt(ptr));
 }
 
-pub fn http_req_method(req_ptr: usize) []const u8 {
-    const req = toHttpReq(req_ptr) orelse return "";
+pub fn http_req_method(req_val: i64) []const u8 {
+    const req = toHttpReq(ptrFromI64(req_val)) orelse return "";
     return req.src[req.method_start .. req.method_start + req.method_len];
 }
 
-pub fn http_req_path(req_ptr: usize) []const u8 {
-    const req = toHttpReq(req_ptr) orelse return "";
+pub fn http_req_path(req_val: i64) []const u8 {
+    const req = toHttpReq(ptrFromI64(req_val)) orelse return "";
     return req.src[req.path_start .. req.path_start + req.path_len];
 }
 
-pub fn http_req_body(req_ptr: usize) []const u8 {
-    const req = toHttpReq(req_ptr) orelse return "";
+pub fn http_req_body(req_val: i64) []const u8 {
+    const req = toHttpReq(ptrFromI64(req_val)) orelse return "";
     req.ensureHeadersParsed();
     if (req.body_len == 0) return "";
     return req.src[req.body_start .. req.body_start + req.body_len];
 }
 
 /// Find a header value by name (case-insensitive). Returns []const u8.
-pub fn http_req_header(req_ptr: usize, name: []const u8) []const u8 {
-    const req = toHttpReq(req_ptr) orelse return "";
+pub fn http_req_header(req_val: i64, name: []const u8) []const u8 {
+    const req = toHttpReq(ptrFromI64(req_val)) orelse return "";
     req.ensureHeadersParsed();
     const headers = req.src[req.headers_start..req.headers_end];
 
@@ -185,11 +189,11 @@ pub fn http_req_header(req_ptr: usize, name: []const u8) []const u8 {
 /// Returns the raw request bytes, or "" on connection close / error.
 /// Non-blocking on subsequent calls: if no data is buffered or ready, returns ""
 /// immediately so the handler can yield back to the scheduler.
-pub fn http_read_request(stream_ptr: usize) []const u8 {
+pub fn http_read_request(stream_val: i64) []const u8 {
     const t = rt.profile.begin();
     defer rt.profile.end(.read, t);
 
-    const s = io.toStream(stream_ptr) orelse return "";
+    const s = io.toStreamFromI64(stream_val) orelse return "";
     if (s.closed) return "";
 
     // Fast path: check if stream buffer already has data (pipelined request)
@@ -466,9 +470,6 @@ const ServeThread = struct {
                         .read_buf = undefined,
                         .read_pos = 0,
                         .read_len = 0,
-                        .file_data = null,
-                        .file_len = 0,
-                        .file_pos = 0,
                         .closed = false,
                     },
                     .active = true,
@@ -594,8 +595,8 @@ fn serveThreadEntry(thread: *ServeThread) void {
 /// Handler processes receive (req_ptr, stream_ptr) and write responses directly.
 ///
 /// Args: listener_ptr, handler_process_type, handler_index
-pub fn http_serve(listener_ptr: usize, handler_type_i: i64, handler_index_i: i64) i64 {
-    const listener = io.toStream(listener_ptr) orelse return -1;
+pub fn http_serve(listener_val: i64, handler_type_i: i64, handler_index_i: i64) i64 {
+    const listener = io.toStreamFromI64(listener_val) orelse return -1;
     if (listener.closed) return -1;
 
     const handler_type: usize = @intCast(@as(u64, @bitCast(handler_type_i)));
@@ -1175,23 +1176,26 @@ fn httpClientRequestTls(method_str: []const u8, url: []const u8, body: []const u
 }
 
 /// Http.resp_status(resp) → int
-pub fn http_resp_status(resp_ptr: usize) i64 {
-    if (resp_ptr == 0) return 0;
-    const resp: *const HttpResponse = @ptrFromInt(resp_ptr);
+pub fn http_resp_status(resp_val: i64) i64 {
+    const ptr = ptrFromI64(resp_val);
+    if (ptr == 0) return 0;
+    const resp: *const HttpResponse = @ptrFromInt(ptr);
     return resp.status;
 }
 
 /// Http.resp_body(resp) → string
-pub fn http_resp_body(resp_ptr: usize) []const u8 {
-    if (resp_ptr == 0) return "";
-    const resp: *const HttpResponse = @ptrFromInt(resp_ptr);
+pub fn http_resp_body(resp_val: i64) []const u8 {
+    const ptr = ptrFromI64(resp_val);
+    if (ptr == 0) return "";
+    const resp: *const HttpResponse = @ptrFromInt(ptr);
     if (resp.raw_len <= resp.header_end) return "";
     return resp.raw[resp.header_end..resp.raw_len];
 }
 
 /// Http.resp_header(resp, name) → string (case-insensitive)
-pub fn http_resp_header(resp_ptr: usize, name: []const u8) []const u8 {
-    if (resp_ptr == 0) return "";
-    const resp: *const HttpResponse = @ptrFromInt(resp_ptr);
+pub fn http_resp_header(resp_val: i64, name: []const u8) []const u8 {
+    const ptr = ptrFromI64(resp_val);
+    if (ptr == 0) return "";
+    const resp: *const HttpResponse = @ptrFromInt(ptr);
     return clientFindHeader(resp, name);
 }

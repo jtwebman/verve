@@ -323,6 +323,8 @@ pub const ZigBackend = struct {
         void_result: bool = false,
         /// Return type for register type tracking
         returns: RegType = .int,
+        /// If true, wrap first arg with @as(i64, @intCast(...)) to handle usize/i64 mismatch
+        cast_first_arg: bool = false,
     };
 
     const S = BuiltinSpec;
@@ -375,39 +377,43 @@ pub const ZigBackend = struct {
         .{ "system_exit", S{ .min_args = 1 } },
         .{ "system_time_ms", S{} },
         // ── Stream ──────────────────────────────────
-        .{ "stream_read_line", S{ .module = "io", .min_args = 1, .returns = .string } },
-        .{ "stream_read_bytes", S{ .module = "io", .min_args = 2, .returns = .string } },
-        .{ "stream_read_all", S{ .module = "io", .rt_name = "streamReadAll", .min_args = 1, .returns = .string } },
-        .{ "stream_write", S{ .module = "io", .min_args = 2, .void_result = true } },
-        .{ "stream_write_line", S{ .module = "io", .min_args = 2, .void_result = true } },
-        .{ "stream_close", S{ .module = "io", .min_args = 1, .void_result = true } },
+        .{ "stream_read_line", S{ .module = "io", .min_args = 1, .returns = .string, .cast_first_arg = true } },
+        .{ "stream_read_bytes", S{ .module = "io", .min_args = 2, .returns = .string, .cast_first_arg = true } },
+        .{ "stream_read_all", S{ .module = "io", .min_args = 1, .returns = .string, .cast_first_arg = true } },
+        .{ "stream_write", S{ .module = "io", .min_args = 2, .void_result = true, .cast_first_arg = true } },
+        .{ "stream_write_line", S{ .module = "io", .min_args = 2, .void_result = true, .cast_first_arg = true } },
+        .{ "stream_close", S{ .module = "io", .min_args = 1, .void_result = true, .cast_first_arg = true } },
         // ── File ────────────────────────────────────
-        .{ "file_open", S{ .module = "io", .rt_name = "fileOpen", .min_args = 1, .returns = .pointer } },
+        .{ "file_open", S{ .module = "io", .rt_name = "fileOpen", .min_args = 2, .returns = .pointer } },
+        .{ "file_size", S{ .module = "io", .min_args = 1, .cast_first_arg = true } },
+        .{ "file_seek", S{ .module = "io", .min_args = 2, .void_result = true, .cast_first_arg = true } },
+        .{ "file_truncate", S{ .module = "io", .min_args = 2, .void_result = true, .cast_first_arg = true } },
+        .{ "file_fsync", S{ .module = "io", .min_args = 1, .void_result = true, .cast_first_arg = true } },
         // ── TCP ─────────────────────────────────────
         .{ "tcp_open", S{ .module = "tcp", .min_args = 2, .returns = .pointer } },
         .{ "tcp_listen", S{ .module = "tcp", .min_args = 2, .returns = .pointer } },
-        .{ "tcp_accept", S{ .module = "tcp", .min_args = 1, .returns = .pointer } },
-        .{ "tcp_port", S{ .module = "tcp", .min_args = 1 } },
+        .{ "tcp_accept", S{ .module = "tcp", .min_args = 1, .returns = .pointer, .cast_first_arg = true } },
+        .{ "tcp_port", S{ .module = "tcp", .min_args = 1, .cast_first_arg = true } },
         // ── HTTP ────────────────────────────────────
         .{ "http_parse_request", S{ .module = "http", .min_args = 1, .returns = .pointer } },
-        .{ "http_read_request", S{ .module = "http", .min_args = 1, .returns = .string } },
+        .{ "http_read_request", S{ .module = "http", .min_args = 1, .returns = .string, .cast_first_arg = true } },
         .{ "http_set_timeout", S{ .module = "http", .min_args = 1 } },
         .{ "http_set_max_header_size", S{ .module = "http", .min_args = 1 } },
         .{ "http_set_max_body_size", S{ .module = "http", .min_args = 1 } },
-        .{ "http_req_method", S{ .module = "http", .min_args = 1, .returns = .string } },
-        .{ "http_req_path", S{ .module = "http", .min_args = 1, .returns = .string } },
-        .{ "http_req_body", S{ .module = "http", .min_args = 1, .returns = .string } },
-        .{ "http_req_header", S{ .module = "http", .min_args = 2, .returns = .string } },
-        .{ "http_serve", S{ .module = "http", .min_args = 3 } },
+        .{ "http_req_method", S{ .module = "http", .min_args = 1, .returns = .string, .cast_first_arg = true } },
+        .{ "http_req_path", S{ .module = "http", .min_args = 1, .returns = .string, .cast_first_arg = true } },
+        .{ "http_req_body", S{ .module = "http", .min_args = 1, .returns = .string, .cast_first_arg = true } },
+        .{ "http_req_header", S{ .module = "http", .min_args = 2, .returns = .string, .cast_first_arg = true } },
+        .{ "http_serve", S{ .module = "http", .min_args = 3, .cast_first_arg = true } },
         .{ "http_build_response", S{ .module = "http", .min_args = 3, .returns = .string } },
         .{ "http_build_response_chunked", S{ .module = "http", .min_args = 3, .returns = .string } },
         // ── HTTP Client ─────────────────────────────
         .{ "http_client_get", S{ .module = "http", .min_args = 1, .returns = .pointer } },
         .{ "http_client_post", S{ .module = "http", .min_args = 2, .returns = .pointer } },
         .{ "http_client_request", S{ .module = "http", .min_args = 3, .returns = .pointer } },
-        .{ "http_resp_status", S{ .module = "http", .min_args = 1 } },
-        .{ "http_resp_body", S{ .module = "http", .min_args = 1, .returns = .string } },
-        .{ "http_resp_header", S{ .module = "http", .min_args = 2, .returns = .string } },
+        .{ "http_resp_status", S{ .module = "http", .min_args = 1, .cast_first_arg = true } },
+        .{ "http_resp_body", S{ .module = "http", .min_args = 1, .returns = .string, .cast_first_arg = true } },
+        .{ "http_resp_header", S{ .module = "http", .min_args = 2, .returns = .string, .cast_first_arg = true } },
         .{ "http_set_client_timeout", S{ .module = "http", .min_args = 1 } },
         // ── JSON ────────────────────────────────────
         .{ "json_get_string", S{ .module = "json", .min_args = 2, .returns = .string } },
@@ -433,13 +439,13 @@ pub const ZigBackend = struct {
         .{ "timer_sleep", S{ .module = "process", .rt_name = "verve_timer_sleep", .min_args = 1, .void_result = true } },
         // ── StringBuilder ───────────────────────────
         .{ "sb_new", S{ .module = "stringbuilder", .rt_name = "verve_sb_new", .min_args = 1, .returns = .pointer } },
-        .{ "sb_write", S{ .module = "stringbuilder", .rt_name = "verve_sb_append", .min_args = 2, .void_result = true } },
-        .{ "sb_write_int", S{ .module = "stringbuilder", .rt_name = "verve_sb_append_int", .min_args = 2, .void_result = true } },
-        .{ "sb_write_float", S{ .module = "stringbuilder", .rt_name = "verve_sb_append_float", .min_args = 2, .void_result = true } },
+        .{ "sb_write", S{ .module = "stringbuilder", .rt_name = "verve_sb_append", .min_args = 2, .void_result = true, .cast_first_arg = true } },
+        .{ "sb_write_int", S{ .module = "stringbuilder", .rt_name = "verve_sb_append_int", .min_args = 2, .void_result = true, .cast_first_arg = true } },
+        .{ "sb_write_float", S{ .module = "stringbuilder", .rt_name = "verve_sb_append_float", .min_args = 2, .void_result = true, .cast_first_arg = true } },
         .{ "sb_write_bool", S{ .module = "stringbuilder", .rt_name = "!", .min_args = 2, .void_result = true } },
-        .{ "sb_to_string", S{ .module = "stringbuilder", .rt_name = "verve_sb_to_string", .min_args = 1, .returns = .string } },
-        .{ "sb_len", S{ .module = "stringbuilder", .rt_name = "verve_sb_len", .min_args = 1 } },
-        .{ "sb_clear", S{ .module = "stringbuilder", .rt_name = "verve_sb_clear", .min_args = 1, .void_result = true } },
+        .{ "sb_to_string", S{ .module = "stringbuilder", .rt_name = "verve_sb_to_string", .min_args = 1, .returns = .string, .cast_first_arg = true } },
+        .{ "sb_len", S{ .module = "stringbuilder", .rt_name = "verve_sb_len", .min_args = 1, .cast_first_arg = true } },
+        .{ "sb_clear", S{ .module = "stringbuilder", .rt_name = "verve_sb_clear", .min_args = 1, .void_result = true, .cast_first_arg = true } },
         // ── Tags / Process ──────────────────────────
         .{ "make_tagged", S{ .rt_name = "!", .min_args = 2, .returns = .pointer } },
         .{ "process_exit", S{ .module = "process", .rt_name = "!", .void_result = true } },
@@ -1508,7 +1514,11 @@ pub const ZigBackend = struct {
             }
             for (args[0..spec.min_args], 0..) |arg, i| {
                 if (i > 0) self.write(", ");
-                self.write(self.regName(arg));
+                if (i == 0 and spec.cast_first_arg) {
+                    self.writeFmt("@as(i64, @intCast({s}))", .{self.regName(arg)});
+                } else {
+                    self.write(self.regName(arg));
+                }
             }
             self.write(");\n");
         }
@@ -1589,7 +1599,7 @@ pub const ZigBackend = struct {
             self.lineFmt("{s} = 0;", .{self.regName(dest)});
         } else if (std.mem.eql(u8, name, "sb_write_bool")) {
             if (args.len >= 2) {
-                self.lineFmt("rt.stringbuilder.verve_sb_append({s}, if ({s}) \"true\" else \"false\");", .{ self.regName(args[0]), self.regName(args[1]) });
+                self.lineFmt("rt.stringbuilder.verve_sb_append(@as(i64, @intCast({s})), if ({s}) \"true\" else \"false\");", .{ self.regName(args[0]), self.regName(args[1]) });
             }
             self.lineFmt("{s} = 0;", .{self.regName(dest)});
         } else if (std.mem.eql(u8, name, "process_exit")) {

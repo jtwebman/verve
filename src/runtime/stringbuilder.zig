@@ -26,9 +26,9 @@ const StringBuilder = struct {
 
     fn appendBytes(self: *StringBuilder, data: []const u8) void {
         if (data.len == 0) return;
-        if (self.cap == 0) return; // alloc failed
+        if (self.cap == 0) return;
         self.ensureCapacity(data.len);
-        if (self.len + data.len > self.cap) return; // grow failed
+        if (self.len + data.len > self.cap) return;
         @memcpy(self.buffer[self.len .. self.len + data.len], data);
         self.len += data.len;
     }
@@ -39,6 +39,12 @@ const StringBuilder = struct {
     }
 };
 
+fn sbFromI64(val: i64) ?*StringBuilder {
+    const ptr: usize = @intCast(@as(u64, @bitCast(val)));
+    if (ptr == 0) return null;
+    return @as(*StringBuilder, @ptrFromInt(ptr));
+}
+
 pub fn verve_sb_new(cap: i64) usize {
     const raw = rt.arena_alloc(@sizeOf(StringBuilder)) orelse return 0;
     const sb: *StringBuilder = @ptrCast(@alignCast(raw));
@@ -47,42 +53,38 @@ pub fn verve_sb_new(cap: i64) usize {
     return @intFromPtr(sb);
 }
 
-pub fn verve_sb_append(ptr: usize, data: []const u8) void {
-    if (ptr == 0) return;
-    const sb: *StringBuilder = @ptrFromInt(ptr);
+pub fn verve_sb_append(sb_val: i64, data: []const u8) void {
+    const sb = sbFromI64(sb_val) orelse return;
     sb.appendBytes(data);
 }
 
-pub fn verve_sb_append_int(ptr: usize, val: i64) void {
-    if (ptr == 0) return;
-    const sb: *StringBuilder = @ptrFromInt(ptr);
+pub fn verve_sb_append_int(sb_val: i64, val: i64) void {
+    const sb = sbFromI64(sb_val) orelse return;
     var buf: [32]u8 = undefined;
     const s = std.fmt.bufPrint(&buf, "{d}", .{val}) catch return;
     sb.appendBytes(s);
 }
 
-pub fn verve_sb_append_float(ptr: usize, val: f64) void {
-    if (ptr == 0) return;
-    const sb: *StringBuilder = @ptrFromInt(ptr);
+pub fn verve_sb_append_float(sb_val: i64, val: f64) void {
+    const sb = sbFromI64(sb_val) orelse return;
     var buf: [64]u8 = undefined;
     const s = std.fmt.bufPrint(&buf, "{d}", .{val}) catch return;
     sb.appendBytes(s);
 }
 
-pub fn verve_sb_to_string(ptr: usize) []const u8 {
-    if (ptr == 0) return "";
-    const sb: *const StringBuilder = @ptrFromInt(ptr);
+pub fn verve_sb_to_string(sb_val: i64) []const u8 {
+    const sb_ptr = sbFromI64(sb_val) orelse return "";
+    const sb: *const StringBuilder = sb_ptr;
     return sb.toSlice();
 }
 
-pub fn verve_sb_len(ptr: usize) i64 {
-    if (ptr == 0) return 0;
-    const sb: *const StringBuilder = @ptrFromInt(ptr);
+pub fn verve_sb_len(sb_val: i64) i64 {
+    const sb_ptr = sbFromI64(sb_val) orelse return 0;
+    const sb: *const StringBuilder = sb_ptr;
     return @intCast(sb.len);
 }
 
-pub fn verve_sb_clear(ptr: usize) void {
-    if (ptr == 0) return;
-    const sb: *StringBuilder = @ptrFromInt(ptr);
+pub fn verve_sb_clear(sb_val: i64) void {
+    const sb = sbFromI64(sb_val) orelse return;
     sb.len = 0;
 }
