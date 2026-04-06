@@ -52,11 +52,23 @@ pub fn verve_runtime_init() void {
 }
 
 const MAX_SLICE_LEN: usize = 16 * 1024 * 1024; // 16MB — arena max
+const MIN_VALID_PTR: usize = 4096;
+
+fn isLikelyValidPtr(ptr_val: usize) bool {
+    return ptr_val >= MIN_VALID_PTR;
+}
+
+pub fn runtimeFail(msg: []const u8) noreturn {
+    _ = std.posix.write(std.posix.STDERR_FILENO, msg) catch 0;
+    _ = std.posix.write(std.posix.STDERR_FILENO, "\n") catch 0;
+    std.process.exit(1);
+}
 
 /// Convert (ptr, len) pair back to []const u8 — used at struct boundaries.
 pub fn sliceFromPair(ptr_val: usize, len_val: usize) []const u8 {
     if (ptr_val == 0 or len_val == 0) return "";
     if (len_val > MAX_SLICE_LEN) return "";
+    if (!isLikelyValidPtr(ptr_val)) return "";
     return @as([*]const u8, @ptrFromInt(ptr_val))[0..len_val];
 }
 
@@ -93,11 +105,18 @@ pub fn makeTaggedStr(tag: i64, s: []const u8) usize {
 
 /// Recover a string slice from a tagged value created via makeTaggedStr.
 pub fn getTagStr(ptr: usize) []const u8 {
+    if (ptr == 0 or !isLikelyValidPtr(ptr)) return "";
     const val = getTagValue(ptr);
     if (val == 0) return "";
+    const meta_ptr: usize = @intCast(@as(u64, @bitCast(val)));
+    if (!isLikelyValidPtr(meta_ptr)) return "";
     const SliceMeta = struct { ptr: [*]const u8, len: usize };
-    const meta = @as(*const SliceMeta, @ptrFromInt(@as(usize, @intCast(@as(u64, @bitCast(val))))));
-    return meta.ptr[0..meta.len];
+    const meta = @as(*const SliceMeta, @ptrFromInt(meta_ptr));
+    if (meta.len > MAX_SLICE_LEN) return "";
+    if (meta.len == 0) return "";
+    const raw_ptr = @intFromPtr(meta.ptr);
+    if (!isLikelyValidPtr(raw_ptr)) return "";
+    return sliceFromPair(raw_ptr, meta.len);
 }
 
 // ── Collections ────────────────────────────────────
@@ -113,18 +132,34 @@ pub const List = struct {
         return .{ .items = mem, .len = 0, .cap = 256 };
     }
 
-    pub fn append(self: *List, val: i64) void {
-        if (self.len >= self.cap) return;
+    pub fn tryAppend(self: *List, val: i64) !void {
+        if (self.cap == 0 or !isLikelyValidPtr(@intFromPtr(self.items))) return error.ListUninitialized;
+        if (self.len >= self.cap) return error.ListCapacityExceeded;
         const idx: usize = @intCast(@as(u64, @bitCast(self.len)));
         self.items[idx] = val;
         self.len += 1;
     }
 
-    pub fn appendPtr(self: *List, val: usize) void {
-        if (self.len >= self.cap) return;
+    pub fn append(self: *List, val: i64) void {
+        self.tryAppend(val) catch |err| switch (err) {
+            error.ListUninitialized => runtimeFail("Verve runtime error: list append on uninitialized list"),
+            error.ListCapacityExceeded => runtimeFail("Verve runtime error: list capacity exceeded"),
+        };
+    }
+
+    pub fn tryAppendPtr(self: *List, val: usize) !void {
+        if (self.cap == 0 or !isLikelyValidPtr(@intFromPtr(self.items))) return error.ListUninitialized;
+        if (self.len >= self.cap) return error.ListCapacityExceeded;
         const idx: usize = @intCast(@as(u64, @bitCast(self.len)));
         self.items[idx] = @intCast(val);
         self.len += 1;
+    }
+
+    pub fn appendPtr(self: *List, val: usize) void {
+        self.tryAppendPtr(val) catch |err| switch (err) {
+            error.ListUninitialized => runtimeFail("Verve runtime error: list append on uninitialized list"),
+            error.ListCapacityExceeded => runtimeFail("Verve runtime error: list capacity exceeded"),
+        };
     }
 
     pub fn get(self: *const List, idx: i64) i64 {
@@ -331,31 +366,37 @@ pub fn arena_alloc(size: usize) ?[*]u8 {
 
 // ── Tests ─────────────────────────────────────────
 
-test "list append respects capacity" {
+test "list tryAppend rejects capacity overflow" {
     var list = List.init();
-    // Fill to capacity
     for (0..256) |i| {
-        list.append(@intCast(i));
+        try list.tryAppend(@intCast(i));
     }
     try std.testing.expectEqual(@as(i64, 256), list.len);
-    // Append past capacity — should be silently dropped
-    list.append(999);
-    try std.testing.expectEqual(@as(i64, 256), list.len);
+    try std.testing.expectError(error.ListCapacityExceeded, list.tryAppend(999));
 }
 
-test "list appendPtr respects capacity" {
+test "list tryAppendPtr rejects capacity overflow" {
     var list = List.init();
     for (0..256) |i| {
-        list.appendPtr(i);
+        try list.tryAppendPtr(i);
     }
     try std.testing.expectEqual(@as(i64, 256), list.len);
-    list.appendPtr(999);
-    try std.testing.expectEqual(@as(i64, 256), list.len);
+    try std.testing.expectError(error.ListCapacityExceeded, list.tryAppendPtr(999));
+}
+
+test "list tryAppend rejects uninitialized list" {
+    var list = List{ .items = undefined, .len = 0, .cap = 0 };
+    try std.testing.expectError(error.ListUninitialized, list.tryAppend(1));
+}
+
+test "list tryAppendPtr rejects uninitialized list" {
+    var list = List{ .items = undefined, .len = 0, .cap = 0 };
+    try std.testing.expectError(error.ListUninitialized, list.tryAppendPtr(1));
 }
 
 test "list get out of bounds returns poison" {
     var list = List.init();
-    list.append(42);
+    try list.tryAppend(42);
     // Valid access
     try std.testing.expectEqual(@as(i64, 42), list.get(0));
     // Negative index
@@ -378,4 +419,36 @@ test "sliceFromPair zero len returns empty" {
 test "sliceFromPair huge len returns empty" {
     const s = sliceFromPair(0xDEAD, MAX_SLICE_LEN + 1);
     try std.testing.expectEqual(@as(usize, 0), s.len);
+}
+
+test "sliceFromPair low ptr returns empty" {
+    const s = sliceFromPair(8, 4);
+    try std.testing.expectEqual(@as(usize, 0), s.len);
+}
+
+test "getTagStr invalid outer ptr returns empty" {
+    const s = getTagStr(8);
+    try std.testing.expectEqual(@as(usize, 0), s.len);
+}
+
+test "getTagStr invalid metadata ptr returns empty" {
+    const tagged = makeTagged(0, 8);
+    const s = getTagStr(tagged);
+    try std.testing.expectEqual(@as(usize, 0), s.len);
+}
+
+test "getTagStr huge metadata len returns empty" {
+    const SliceMeta = struct { ptr: [*]const u8, len: usize };
+    const raw = arena_alloc(@sizeOf(SliceMeta)) orelse return error.OutOfMemory;
+    const meta = @as(*SliceMeta, @ptrCast(@alignCast(raw)));
+    meta.* = .{ .ptr = "abc".ptr, .len = MAX_SLICE_LEN + 1 };
+    const tagged = makeTagged(0, @intCast(@intFromPtr(meta)));
+    const s = getTagStr(tagged);
+    try std.testing.expectEqual(@as(usize, 0), s.len);
+}
+
+test "getTagStr roundtrip returns original string" {
+    const tagged = makeTaggedStr(0, "hello");
+    const s = getTagStr(tagged);
+    try std.testing.expectEqualStrings("hello", s);
 }

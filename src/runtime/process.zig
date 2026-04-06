@@ -90,7 +90,7 @@ pub const VerveProcess = struct {
     /// Get or create mailbox (lazy allocation).
     pub fn mailbox(self: *VerveProcess) *Mailbox {
         if (self.mailbox_ptr) |m| return m;
-        const m = std.heap.page_allocator.create(Mailbox) catch @panic("OOM: mailbox");
+        const m = std.heap.page_allocator.create(Mailbox) catch rt.runtimeFail("Verve runtime error: out of memory allocating mailbox");
         m.* = .{};
         self.mailbox_ptr = m;
         return m;
@@ -99,7 +99,7 @@ pub const VerveProcess = struct {
     /// Get or create arena (lazy allocation).
     pub fn arena(self: *VerveProcess) *rt.Arena {
         if (self.arena_ptr) |a| return a;
-        const a = std.heap.page_allocator.create(rt.Arena) catch @panic("OOM: arena");
+        const a = std.heap.page_allocator.create(rt.Arena) catch rt.runtimeFail("Verve runtime error: out of memory allocating arena");
         a.* = .{};
         self.arena_ptr = a;
         return a;
@@ -205,7 +205,7 @@ pub const SchedulerThread = struct {
     }
 
     pub fn addProcess(self: *SchedulerThread, pid: usize) void {
-        self.local_pids.append(self.alloc, pid) catch {};
+        self.local_pids.append(self.alloc, pid) catch rt.runtimeFail("Verve runtime error: out of memory growing scheduler pid list");
     }
 
     pub fn removeProcess(self: *SchedulerThread, pid: usize) void {
@@ -237,8 +237,8 @@ var next_thread_idx: usize = 0; // round-robin assignment
 pub fn ensureProcessCapacity(min_count: usize) void {
     if (min_count <= process_table.len) return;
     const new_cap = @max(min_count, if (process_table.len == 0) rt.MAX_PROCESSES else process_table.len * 2);
-    const new_table = std.heap.page_allocator.alloc(VerveProcess, new_cap) catch return;
-    const new_dispatch = std.heap.page_allocator.alloc(DispatchFn, new_cap) catch return;
+    const new_table = std.heap.page_allocator.alloc(VerveProcess, new_cap) catch rt.runtimeFail("Verve runtime error: out of memory growing process table");
+    const new_dispatch = std.heap.page_allocator.alloc(DispatchFn, new_cap) catch rt.runtimeFail("Verve runtime error: out of memory growing dispatch table");
     // Copy existing
     if (process_table.len > 0) {
         @memcpy(new_table[0..process_table.len], process_table);
@@ -295,7 +295,7 @@ pub fn verve_spawn(process_type: usize) usize {
     // Monotonic PID: pack as (node_id=0 << 36) | next_pid_counter
     const pid = packPid(0, next_pid_counter);
     next_pid_counter += 1;
-    pid_to_idx.put(std.heap.page_allocator, pid, idx) catch {};
+    pid_to_idx.put(std.heap.page_allocator, pid, idx) catch rt.runtimeFail("Verve runtime error: out of memory indexing process table");
 
     // Reset process fields without reinitializing the 64KB mailbox buffer
     const proc = &process_table[idx];
@@ -351,7 +351,7 @@ pub fn verve_watch(target_pid: usize) void {
     const proc = &process_table[idx];
     // Lazy alloc watcher list
     if (proc.watcher_ptr == null) {
-        proc.watcher_ptr = std.heap.page_allocator.create(WatcherList) catch return;
+        proc.watcher_ptr = std.heap.page_allocator.create(WatcherList) catch rt.runtimeFail("Verve runtime error: out of memory allocating watcher list");
         proc.watcher_ptr.?.* = .{};
     }
     const w = proc.watcher_ptr.?;
@@ -393,7 +393,7 @@ fn kill_tree(pid: usize) void {
             kill_tree(p.id);
         }
     }
-    free_slots.append(std.heap.page_allocator, idx) catch {};
+    free_slots.append(std.heap.page_allocator, idx) catch rt.runtimeFail("Verve runtime error: out of memory recording free process slot");
     _ = pid_to_idx.remove(pid);
 }
 
