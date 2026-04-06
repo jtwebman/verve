@@ -68,6 +68,7 @@ pub fn build(b: *std.Build) void {
     // Run with: zig build test-compile
     const compile_test_step = b.step("test-compile", "Run compile pipeline tests");
     const compile_tests = [_][]const u8{
+        "src/cli_test.zig",
         "src/compile_test_basic.zig",
         "src/compile_test_type.zig",
         "src/compile_test_file.zig",
