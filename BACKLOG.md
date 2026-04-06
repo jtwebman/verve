@@ -30,7 +30,7 @@ These are the highest-leverage tasks because they affect whether users can trust
 ### Example correctness
 - [x] Every example in `examples/` passes the workflow it is meant to demonstrate
 - [x] README example matches current language syntax and current compiler behavior
-- [ ] Remove or fix any example that needs caveats to compile or run
+- [x] Remove or fix any example that needs caveats to compile or run
 
 ### Test workflow correctness
 - [x] Fix `verve test` on bundled examples

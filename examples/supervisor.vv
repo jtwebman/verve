@@ -21,10 +21,8 @@ struct AppState {
 
 process App<AppState> {
 	receive main(state: AppState) -> int {
-		// Spawn a worker. Watch registration exists, but user-visible death
-		// notifications are not surfaced yet.
+		// Spawn a worker and supervise it through explicit requests.
 		worker: pid<Worker> = spawn Worker();
-		watch worker;
 
 		// Send some messages to the worker
 		match Process.send(worker.SetValue, 42) {
