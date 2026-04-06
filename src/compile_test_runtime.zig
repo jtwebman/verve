@@ -102,3 +102,43 @@ test "compile: stack push overflow fails fast" {
     try testing.expectEqualStrings("", r.stdout);
     try testing.expect(std.mem.indexOf(u8, r.stderr, "Verve runtime error: list capacity exceeded") != null);
 }
+
+test "compile: stack push and pop are LIFO" {
+    const r = try compileAndCaptureIO(
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
+        \\        xs: stack<int> = stack();
+        \\        Stack.push(xs, 10);
+        \\        Stack.push(xs, 20);
+        \\        Stack.push(xs, 30);
+        \\        Stdio.println(Stack.pop(xs));
+        \\        Stdio.println(Stack.pop(xs));
+        \\        Stdio.println(Stack.pop(xs));
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("30\n20\n10\n", r.stdout);
+    try testing.expectEqualStrings("", r.stderr);
+}
+
+test "compile: queue push and pop are FIFO" {
+    const r = try compileAndCaptureIO(
+        \\process App {
+        \\    receive main(args: list<string>) -> int {
+        \\        xs: queue<int> = queue();
+        \\        Queue.push(xs, 10);
+        \\        Queue.push(xs, 20);
+        \\        Queue.push(xs, 30);
+        \\        Stdio.println(Queue.pop(xs));
+        \\        Stdio.println(Queue.pop(xs));
+        \\        Stdio.println(Queue.pop(xs));
+        \\        return 0;
+        \\    }
+        \\}
+    );
+    try testing.expectEqual(@as(u8, 0), r.exit);
+    try testing.expectEqualStrings("10\n20\n30\n", r.stdout);
+    try testing.expectEqualStrings("", r.stderr);
+}
