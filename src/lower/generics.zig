@@ -9,16 +9,37 @@ pub fn monomorphKey(self: *Lower, base_name: []const u8, type_args: []const ast.
     buf.appendSlice(self.alloc, base_name) catch return base_name;
     for (type_args) |arg| {
         buf.appendSlice(self.alloc, "_") catch {};
-        buf.appendSlice(self.alloc, typeExprName(self, arg)) catch {};
+        buf.appendSlice(self.alloc, mangleTypeExprName(self, arg)) catch {};
     }
     return buf.toOwnedSlice(self.alloc) catch base_name;
+}
+
+fn mangleTypeExprName(self: *Lower, te: ast.TypeExpr) []const u8 {
+    return switch (te) {
+        .simple => |name| name,
+        .generic => |g| monomorphKey(self, g.name, g.args),
+        .optional => |inner| blk: {
+            const inner_name = mangleTypeExprName(self, inner.*);
+            break :blk std.fmt.allocPrint(self.alloc, "optional_{s}", .{inner_name}) catch "optional";
+        },
+        else => "unknown",
+    };
 }
 
 /// Get a simple string name for a type expression
 pub fn typeExprName(self: *Lower, te: ast.TypeExpr) []const u8 {
     return switch (te) {
         .simple => |name| name,
-        .generic => |g| monomorphKey(self, g.name, g.args),
+        .generic => |g| {
+            if (self.generic_struct_decls.contains(g.name)) {
+                return monomorphKey(self, g.name, g.args);
+            }
+            return formatGenericTypeName(self, g.name, g.args);
+        },
+        .optional => |inner| blk: {
+            const inner_name = typeExprName(self, inner.*);
+            break :blk std.fmt.allocPrint(self.alloc, "optional_{s}", .{inner_name}) catch "optional";
+        },
         else => "unknown",
     };
 }

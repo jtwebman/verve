@@ -122,13 +122,35 @@ pub const ZigBackend = struct {
                         if (std.mem.eql(u8, f.type_name, "string")) return .string;
                         if (std.mem.eql(u8, f.type_name, "float")) return .float;
                         if (std.mem.eql(u8, f.type_name, "bool")) return .boolean;
-                        if (std.mem.eql(u8, f.type_name, "stream")) return .pointer;
+                        if (self.isPointerTypeName(f.type_name)) return .pointer;
                         return .int;
                     }
                 }
             }
         }
         return .int;
+    }
+
+    fn isPointerTypeName(self: *ZigBackend, type_name: []const u8) bool {
+        if (std.mem.eql(u8, type_name, "stream")) return true;
+        if (std.mem.startsWith(u8, type_name, "list<") or
+            std.mem.startsWith(u8, type_name, "map<") or
+            std.mem.startsWith(u8, type_name, "set<") or
+            std.mem.startsWith(u8, type_name, "stack<") or
+            std.mem.startsWith(u8, type_name, "queue<") or
+            std.mem.startsWith(u8, type_name, "Result<") or
+            std.mem.startsWith(u8, type_name, "optional_"))
+        {
+            return true;
+        }
+        if (self.isEnumType(type_name)) return false;
+        for (self.program.struct_decls.items) |sd| {
+            if (std.mem.eql(u8, sd.name, type_name)) return true;
+        }
+        for (self.program.union_decls.items) |ud| {
+            if (std.mem.eql(u8, ud.name, type_name)) return true;
+        }
+        return false;
     }
 
     /// Returns the raw type_name string for a struct field (e.g. "int8", "uint32", "int").
@@ -319,6 +341,12 @@ pub const ZigBackend = struct {
         .{ "string_is_alnum", S{ .module = "string", .rt_name = "!", .returns = .boolean } },
         .{ "set_has", S{ .rt_name = "!" } },
         .{ "set_has_str", S{ .rt_name = "!" } },
+        .{ "stack_push", S{ .rt_name = "!", .void_result = true } },
+        .{ "stack_pop", S{ .rt_name = "!" } },
+        .{ "stack_peek", S{ .rt_name = "!" } },
+        .{ "queue_push", S{ .rt_name = "!", .void_result = true } },
+        .{ "queue_pop", S{ .rt_name = "!" } },
+        .{ "queue_peek", S{ .rt_name = "!" } },
         .{ "string_len", S{ .module = "string", .rt_name = "!" } },
         .{ "bool_to_string", S{ .module = "convert", .min_args = 1, .returns = .string } },
         .{ "collection_to_string", S{ .module = "convert", .min_args = 2, .returns = .string } },
@@ -390,7 +418,7 @@ pub const ZigBackend = struct {
                     self.writeFmt("{s}: bool = false,\n", .{f.name});
                 } else if (std.mem.eql(u8, f.type_name, "string")) {
                     self.writeFmt("{s}: []const u8 = \"\",\n", .{f.name});
-                } else if (std.mem.eql(u8, f.type_name, "stream")) {
+                } else if (self.isPointerTypeName(f.type_name)) {
                     self.writeFmt("{s}: usize = 0,\n", .{f.name});
                 } else if (self.isEnumType(f.type_name)) {
                     self.writeFmt("{s}: VerveEnum_{s} = @enumFromInt(0),\n", .{ f.name, f.type_name });
@@ -617,7 +645,7 @@ pub const ZigBackend = struct {
             self.indent += 1;
             for (sd.fields) |f| {
                 self.writeIndent();
-                if (std.mem.eql(u8, f.type_name, "int")) self.writeFmt("{s}: i64 = 0,\n", .{f.name}) else if (std.mem.eql(u8, f.type_name, "float")) self.writeFmt("{s}: f64 = 0.0,\n", .{f.name}) else if (std.mem.eql(u8, f.type_name, "bool")) self.writeFmt("{s}: bool = false,\n", .{f.name}) else if (std.mem.eql(u8, f.type_name, "string")) self.writeFmt("{s}: []const u8 = \"\",\n", .{f.name}) else if (std.mem.eql(u8, f.type_name, "stream")) self.writeFmt("{s}: usize = 0,\n", .{f.name}) else if (self.isEnumType(f.type_name)) self.writeFmt("{s}: VerveEnum_{s} = @enumFromInt(0),\n", .{ f.name, f.type_name }) else self.writeFmt("{s}: i64 = 0,\n", .{f.name});
+                if (std.mem.eql(u8, f.type_name, "int")) self.writeFmt("{s}: i64 = 0,\n", .{f.name}) else if (std.mem.eql(u8, f.type_name, "float")) self.writeFmt("{s}: f64 = 0.0,\n", .{f.name}) else if (std.mem.eql(u8, f.type_name, "bool")) self.writeFmt("{s}: bool = false,\n", .{f.name}) else if (std.mem.eql(u8, f.type_name, "string")) self.writeFmt("{s}: []const u8 = \"\",\n", .{f.name}) else if (self.isPointerTypeName(f.type_name)) self.writeFmt("{s}: usize = 0,\n", .{f.name}) else if (self.isEnumType(f.type_name)) self.writeFmt("{s}: VerveEnum_{s} = @enumFromInt(0),\n", .{ f.name, f.type_name }) else self.writeFmt("{s}: i64 = 0,\n", .{f.name});
             }
             self.indent -= 1;
             self.line("};");
@@ -1110,8 +1138,19 @@ pub const ZigBackend = struct {
             },
 
             .call => |c| {
+                var callee_returns_void = false;
+                for (self.program.functions.items) |f| {
+                    if (std.mem.eql(u8, f.module, c.module) and std.mem.eql(u8, f.name, c.function)) {
+                        callee_returns_void = f.return_type == .void;
+                        break;
+                    }
+                }
                 self.writeIndent();
-                self.writeFmt("{s} = verve_{s}_{s}(", .{ self.regName(c.dest), c.module, c.function });
+                if (callee_returns_void) {
+                    self.writeFmt("verve_{s}_{s}(", .{ c.module, c.function });
+                } else {
+                    self.writeFmt("{s} = verve_{s}_{s}(", .{ self.regName(c.dest), c.module, c.function });
+                }
                 for (c.args, 0..) |arg, i| {
                     if (i > 0) self.write(", ");
                     const arg_type = getRegType(reg_types, arg);
@@ -1438,6 +1477,59 @@ pub const ZigBackend = struct {
             if (args.len >= 2) self.lineFmt("{{ const list = @as(*const rt.List, @ptrFromInt({s})); var found: i64 = 0; var si: i64 = 0; while (si < list.len) : (si += 1) {{ const esl = rt.getTagStr(@intCast(@as(u64, @bitCast(list.get(si))))); if (std.mem.eql(u8, esl, {s})) {{ found = 1; break; }} }} {s} = found; }}", .{ self.regName(args[0]), self.regName(args[1]), self.regName(dest) });
         } else if (std.mem.eql(u8, name, "set_has")) {
             if (args.len >= 2) self.lineFmt("{{ const list = @as(*const rt.List, @ptrFromInt({s})); var found: i64 = 0; var si: i64 = 0; while (si < list.len) : (si += 1) {{ if (list.get(si) == {s}) {{ found = 1; break; }} }} {s} = found; }}", .{ self.regName(args[0]), self.regName(args[1]), self.regName(dest) });
+        } else if (std.mem.eql(u8, name, "stack_push") or std.mem.eql(u8, name, "queue_push")) {
+            if (args.len >= 2) {
+                const src_type = getRegType(reg_types, args[1]);
+                if (src_type == .string) {
+                    self.lineFmt("@as(*rt.List, @ptrFromInt({s})).appendPtr(rt.makeTaggedStr(0, {s}));", .{ self.regName(args[0]), self.regName(args[1]) });
+                } else if (src_type == .pointer) {
+                    self.lineFmt("@as(*rt.List, @ptrFromInt({s})).appendPtr({s});", .{ self.regName(args[0]), self.regName(args[1]) });
+                } else {
+                    self.lineFmt("@as(*rt.List, @ptrFromInt({s})).append({s});", .{ self.regName(args[0]), self.regName(args[1]) });
+                }
+            }
+            self.lineFmt("{s} = 0;", .{self.regName(dest)});
+        } else if (std.mem.eql(u8, name, "stack_pop") or std.mem.eql(u8, name, "stack_peek") or std.mem.eql(u8, name, "queue_pop") or std.mem.eql(u8, name, "queue_peek")) {
+            if (args.len >= 1) {
+                const dest_type = getRegType(reg_types, dest);
+                const is_queue = std.mem.startsWith(u8, name, "queue_");
+                const is_peek = std.mem.endsWith(u8, name, "_peek");
+                self.lineFmt("{{ const list = @as(*rt.List, @ptrFromInt({s}));", .{self.regName(args[0])});
+                if (dest_type == .string) {
+                    self.lineFmt("if (list.len <= 0) {{ {s} = \"\"; }} else {{", .{self.regName(dest)});
+                } else {
+                    self.lineFmt("if (list.len <= 0) {{ {s} = 0; }} else {{", .{self.regName(dest)});
+                }
+                if (is_queue) {
+                    if (dest_type == .string) {
+                        self.lineFmt("const _v = list.get(0); {s} = rt.getTagStr(@intCast(@as(u64, @bitCast(_v))));", .{self.regName(dest)});
+                    } else if (dest_type == .pointer) {
+                        self.lineFmt("{s} = @intCast(@as(u64, @bitCast(list.get(0))));", .{self.regName(dest)});
+                    } else {
+                        self.lineFmt("{s} = list.get(0);", .{self.regName(dest)});
+                    }
+                    if (!is_peek) {
+                        self.line("var qi: i64 = 1;");
+                        self.line("while (qi < list.len) : (qi += 1) {");
+                        self.indent += 1;
+                        self.line("list.items[@intCast(@as(u64, @bitCast(qi - 1)))] = list.items[@intCast(@as(u64, @bitCast(qi)))];");
+                        self.indent -= 1;
+                        self.line("}");
+                        self.line("list.len -= 1;");
+                    }
+                } else {
+                    self.line("const _idx = list.len - 1;");
+                    if (dest_type == .string) {
+                        self.lineFmt("const _v = list.get(_idx); {s} = rt.getTagStr(@intCast(@as(u64, @bitCast(_v))));", .{self.regName(dest)});
+                    } else if (dest_type == .pointer) {
+                        self.lineFmt("{s} = @intCast(@as(u64, @bitCast(list.get(_idx))));", .{self.regName(dest)});
+                    } else {
+                        self.lineFmt("{s} = list.get(_idx);", .{self.regName(dest)});
+                    }
+                    if (!is_peek) self.line("list.len -= 1;");
+                }
+                self.line("} }");
+            }
         } else if (std.mem.eql(u8, name, "string_len")) {
             if (args.len >= 1) self.lineFmt("{s} = @intCast({s}.len);", .{ self.regName(dest), self.regName(args[0]) });
         } else if (std.mem.eql(u8, name, "to_string")) {

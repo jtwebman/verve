@@ -18,6 +18,7 @@ pub const Lower = struct {
     monomorphized: std.StringHashMapUnmanaged(void), // "Pair_int" → () — tracks emitted specializations
     pending_generic_name: ?[]const u8, // set during assignment to pass monomorphized name to struct literal
     var_types: std.StringHashMapUnmanaged([]const u8), // variable name → type name ("int", "float", "string", "bool", or struct name)
+    function_return_types: std.StringHashMapUnmanaged([]const u8), // "Module.fn" → source-level return type name
     float_regs: std.AutoHashMapUnmanaged(ir.Reg, void), // registers holding float values
     loop_cond_block: ?ir.BlockId,
     loop_exit_block: ?ir.BlockId,
@@ -40,6 +41,7 @@ pub const Lower = struct {
             .monomorphized = .{},
             .pending_generic_name = null,
             .var_types = .{},
+            .function_return_types = .{},
             .float_regs = .{},
             .loop_cond_block = null,
             .loop_exit_block = null,
@@ -135,10 +137,7 @@ pub const Lower = struct {
                     if (s.type_params.len > 0) continue;
                     var fields = std.ArrayListUnmanaged(ir.StructFieldInfo){};
                     for (s.fields) |f| {
-                        const type_name: []const u8 = switch (f.type_expr) {
-                            .simple => |tn| tn,
-                            else => "unknown",
-                        };
+                        const type_name = generics.typeExprName(self, f.type_expr);
                         try fields.append(self.alloc, .{ .name = f.name, .type_name = type_name });
                     }
                     try self.program.struct_decls.append(self.alloc, .{
@@ -155,7 +154,7 @@ pub const Lower = struct {
                     self.current_module = m.name;
                     self.current_process_decl = null;
                     for (m.functions) |func| {
-                        try self.lowerFunction(m.name, func);
+                        try self.lowerFunction(m.name, m.constants, func);
                         if (func.doc_comment) |doc| {
                             var example_idx: usize = 0;
                             var line_start: usize = 0;
@@ -184,7 +183,7 @@ pub const Lower = struct {
                                                 .properties = &.{},
                                                 .span = .{ .start = 0, .end = 0 },
                                             };
-                                            self.lowerFunction(m.name, example_fn) catch {};
+                                            self.lowerFunction(m.name, m.constants, example_fn) catch {};
                                             self.program.test_names.append(self.alloc, test_name) catch {};
                                             self.program.test_modules.append(self.alloc, m.name) catch {};
                                             self.program.test_fn_names.append(self.alloc, test_fn_name) catch {};
@@ -208,7 +207,7 @@ pub const Lower = struct {
                             .properties = &.{},
                             .span = t.span,
                         };
-                        try self.lowerFunction(m.name, test_fn);
+                        try self.lowerFunction(m.name, m.constants, test_fn);
                         try self.program.test_names.append(self.alloc, t.name);
                         try self.program.test_modules.append(self.alloc, m.name);
                         try self.program.test_fn_names.append(self.alloc, test_fn.name);
@@ -232,8 +231,11 @@ pub const Lower = struct {
         return self.program;
     }
 
-    fn lowerFunction(self: *Lower, module: []const u8, func: ast.FnDecl) !void {
+    fn lowerFunction(self: *Lower, module: []const u8, constants: []const ast.Assign, func: ast.FnDecl) !void {
         var f = ir.Function.init(module, func.name, self.alloc);
+        const fn_key = std.fmt.allocPrint(self.alloc, "{s}.{s}", .{ module, func.name }) catch "";
+        const fn_ret_name = generics.typeExprName(self, func.return_type);
+        self.function_return_types.put(self.alloc, fn_key, fn_ret_name) catch {};
 
         self.float_regs = .{};
 
@@ -265,6 +267,7 @@ pub const Lower = struct {
         const entry = f.newBlock();
         self.current_block_id = entry.id;
 
+        for (constants) |constant| self.lowerStmt(.{ .assign = constant });
         for (func.body) |stmt| self.lowerStmt(stmt);
 
         self.program.addFunction(f);
@@ -274,6 +277,9 @@ pub const Lower = struct {
 
     fn lowerHandler(self: *Lower, module: []const u8, handler: ast.ReceiveDecl, proc_decl: ast.ProcessDecl) !void {
         var f = ir.Function.init(module, handler.name, self.alloc);
+        const fn_key = std.fmt.allocPrint(self.alloc, "{s}.{s}", .{ module, handler.name }) catch "";
+        const fn_ret_name = generics.typeExprName(self, handler.return_type);
+        self.function_return_types.put(self.alloc, fn_key, fn_ret_name) catch {};
 
         self.float_regs = .{};
 
@@ -1115,6 +1121,21 @@ pub const Lower = struct {
                         const mod_name = fa.target.identifier;
                         const fn_name = fa.field;
 
+                        if ((std.mem.eql(u8, mod_name, "Stack") or std.mem.eql(u8, mod_name, "Queue")) and
+                            (std.mem.eql(u8, fn_name, "pop") or std.mem.eql(u8, fn_name, "peek")) and
+                            c.args.len > 0)
+                        {
+                            if (self.exprTypeName(c.args[0])) |collection_type| {
+                                if (std.mem.endsWith(u8, collection_type, ">")) {
+                                    const lt = std.mem.indexOfScalar(u8, collection_type, '<') orelse 0;
+                                    if (lt > 0 and lt + 1 < collection_type.len - 1) {
+                                        const elem_type = collection_type[lt + 1 .. collection_type.len - 1];
+                                        func.reg_types.items[dest] = self.typeNameIrType(elem_type);
+                                    }
+                                }
+                            }
+                        }
+
                         // User-defined modules take priority
                         var is_user_module = false;
                         for (self.program.functions.items) |f| {
@@ -1161,6 +1182,9 @@ pub const Lower = struct {
                         return dest;
                     }
                     if (std.mem.eql(u8, name, "map") or std.mem.eql(u8, name, "stack") or std.mem.eql(u8, name, "queue") or std.mem.eql(u8, name, "spawn")) {
+                        if (!std.mem.eql(u8, name, "spawn")) {
+                            func.reg_types.items[dest] = .ptr;
+                        }
                         self.appendInst(.{ .call_builtin = .{ .dest = dest, .name = name, .args = args } });
                         return dest;
                     }
@@ -1216,29 +1240,32 @@ pub const Lower = struct {
                             }
                         }
                     }
-                    if (self.var_types.get(target_name)) |type_name| {
-                        if (self.struct_decls.get(type_name)) |sd| {
-                            for (sd.fields) |f| {
-                                if (std.mem.eql(u8, f.name, fa.field)) {
-                                    const base_reg = self.lowerExpr(fa.target.*);
-                                    const dest = func.newReg(self.fieldIrType(type_name, f.name));
-                                    self.appendInst(.{ .struct_load = .{ .dest = dest, .base = base_reg, .struct_name = type_name, .field_name = f.name } });
-                                    return dest;
-                                }
-                            }
-                        }
-                    }
-                    if (std.mem.eql(u8, fa.field, "len")) {
-                        if (self.isVarString(target_name)) {
+                }
+                if (std.mem.eql(u8, fa.field, "len")) {
+                    const target_type_name = self.exprTypeName(fa.target.*);
+                    if (target_type_name) |type_name| {
+                        if (std.mem.eql(u8, type_name, "string")) {
                             const str_reg = self.lowerExpr(fa.target.*);
                             const dest = func.newReg(.i64);
                             self.appendInst(.{ .string_len = .{ .dest = dest, .str = str_reg } });
                             return dest;
                         }
-                        const list_reg = self.lowerExpr(fa.target.*);
-                        const dest = func.newReg(.i64);
-                        self.appendInst(.{ .list_len = .{ .dest = dest, .list = list_reg } });
-                        return dest;
+                    }
+                    const list_reg = self.lowerExpr(fa.target.*);
+                    const dest = func.newReg(.i64);
+                    self.appendInst(.{ .list_len = .{ .dest = dest, .list = list_reg } });
+                    return dest;
+                }
+                if (self.exprTypeName(fa.target.*)) |type_name| {
+                    if (self.struct_decls.get(type_name)) |sd| {
+                        for (sd.fields) |f| {
+                            if (std.mem.eql(u8, f.name, fa.field)) {
+                                const base_reg = self.lowerExpr(fa.target.*);
+                                const dest = func.newReg(self.fieldIrType(type_name, f.name));
+                                self.appendInst(.{ .struct_load = .{ .dest = dest, .base = base_reg, .struct_name = type_name, .field_name = f.name } });
+                                return dest;
+                            }
+                        }
                     }
                 }
                 const dest = func.newReg(.i64);
@@ -1248,19 +1275,21 @@ pub const Lower = struct {
             .index_access => |ia| {
                 const target_reg = self.lowerExpr(ia.target.*);
                 const index_reg = self.lowerExpr(ia.index.*);
-                const is_str_idx = ia.target.* == .identifier and self.isVarString(ia.target.identifier);
+                const target_type_name = self.exprTypeName(ia.target.*);
+                const is_str_idx = if (target_type_name) |type_name| std.mem.eql(u8, type_name, "string") else false;
                 const dest_type = if (is_str_idx)
                     ir.Type.string
-                else if (ia.target.* == .identifier)
-                    self.indexIrType(ia.target.identifier)
+                else if (target_type_name) |type_name|
+                    if (std.mem.startsWith(u8, type_name, "list<") and std.mem.endsWith(u8, type_name, ">"))
+                        self.typeNameIrType(type_name["list<".len .. type_name.len - 1])
+                    else
+                        ir.Type.i64
                 else
                     ir.Type.i64;
                 const dest = func.newReg(dest_type);
-                if (ia.target.* == .identifier) {
-                    if (self.isVarString(ia.target.identifier)) {
-                        self.appendInst(.{ .string_index = .{ .dest = dest, .str = target_reg, .index = index_reg } });
-                        return dest;
-                    }
+                if (is_str_idx) {
+                    self.appendInst(.{ .string_index = .{ .dest = dest, .str = target_reg, .index = index_reg } });
+                    return dest;
                 }
                 self.appendInst(.{ .list_get = .{ .dest = dest, .list = target_reg, .index = index_reg } });
                 return dest;
@@ -1289,13 +1318,7 @@ pub const Lower = struct {
     /// Map a variable name to its ir.Type using var_types tracking.
     fn varIrType(self: *Lower, name: []const u8) ir.Type {
         const t = self.var_types.get(name) orelse return .i64;
-        if (std.mem.eql(u8, t, "string")) return .string;
-        if (std.mem.eql(u8, t, "float")) return .f64;
-        if (std.mem.eql(u8, t, "bool")) return .bool;
-        if (std.mem.eql(u8, t, "int")) return .i64;
-        if (std.mem.eql(u8, t, "stream")) return .ptr;
-        if (self.struct_decls.contains(t)) return .ptr;
-        return .i64;
+        return self.typeNameIrType(t);
     }
 
     /// Map a struct field to its ir.Type using the program's struct_decls.
@@ -1304,11 +1327,7 @@ pub const Lower = struct {
             if (std.mem.eql(u8, sd.name, struct_name)) {
                 for (sd.fields) |f| {
                     if (std.mem.eql(u8, f.name, field_name)) {
-                        if (std.mem.eql(u8, f.type_name, "string")) return .string;
-                        if (std.mem.eql(u8, f.type_name, "float")) return .f64;
-                        if (std.mem.eql(u8, f.type_name, "bool")) return .bool;
-                        if (std.mem.eql(u8, f.type_name, "stream")) return .ptr;
-                        return .i64;
+                        return self.typeNameIrType(f.type_name);
                     }
                 }
             }
@@ -1335,14 +1354,124 @@ pub const Lower = struct {
         const t = self.var_types.get(name) orelse return .i64;
         if (std.mem.startsWith(u8, t, "list<") and std.mem.endsWith(u8, t, ">")) {
             const elem = t["list<".len .. t.len - 1];
-            if (std.mem.eql(u8, elem, "string")) return .string;
-            if (std.mem.eql(u8, elem, "float")) return .f64;
-            if (std.mem.eql(u8, elem, "bool")) return .bool;
-            if (std.mem.eql(u8, elem, "stream")) return .ptr;
-            if (std.mem.startsWith(u8, elem, "optional_")) return .ptr;
-            if (self.struct_decls.contains(elem)) return .ptr;
+            return self.typeNameIrType(elem);
         }
         return .i64;
+    }
+
+    fn typeNameIrType(self: *Lower, type_name: []const u8) ir.Type {
+        if (std.mem.eql(u8, type_name, "string")) return .string;
+        if (std.mem.eql(u8, type_name, "float")) return .f64;
+        if (std.mem.eql(u8, type_name, "bool")) return .bool;
+        if (std.mem.eql(u8, type_name, "int")) return .i64;
+        if (std.mem.eql(u8, type_name, "stream")) return .ptr;
+        if (std.mem.startsWith(u8, type_name, "list<") or
+            std.mem.startsWith(u8, type_name, "map<") or
+            std.mem.startsWith(u8, type_name, "set<") or
+            std.mem.startsWith(u8, type_name, "stack<") or
+            std.mem.startsWith(u8, type_name, "queue<") or
+            std.mem.startsWith(u8, type_name, "Result<") or
+            std.mem.startsWith(u8, type_name, "optional_"))
+        {
+            return .ptr;
+        }
+        if (self.struct_decls.contains(type_name) or
+            self.union_decls.contains(type_name) or
+            self.generic_struct_decls.contains(type_name))
+        {
+            return .ptr;
+        }
+        return .i64;
+    }
+
+    fn exprTypeName(self: *Lower, expr: ast.Expr) ?[]const u8 {
+        return switch (expr) {
+            .string_literal, .string_interp => "string",
+            .int_literal => "int",
+            .float_literal => "float",
+            .bool_literal => "bool",
+            .struct_literal => |sl| sl.name,
+            .identifier => |name| self.var_types.get(name),
+            .field_access => |fa| blk: {
+                if (std.mem.eql(u8, fa.field, "len")) {
+                    if (self.exprTypeName(fa.target.*)) |target_type| {
+                        if (std.mem.eql(u8, target_type, "string") or
+                            std.mem.startsWith(u8, target_type, "list<") or
+                            std.mem.startsWith(u8, target_type, "map<") or
+                            std.mem.startsWith(u8, target_type, "set<") or
+                            std.mem.startsWith(u8, target_type, "stack<") or
+                            std.mem.startsWith(u8, target_type, "queue<"))
+                        {
+                            break :blk "int";
+                        }
+                    }
+                }
+                if (self.exprTypeName(fa.target.*)) |target_type| {
+                    if (self.struct_decls.get(target_type)) |sd| {
+                        for (sd.fields) |field| {
+                            if (std.mem.eql(u8, field.name, fa.field)) {
+                                break :blk generics.typeExprName(self, field.type_expr);
+                            }
+                        }
+                    }
+                }
+                break :blk null;
+            },
+            .index_access => |ia| blk: {
+                if (self.exprTypeName(ia.target.*)) |target_type| {
+                    if (std.mem.startsWith(u8, target_type, "list<") and std.mem.endsWith(u8, target_type, ">")) {
+                        break :blk target_type["list<".len .. target_type.len - 1];
+                    }
+                    if (std.mem.eql(u8, target_type, "string")) break :blk "string";
+                }
+                break :blk null;
+            },
+            .call => |c| blk: {
+                if (c.target.* == .identifier) {
+                    const name = c.target.identifier;
+                    if (std.mem.eql(u8, name, "list")) break :blk "list<int>";
+                    if (std.mem.eql(u8, name, "set")) break :blk "set<int>";
+                    if (std.mem.eql(u8, name, "map")) break :blk "map<int,int>";
+                    if (std.mem.eql(u8, name, "stack")) break :blk "stack<int>";
+                    if (std.mem.eql(u8, name, "queue")) break :blk "queue<int>";
+                    const fn_key = std.fmt.allocPrint(self.alloc, "{s}.{s}", .{ self.current_module, name }) catch "";
+                    if (self.function_return_types.get(fn_key)) |ret_name| {
+                        break :blk ret_name;
+                    }
+                }
+                if (c.target.* == .field_access) {
+                    const fa = c.target.field_access;
+                    if (fa.target.* == .identifier) {
+                        const mod_name = fa.target.identifier;
+                        const fn_key = std.fmt.allocPrint(self.alloc, "{s}.{s}", .{ mod_name, fa.field }) catch "";
+                        if (self.function_return_types.get(fn_key)) |ret_name| {
+                            break :blk ret_name;
+                        }
+                        if (std.mem.eql(u8, mod_name, "File") and std.mem.eql(u8, fa.field, "open")) break :blk "Result<stream>";
+                        if (std.mem.eql(u8, mod_name, "Stream")) {
+                            if (std.mem.eql(u8, fa.field, "read_line") or std.mem.eql(u8, fa.field, "read_bytes") or std.mem.eql(u8, fa.field, "read_all")) break :blk "string";
+                        }
+                        if (std.mem.eql(u8, mod_name, "String")) {
+                            if (std.mem.eql(u8, fa.field, "len")) break :blk "int";
+                            if (std.mem.eql(u8, fa.field, "slice") or std.mem.eql(u8, fa.field, "char_at") or std.mem.eql(u8, fa.field, "trim") or std.mem.eql(u8, fa.field, "replace")) break :blk "string";
+                        }
+                        if (std.mem.eql(u8, mod_name, "Stack")) {
+                            if (std.mem.eql(u8, fa.field, "pop") or std.mem.eql(u8, fa.field, "peek")) {
+                                if (c.args.len > 0) {
+                                    if (self.exprTypeName(c.args[0])) |stack_type| {
+                                        if (std.mem.startsWith(u8, stack_type, "stack<") and std.mem.endsWith(u8, stack_type, ">")) {
+                                            break :blk stack_type["stack<".len .. stack_type.len - 1];
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                break :blk null;
+            },
+            else => null,
+        };
     }
 
     fn allocRegs(self: *Lower, regs: []const ir.Reg) []const ir.Reg {
@@ -1352,16 +1481,8 @@ pub const Lower = struct {
     }
 
     fn isStringFieldAccess(self: *Lower, fa: ast.FieldAccess) bool {
-        if (fa.target.* == .identifier) {
-            if (self.var_types.get(fa.target.identifier)) |type_name| {
-                if (self.struct_decls.get(type_name)) |sd| {
-                    for (sd.fields) |f| {
-                        if (std.mem.eql(u8, f.name, fa.field)) {
-                            return f.type_expr == .simple and std.mem.eql(u8, f.type_expr.simple, "string");
-                        }
-                    }
-                }
-            }
+        if (self.exprTypeName(.{ .field_access = fa })) |type_name| {
+            return std.mem.eql(u8, type_name, "string");
         }
         return false;
     }
@@ -1396,7 +1517,10 @@ pub const Lower = struct {
                         },
                         .call_builtin => |c| {
                             if (c.dest >= rt.len) continue;
-                            rt[c.dest] = builtinIrType(c.name);
+                            const inferred = builtinIrType(c.name);
+                            if (inferred != .i64 or rt[c.dest] == .i64) {
+                                rt[c.dest] = inferred;
+                            }
                         },
                         .struct_alloc => |sa| {
                             if (sa.dest < rt.len) rt[sa.dest] = .ptr;

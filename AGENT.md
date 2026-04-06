@@ -23,3 +23,23 @@ Compile test files: `src/compile_test_*.zig` (basic, type, file, string, process
 4. Each `src/compile_test_*.zig` passes individually
 
 Do NOT commit code that fails any of these steps.
+
+## Language design guardrails
+
+Verve is pre-adoption. Favor one canonical way to represent a feature, type, syntax form, or internal lowering shape.
+
+Do not preserve or add parallel representations just for compatibility unless the user explicitly asks for a migration path.
+
+When you find two ways of expressing the same concept:
+
+1. Pick the clearer long-term form.
+2. Convert the compiler/runtime/docs/tests toward that form.
+3. Remove the alternate path instead of teaching the system both.
+
+This applies to:
+
+- surface syntax
+- type name encodings
+- IR conventions
+- backend/runtime data representations
+- docs and examples
