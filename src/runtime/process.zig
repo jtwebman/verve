@@ -40,6 +40,12 @@ pub const Mailbox = struct {
         self.mutex.lock();
         defer self.mutex.unlock();
         if (self.count == 0) return null;
+        if (self.used < 2) {
+            self.head = 0;
+            self.used = 0;
+            self.count = 0;
+            return null;
+        }
         // Read length prefix
         const lo: u16 = self.buf[self.head % rt.MAILBOX_BUF_SIZE];
         const hi: u16 = self.buf[(self.head + 1) % rt.MAILBOX_BUF_SIZE];
@@ -1006,5 +1012,35 @@ test "mailbox push and pop roundtrip" {
     const result = mbox.pop(&out);
     try std.testing.expect(result != null);
     try std.testing.expectEqualSlices(u8, &msg, result.?);
+    try std.testing.expectEqual(@as(usize, 0), mbox.count);
+}
+
+test "mailbox pop resets when used bytes are too small for header" {
+    var mbox = Mailbox{};
+    mbox.count = 1;
+    mbox.used = 1;
+    mbox.head = 123;
+
+    var out: [16]u8 = undefined;
+    const result = mbox.pop(&out);
+    try std.testing.expect(result == null);
+    try std.testing.expectEqual(@as(usize, 0), mbox.head);
+    try std.testing.expectEqual(@as(usize, 0), mbox.used);
+    try std.testing.expectEqual(@as(usize, 0), mbox.count);
+}
+
+test "mailbox pop validates corrupted wrapped header length" {
+    var mbox = Mailbox{};
+    mbox.head = rt.MAILBOX_BUF_SIZE - 1;
+    mbox.used = 3;
+    mbox.count = 1;
+    mbox.buf[mbox.head] = 10;
+    mbox.buf[0] = 0;
+
+    var out: [16]u8 = undefined;
+    const result = mbox.pop(&out);
+    try std.testing.expect(result == null);
+    try std.testing.expectEqual(@as(usize, 0), mbox.head);
+    try std.testing.expectEqual(@as(usize, 0), mbox.used);
     try std.testing.expectEqual(@as(usize, 0), mbox.count);
 }
