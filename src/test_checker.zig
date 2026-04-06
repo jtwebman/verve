@@ -2384,6 +2384,22 @@ test "return: handler missing return has location" {
     , "does not return a value");
 }
 
+test "return: enum field match on state is treated as exhaustive" {
+    try expectNoErrors(
+        \\type Mode = enum { Idle, Busy };
+        \\struct AppState { mode: Mode = :Idle; }
+        \\process App<AppState> {
+        \\    receive code(state: AppState) -> int {
+        \\        match state.mode {
+        \\            :Idle => return 0;
+        \\            :Busy => return 1;
+        \\        }
+        \\    }
+        \\    receive main(state: AppState) -> int { return 0; }
+        \\}
+    );
+}
+
 // ── Coverage for all remaining checker error paths ───────
 
 test "error: exported handler missing doc comment" {

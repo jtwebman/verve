@@ -438,29 +438,23 @@ pub const Checker = struct {
                     try self.addError("match must have at least one arm", .{ .start = 0, .end = 0 });
                 }
 
+                const subject_type = self.inferExprType(m.subject);
+
                 // Check boolean exhaustiveness
                 if (m.subject == .binary_op) {
                     try self.checkBooleanExhaustiveness(m.arms);
                 }
-                if (m.subject == .identifier) {
-                    if (self.current_scope.get(m.subject.identifier)) |maybe_type| {
-                        if (maybe_type) |type_expr| {
-                            const type_name = self.typeExprName(type_expr);
-                            if (std.mem.eql(u8, type_name, "bool")) {
-                                try self.checkBooleanExhaustiveness(m.arms);
-                            }
-                            // Check enum exhaustiveness
-                            if (self.type_decls.get(type_name)) |td| {
-                                if (td.value == .enum_type) {
-                                    try self.checkEnumExhaustiveness(td.value.enum_type, m.arms, type_name);
-                                }
-                            }
+                if (subject_type) |type_expr| {
+                    const type_name = self.typeExprName(type_expr);
+                    if (std.mem.eql(u8, type_name, "bool")) {
+                        try self.checkBooleanExhaustiveness(m.arms);
+                    }
+                    if (self.type_decls.get(type_name)) |td| {
+                        if (td.value == .enum_type) {
+                            try self.checkEnumExhaustiveness(td.value.enum_type, m.arms, type_name);
                         }
                     }
                 }
-
-                // Infer the match subject type for pattern binding
-                const subject_type = self.inferExprType(m.subject);
 
                 // Require wildcard unless exhaustiveness is proven
                 var has_wildcard = false;
@@ -523,54 +517,50 @@ pub const Checker = struct {
                         }
                         if (has_true and has_false) proven_exhaustive = true;
                     }
-                    if (m.subject == .identifier) {
-                        if (self.current_scope.get(m.subject.identifier)) |maybe_type| {
-                            if (maybe_type) |type_expr| {
-                                const type_name = self.typeExprName(type_expr);
-                                if (std.mem.eql(u8, type_name, "bool")) {
-                                    var has_true = false;
-                                    var has_false = false;
-                                    for (m.arms) |arm| {
-                                        if (arm.pattern == .literal) {
-                                            if (arm.pattern.literal == .bool_literal) {
-                                                if (arm.pattern.literal.bool_literal) has_true = true else has_false = true;
-                                            }
-                                        }
-                                    }
-                                    if (has_true and has_false) proven_exhaustive = true;
-                                }
-                                if (self.type_decls.get(type_name)) |td| {
-                                    if (td.value == .enum_type) {
-                                        var all_covered = true;
-                                        var covered: std.StringHashMapUnmanaged(void) = .{};
-                                        for (m.arms) |arm| {
-                                            switch (arm.pattern) {
-                                                .tag => |t| covered.put(self.alloc, t.tag, {}) catch {},
-                                                .literal => |e| {
-                                                    if (e == .tag) covered.put(self.alloc, e.tag, {}) catch {};
-                                                },
-                                                else => {},
-                                            }
-                                        }
-                                        for (td.value.enum_type) |variant| {
-                                            if (covered.get(variant) == null) all_covered = false;
-                                        }
-                                        if (all_covered) proven_exhaustive = true;
-                                    } else if (td.value == .union_type) {
-                                        var all_covered = true;
-                                        var covered: std.StringHashMapUnmanaged(void) = .{};
-                                        for (m.arms) |arm| {
-                                            switch (arm.pattern) {
-                                                .tag => |t| covered.put(self.alloc, t.tag, {}) catch {},
-                                                else => {},
-                                            }
-                                        }
-                                        for (td.value.union_type) |variant| {
-                                            if (covered.get(variant.tag) == null) all_covered = false;
-                                        }
-                                        if (all_covered) proven_exhaustive = true;
+                    if (subject_type) |type_expr| {
+                        const type_name = self.typeExprName(type_expr);
+                        if (std.mem.eql(u8, type_name, "bool")) {
+                            var has_true = false;
+                            var has_false = false;
+                            for (m.arms) |arm| {
+                                if (arm.pattern == .literal) {
+                                    if (arm.pattern.literal == .bool_literal) {
+                                        if (arm.pattern.literal.bool_literal) has_true = true else has_false = true;
                                     }
                                 }
+                            }
+                            if (has_true and has_false) proven_exhaustive = true;
+                        }
+                        if (self.type_decls.get(type_name)) |td| {
+                            if (td.value == .enum_type) {
+                                var all_covered = true;
+                                var covered: std.StringHashMapUnmanaged(void) = .{};
+                                for (m.arms) |arm| {
+                                    switch (arm.pattern) {
+                                        .tag => |t| covered.put(self.alloc, t.tag, {}) catch {},
+                                        .literal => |e| {
+                                            if (e == .tag) covered.put(self.alloc, e.tag, {}) catch {};
+                                        },
+                                        else => {},
+                                    }
+                                }
+                                for (td.value.enum_type) |variant| {
+                                    if (covered.get(variant) == null) all_covered = false;
+                                }
+                                if (all_covered) proven_exhaustive = true;
+                            } else if (td.value == .union_type) {
+                                var all_covered = true;
+                                var covered: std.StringHashMapUnmanaged(void) = .{};
+                                for (m.arms) |arm| {
+                                    switch (arm.pattern) {
+                                        .tag => |t| covered.put(self.alloc, t.tag, {}) catch {},
+                                        else => {},
+                                    }
+                                }
+                                for (td.value.union_type) |variant| {
+                                    if (covered.get(variant.tag) == null) all_covered = false;
+                                }
+                                if (all_covered) proven_exhaustive = true;
                             }
                         }
                     }
@@ -875,25 +865,21 @@ pub const Checker = struct {
                         if (has_ok and has_error) proven_exhaustive = true;
                     }
                     if (!proven_exhaustive) {
-                        // Enum: check if all variants covered
-                        if (m.subject == .identifier) {
-                            if (self.current_scope.get(m.subject.identifier)) |maybe_type| {
-                                if (maybe_type) |type_expr| {
-                                    if (type_expr == .simple) {
-                                        if (self.type_decls.get(type_expr.simple)) |td| {
-                                            if (td.value == .enum_type) {
-                                                var covered: std.StringHashMapUnmanaged(void) = .{};
-                                                for (m.arms) |arm| {
-                                                    if (arm.pattern == .tag) covered.put(self.alloc, arm.pattern.tag.tag, {}) catch {};
-                                                    if (arm.pattern == .literal and arm.pattern.literal == .tag) covered.put(self.alloc, arm.pattern.literal.tag, {}) catch {};
-                                                }
-                                                var all_covered = true;
-                                                for (td.value.enum_type) |variant| {
-                                                    if (covered.get(variant) == null) all_covered = false;
-                                                }
-                                                if (all_covered) proven_exhaustive = true;
-                                            }
+                        // Enum: allow any subject expression whose type can be inferred as an enum.
+                        if (self.inferExprType(m.subject)) |subject_type| {
+                            if (subject_type == .simple) {
+                                if (self.type_decls.get(subject_type.simple)) |td| {
+                                    if (td.value == .enum_type) {
+                                        var covered: std.StringHashMapUnmanaged(void) = .{};
+                                        for (m.arms) |arm| {
+                                            if (arm.pattern == .tag) covered.put(self.alloc, arm.pattern.tag.tag, {}) catch {};
+                                            if (arm.pattern == .literal and arm.pattern.literal == .tag) covered.put(self.alloc, arm.pattern.literal.tag, {}) catch {};
                                         }
+                                        var all_covered = true;
+                                        for (td.value.enum_type) |variant| {
+                                            if (covered.get(variant) == null) all_covered = false;
+                                        }
+                                        if (all_covered) proven_exhaustive = true;
                                     }
                                 }
                             }
