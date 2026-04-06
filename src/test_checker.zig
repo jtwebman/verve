@@ -720,6 +720,21 @@ test "valid: while true with return inside" {
     );
 }
 
+test "valid: while true with break inside if" {
+    try expectNoErrors(
+        \\process Main {
+        \\    receive main() -> int {
+        \\        while true {
+        \\            if true {
+        \\                break;
+        \\            }
+        \\        }
+        \\        return 0;
+        \\    }
+        \\}
+    );
+}
+
 test "valid: while with condition variable" {
     try expectNoErrors(
         \\process Main {

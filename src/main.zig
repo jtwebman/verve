@@ -1,7 +1,58 @@
 const std = @import("std");
+const ast = @import("ast.zig");
 const Parser = @import("parser.zig").Parser;
 const Lower = @import("lower/lower.zig").Lower;
 const Loader = @import("loader.zig").Loader;
+
+const CheckArgs = struct {
+    file_path: []const u8,
+    json_output: bool,
+};
+
+fn parseCheckArgs(args: anytype) ?CheckArgs {
+    var file_path: ?[]const u8 = null;
+    var json_output = false;
+
+    while (args.next()) |arg| {
+        if (std.mem.eql(u8, arg, "--json")) {
+            json_output = true;
+            continue;
+        }
+        if (std.mem.startsWith(u8, arg, "--")) {
+            std.debug.print("Error: unknown flag for check: {s}\n", .{arg});
+            std.process.exit(1);
+        }
+        if (file_path != null) {
+            std.debug.print("Error: unexpected extra argument: {s}\n", .{arg});
+            std.process.exit(1);
+        }
+        file_path = arg;
+    }
+
+    if (file_path == null) {
+        std.debug.print("Error: no file specified\n", .{});
+        return null;
+    }
+
+    return .{
+        .file_path = file_path.?,
+        .json_output = json_output,
+    };
+}
+
+fn hasProcessEntryPoint(file: ast.File) bool {
+    for (file.decls) |decl| {
+        switch (decl) {
+            .process_decl => |p| {
+                for (p.receive_handlers) |handler| {
+                    if (std.mem.eql(u8, handler.name, "main")) return true;
+                }
+            },
+            else => {},
+        }
+    }
+    return false;
+}
 
 fn getZigPath(alloc: std.mem.Allocator) []const u8 {
     // VERVE_ZIG env var takes priority, then search PATH for "zig"
@@ -36,10 +87,10 @@ pub fn main() !void {
     };
 
     if (std.mem.eql(u8, command, "check")) {
-        const file_path = args.next() orelse {
-            std.debug.print("Error: no file specified\n", .{});
-            return;
+        const parsed = parseCheckArgs(&args) orelse {
+            std.process.exit(1);
         };
+        const file_path = parsed.file_path;
         var loader = Loader.init(alloc);
         const merged = loader.loadFile(file_path) catch |err| {
             switch (err) {
@@ -48,55 +99,54 @@ pub fn main() !void {
                 error.CircularImport => std.debug.print("Error: circular import detected\n", .{}),
                 else => std.debug.print("Error: {}\n", .{err}),
             }
-            return;
+            std.process.exit(1);
         };
-        // Check for --json flag
-        var json_output = false;
-        while (args.next()) |arg| {
-            if (std.mem.eql(u8, arg, "--json")) json_output = true;
-        }
 
         // Type check
         const Chk = @import("checker.zig").Checker;
         var checker = Chk.initWithFile(alloc, loader.entry_source, file_path);
         checker.check(merged) catch {};
         if (checker.hasErrors()) {
-            if (json_output) {
+            if (parsed.json_output) {
                 checker.printErrorsJson();
             } else {
                 std.debug.print("Type errors in {s}:\n", .{file_path});
                 checker.printErrors();
             }
+            std.process.exit(1);
         } else {
-            if (!json_output) std.debug.print("OK — no errors\n", .{});
-        }
-
-        std.debug.print("Loaded {d} declarations from {s}\n", .{ merged.decls.len, file_path });
-        for (merged.decls) |decl| {
-            switch (decl) {
-                .module_decl => |m| {
-                    const exp = if (m.exported) " (exported)" else "";
-                    std.debug.print("  module {s}{s} ({d} functions)\n", .{ m.name, exp, m.functions.len });
-                },
-                .process_decl => |p| {
-                    const exp = if (p.exported) " (exported)" else "";
-                    std.debug.print("  process {s}{s} ({d} handlers)\n", .{ p.name, exp, p.receive_handlers.len });
-                },
-                .struct_decl => |s| {
-                    const exp = if (s.exported) " (exported)" else "";
-                    std.debug.print("  struct {s}{s} ({d} fields)\n", .{ s.name, exp, s.fields.len });
-                },
-                .type_decl => |t| {
-                    const exp = if (t.exported) " (exported)" else "";
-                    std.debug.print("  type {s}{s}\n", .{ t.name, exp });
-                },
+            if (parsed.json_output) {
+                std.debug.print("[]\n", .{});
+            } else {
+                std.debug.print("OK — no errors\n", .{});
+                std.debug.print("Loaded {d} declarations from {s}\n", .{ merged.decls.len, file_path });
+                for (merged.decls) |decl| {
+                    switch (decl) {
+                        .module_decl => |m| {
+                            const exp = if (m.exported) " (exported)" else "";
+                            std.debug.print("  module {s}{s} ({d} functions)\n", .{ m.name, exp, m.functions.len });
+                        },
+                        .process_decl => |p| {
+                            const exp = if (p.exported) " (exported)" else "";
+                            std.debug.print("  process {s}{s} ({d} handlers)\n", .{ p.name, exp, p.receive_handlers.len });
+                        },
+                        .struct_decl => |s| {
+                            const exp = if (s.exported) " (exported)" else "";
+                            std.debug.print("  struct {s}{s} ({d} fields)\n", .{ s.name, exp, s.fields.len });
+                        },
+                        .type_decl => |t| {
+                            const exp = if (t.exported) " (exported)" else "";
+                            std.debug.print("  type {s}{s}\n", .{ t.name, exp });
+                        },
+                    }
+                }
             }
         }
     } else if (std.mem.eql(u8, command, "run")) {
         // verve run = compile to temp binary + execute (like go run)
         const file_path = args.next() orelse {
             std.debug.print("Error: no file specified\n", .{});
-            return;
+            std.process.exit(1);
         };
 
         var loader = Loader.init(alloc);
@@ -106,7 +156,7 @@ pub fn main() !void {
                 error.ParseFailed => std.debug.print("Parse error in {s}\n", .{file_path}),
                 else => std.debug.print("Error: {}\n", .{err}),
             }
-            return;
+            std.process.exit(1);
         };
 
         // Type check
@@ -116,13 +166,17 @@ pub fn main() !void {
         if (checker.hasErrors()) {
             std.debug.print("Type errors in {s}:\n", .{file_path});
             checker.printErrors();
-            return;
+            std.process.exit(1);
+        }
+        if (!hasProcessEntryPoint(file)) {
+            std.debug.print("Error: cannot run {s} because it has no process main entry point\n", .{file_path});
+            std.process.exit(1);
         }
 
         var lower = Lower.init(alloc);
         const program = lower.lowerFile(file) catch |err| {
             std.debug.print("Lowering error: {}\n", .{err});
-            return;
+            std.process.exit(1);
         };
 
         // Validate IR before code generation
@@ -131,7 +185,7 @@ pub fn main() !void {
         if (validator.hasErrors()) {
             std.debug.print("IR validation errors:\n", .{});
             validator.printErrors();
-            return;
+            std.process.exit(1);
         }
 
         const ZigBackend = @import("zig_backend.zig").ZigBackend;
@@ -143,7 +197,7 @@ pub fn main() !void {
         const tmp_path = getTmpPath(alloc, "verve_run");
         backend.build(tmp_path, zig_path) catch |err| {
             std.debug.print("Build error: {}\n", .{err});
-            return;
+            std.process.exit(1);
         };
 
         // Execute the compiled binary
@@ -172,7 +226,7 @@ pub fn main() !void {
         // verve test = compile test blocks + run
         const file_path = args.next() orelse {
             std.debug.print("Error: no file specified\n", .{});
-            return;
+            std.process.exit(1);
         };
 
         var loader2 = Loader.init(alloc);
@@ -182,13 +236,13 @@ pub fn main() !void {
                 error.ParseFailed => std.debug.print("Parse error in {s}\n", .{file_path}),
                 else => std.debug.print("Error: {}\n", .{err}),
             }
-            return;
+            std.process.exit(1);
         };
 
         var lower = Lower.init(alloc);
         const program = lower.lowerFile(file) catch |err| {
             std.debug.print("Lowering error: {}\n", .{err});
-            return;
+            std.process.exit(1);
         };
 
         var validator = @import("ir_validate.zig").Validator.init(alloc);
@@ -196,12 +250,12 @@ pub fn main() !void {
         if (validator.hasErrors()) {
             std.debug.print("IR validation errors:\n", .{});
             validator.printErrors();
-            return;
+            std.process.exit(1);
         }
 
         if (program.test_names.items.len == 0) {
             std.debug.print("No test blocks found in {s}\n", .{file_path});
-            return;
+            std.process.exit(1);
         }
 
         const ZigBackend = @import("zig_backend.zig").ZigBackend;
@@ -212,7 +266,7 @@ pub fn main() !void {
         const tmp_path = getTmpPath(alloc, "verve_test");
         backend.build(tmp_path, zig_path) catch |err| {
             std.debug.print("Build error: {}\n", .{err});
-            return;
+            std.process.exit(1);
         };
 
         // Run the test binary
@@ -233,7 +287,7 @@ pub fn main() !void {
     } else if (std.mem.eql(u8, command, "fmt")) {
         const file_path = args.next() orelse {
             std.debug.print("Error: no file specified\n", .{});
-            return;
+            std.process.exit(1);
         };
         const check_only = blk: {
             if (args.next()) |arg| {
@@ -243,19 +297,19 @@ pub fn main() !void {
         };
         const source = std.fs.cwd().readFileAlloc(alloc, file_path, 1024 * 1024) catch |err| {
             std.debug.print("Error reading {s}: {}\n", .{ file_path, err });
-            return;
+            std.process.exit(1);
         };
         var parser = Parser.init(source, alloc);
         const file = parser.parseFile() catch {
             std.debug.print("Parse error in {s}: {s}\n", .{ file_path, parser.formatError() });
-            return;
+            std.process.exit(1);
         };
 
         const Fmt = @import("formatter.zig").Formatter;
         var fmt = Fmt.init(alloc);
         const formatted = fmt.format(file) catch {
             std.debug.print("Format error\n", .{});
-            return;
+            std.process.exit(1);
         };
 
         if (check_only) {
@@ -267,14 +321,14 @@ pub fn main() !void {
         } else {
             std.fs.cwd().writeFile(.{ .sub_path = file_path, .data = formatted }) catch |err| {
                 std.debug.print("Error writing {s}: {}\n", .{ file_path, err });
-                return;
+                std.process.exit(1);
             };
             std.debug.print("Formatted {s}\n", .{file_path});
         }
     } else if (std.mem.eql(u8, command, "build")) {
         const file_path = args.next() orelse {
             std.debug.print("Error: no file specified\n", .{});
-            return;
+            std.process.exit(1);
         };
         var loader = Loader.init(alloc);
         const merged = loader.loadFile(file_path) catch |err| {
@@ -283,7 +337,7 @@ pub fn main() !void {
                 error.ParseFailed => std.debug.print("Parse error in {s}\n", .{file_path}),
                 else => std.debug.print("Error: {}\n", .{err}),
             }
-            return;
+            std.process.exit(1);
         };
 
         // Type check
@@ -293,7 +347,11 @@ pub fn main() !void {
         if (checker2.hasErrors()) {
             std.debug.print("Type errors in {s}:\n", .{file_path});
             checker2.printErrors();
-            return;
+            std.process.exit(1);
+        }
+        if (!hasProcessEntryPoint(merged)) {
+            std.debug.print("Error: cannot build {s} because it has no process main entry point\n", .{file_path});
+            std.process.exit(1);
         }
 
         // Lower AST to IR
@@ -301,7 +359,7 @@ pub fn main() !void {
         var lower = Lwr.init(alloc);
         const program = lower.lowerFile(merged) catch |err| {
             std.debug.print("Lowering error: {}\n", .{err});
-            return;
+            std.process.exit(1);
         };
 
         // Validate IR
@@ -310,7 +368,7 @@ pub fn main() !void {
         if (validator.hasErrors()) {
             std.debug.print("IR validation errors:\n", .{});
             validator.printErrors();
-            return;
+            std.process.exit(1);
         }
 
         // Compile IR via Zig backend
@@ -327,7 +385,7 @@ pub fn main() !void {
         const zig_path = getZigPath(alloc);
         backend.build(out_path, zig_path) catch |err| {
             std.debug.print("Build error: {}\n", .{err});
-            return;
+            std.process.exit(1);
         };
 
         std.debug.print("Built {s}\n", .{out_path});

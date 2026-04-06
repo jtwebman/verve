@@ -250,6 +250,9 @@ pub const Lower = struct {
                     } else if (self.generic_struct_decls.get(g.name) != null) {
                         const mono_name = generics.instantiateGenericStruct(self, g.name, g.args) catch g.name;
                         self.var_types.put(self.alloc, p.name, mono_name) catch {};
+                    } else {
+                        const full_name = generics.formatGenericTypeName(self, g.name, g.args);
+                        self.var_types.put(self.alloc, p.name, full_name) catch {};
                     }
                 },
                 else => {},
@@ -283,6 +286,17 @@ pub const Lower = struct {
             switch (p.type_expr) {
                 .simple => |tn| {
                     self.var_types.put(self.alloc, p.name, tn) catch {};
+                },
+                .generic => |g| {
+                    if (std.mem.eql(u8, g.name, "pid") and g.args.len == 1 and g.args[0] == .simple) {
+                        self.process_vars.put(self.alloc, p.name, g.args[0].simple) catch {};
+                    } else if (self.generic_struct_decls.get(g.name) != null) {
+                        const mono_name = generics.instantiateGenericStruct(self, g.name, g.args) catch g.name;
+                        self.var_types.put(self.alloc, p.name, mono_name) catch {};
+                    } else {
+                        const full_name = generics.formatGenericTypeName(self, g.name, g.args);
+                        self.var_types.put(self.alloc, p.name, full_name) catch {};
+                    }
                 },
                 else => {},
             }
@@ -1235,7 +1249,13 @@ pub const Lower = struct {
                 const target_reg = self.lowerExpr(ia.target.*);
                 const index_reg = self.lowerExpr(ia.index.*);
                 const is_str_idx = ia.target.* == .identifier and self.isVarString(ia.target.identifier);
-                const dest = func.newReg(if (is_str_idx) .string else .i64);
+                const dest_type = if (is_str_idx)
+                    ir.Type.string
+                else if (ia.target.* == .identifier)
+                    self.indexIrType(ia.target.identifier)
+                else
+                    ir.Type.i64;
+                const dest = func.newReg(dest_type);
                 if (ia.target.* == .identifier) {
                     if (self.isVarString(ia.target.identifier)) {
                         self.appendInst(.{ .string_index = .{ .dest = dest, .str = target_reg, .index = index_reg } });
@@ -1311,6 +1331,20 @@ pub const Lower = struct {
         return std.mem.eql(u8, t, "bool");
     }
 
+    fn indexIrType(self: *Lower, name: []const u8) ir.Type {
+        const t = self.var_types.get(name) orelse return .i64;
+        if (std.mem.startsWith(u8, t, "list<") and std.mem.endsWith(u8, t, ">")) {
+            const elem = t["list<".len .. t.len - 1];
+            if (std.mem.eql(u8, elem, "string")) return .string;
+            if (std.mem.eql(u8, elem, "float")) return .f64;
+            if (std.mem.eql(u8, elem, "bool")) return .bool;
+            if (std.mem.eql(u8, elem, "stream")) return .ptr;
+            if (std.mem.startsWith(u8, elem, "optional_")) return .ptr;
+            if (self.struct_decls.contains(elem)) return .ptr;
+        }
+        return .i64;
+    }
+
     fn allocRegs(self: *Lower, regs: []const ir.Reg) []const ir.Reg {
         const slice = self.alloc.alloc(ir.Reg, regs.len) catch return &.{};
         @memcpy(slice, regs);
@@ -1363,6 +1397,36 @@ pub const Lower = struct {
                         .call_builtin => |c| {
                             if (c.dest >= rt.len) continue;
                             rt[c.dest] = builtinIrType(c.name);
+                        },
+                        .struct_alloc => |sa| {
+                            if (sa.dest < rt.len) rt[sa.dest] = .ptr;
+                        },
+                        .list_new => |ln| {
+                            if (ln.dest < rt.len) rt[ln.dest] = .ptr;
+                        },
+                        .list_len => |ll| {
+                            if (ll.dest < rt.len) rt[ll.dest] = .i64;
+                        },
+                        .string_byte_at => |sb| {
+                            if (sb.dest < rt.len) rt[sb.dest] = .i64;
+                        },
+                        .string_index => |si| {
+                            if (si.dest < rt.len) rt[si.dest] = .string;
+                        },
+                        .string_slice => |ss| {
+                            if (ss.dest < rt.len) rt[ss.dest] = .string;
+                        },
+                        .string_len => |sl| {
+                            if (sl.dest < rt.len) rt[sl.dest] = .i64;
+                        },
+                        .string_eq => |se| {
+                            if (se.dest < rt.len) rt[se.dest] = .bool;
+                        },
+                        .tag_get => |tg| {
+                            if (tg.dest < rt.len) rt[tg.dest] = .i64;
+                        },
+                        .tag_value_str => |tv| {
+                            if (tv.dest < rt.len) rt[tv.dest] = .string;
                         },
                         .env_load => |e| {
                             if (e.dest >= rt.len) continue;
@@ -1426,8 +1490,19 @@ pub const Lower = struct {
             },
             .generic => |g| {
                 if (std.mem.eql(u8, g.name, "pid")) return .pid;
+                if (std.mem.eql(u8, g.name, "list") or
+                    std.mem.eql(u8, g.name, "map") or
+                    std.mem.eql(u8, g.name, "set") or
+                    std.mem.eql(u8, g.name, "stack") or
+                    std.mem.eql(u8, g.name, "queue") or
+                    std.mem.eql(u8, g.name, "Result"))
+                {
+                    return .ptr;
+                }
+                if (self.generic_struct_decls.contains(g.name)) return .ptr;
                 return .void;
             },
+            .optional => return .ptr,
             else => return .void,
         }
     }

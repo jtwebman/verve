@@ -640,6 +640,11 @@ pub const ZigBackend = struct {
                 self.line("return switch (_hid) {");
                 self.indent += 1;
                 for (pd.handler_names, 0..) |hname, hi| {
+                    // Skip main handler — it's called directly by the test runner, not dispatched.
+                    if (std.mem.eql(u8, hname, "main")) {
+                        self.lineFmt("{d} => 0,", .{hi});
+                        continue;
+                    }
                     var handler_func: ?ir.Function = null;
                     for (program.functions.items) |f| {
                         if (std.mem.eql(u8, f.module, pd.name) and std.mem.eql(u8, f.name, hname)) {
@@ -919,7 +924,7 @@ pub const ZigBackend = struct {
         self.line("_ = proc_args.skip();");
         self.line("while (proc_args.next()) |arg| {");
         self.indent += 1;
-        self.line("verve_args_list.append(@intCast(@intFromPtr(arg.ptr)));");
+        self.line("verve_args_list.appendPtr(rt.makeTaggedStr(0, arg));");
         self.indent -= 1;
         self.line("}");
 
@@ -1152,13 +1157,27 @@ pub const ZigBackend = struct {
                 self.lineFmt("{{ const lm = rt.arena_alloc(@sizeOf(rt.List)) orelse @as([*]u8, undefined); const lp = @as(*rt.List, @ptrCast(@alignCast(lm))); lp.* = rt.List.init(); {s} = @intFromPtr(lp); }}", .{self.regName(ln.dest)});
             },
             .list_append => |la| {
-                self.lineFmt("@as(*rt.List, @ptrFromInt({s})).append({s});", .{ self.regName(la.list), self.regName(la.value) });
+                const src_type = getRegType(reg_types, la.value);
+                if (src_type == .string) {
+                    self.lineFmt("@as(*rt.List, @ptrFromInt({s})).appendPtr(rt.makeTaggedStr(0, {s}));", .{ self.regName(la.list), self.regName(la.value) });
+                } else if (src_type == .pointer) {
+                    self.lineFmt("@as(*rt.List, @ptrFromInt({s})).appendPtr({s});", .{ self.regName(la.list), self.regName(la.value) });
+                } else {
+                    self.lineFmt("@as(*rt.List, @ptrFromInt({s})).append({s});", .{ self.regName(la.list), self.regName(la.value) });
+                }
             },
             .list_len => |ll| {
                 self.lineFmt("{s} = @as(*const rt.List, @ptrFromInt({s})).len;", .{ self.regName(ll.dest), self.regName(ll.list) });
             },
             .list_get => |lg| {
-                self.lineFmt("{s} = @as(*const rt.List, @ptrFromInt({s})).get({s});", .{ self.regName(lg.dest), self.regName(lg.list), self.regName(lg.index) });
+                const dest_type = getRegType(reg_types, lg.dest);
+                if (dest_type == .string) {
+                    self.lineFmt("{{ const _v = @as(*const rt.List, @ptrFromInt({s})).get({s}); {s} = rt.getTagStr(@intCast(@as(u64, @bitCast(_v)))); }}", .{ self.regName(lg.list), self.regName(lg.index), self.regName(lg.dest) });
+                } else if (dest_type == .pointer) {
+                    self.lineFmt("{s} = @intCast(@as(u64, @bitCast(@as(*const rt.List, @ptrFromInt({s})).get({s}))));", .{ self.regName(lg.dest), self.regName(lg.list), self.regName(lg.index) });
+                } else {
+                    self.lineFmt("{s} = @as(*const rt.List, @ptrFromInt({s})).get({s});", .{ self.regName(lg.dest), self.regName(lg.list), self.regName(lg.index) });
+                }
             },
 
             .tag_get => |tg| {
@@ -1275,7 +1294,7 @@ pub const ZigBackend = struct {
                 }
             },
             .process_watch => |pw| {
-                self.lineFmt("rt.process.verve_watch({s});", .{self.regName(pw.target)});
+                self.lineFmt("rt.process.verve_watch(@intCast(@as(u64, @bitCast({s}))));", .{self.regName(pw.target)});
             },
             .process_send_timeout => |ps| {
                 self.writeIndent();
@@ -1408,7 +1427,7 @@ pub const ZigBackend = struct {
         } else if (std.mem.eql(u8, name, "string_contains") or std.mem.eql(u8, name, "string_starts_with") or std.mem.eql(u8, name, "string_ends_with")) {
             if (args.len >= 2) self.lineFmt("{s} = (rt.string.{s}({s}, {s}) != 0);", .{ self.regName(dest), name, self.regName(args[0]), self.regName(args[1]) });
         } else if (std.mem.eql(u8, name, "set_has_str")) {
-            if (args.len >= 2) self.lineFmt("{{ const list = @as(*const rt.List, @ptrFromInt({s})); var found: i64 = 0; var si: i64 = 0; while (si + 1 < list.len) : (si += 2) {{ const esl = rt.sliceFromPair(list.get(si), list.get(si + 1)); if (std.mem.eql(u8, esl, {s})) {{ found = 1; break; }} }} {s} = found; }}", .{ self.regName(args[0]), self.regName(args[1]), self.regName(dest) });
+            if (args.len >= 2) self.lineFmt("{{ const list = @as(*const rt.List, @ptrFromInt({s})); var found: i64 = 0; var si: i64 = 0; while (si < list.len) : (si += 1) {{ const esl = rt.getTagStr(@intCast(@as(u64, @bitCast(list.get(si))))); if (std.mem.eql(u8, esl, {s})) {{ found = 1; break; }} }} {s} = found; }}", .{ self.regName(args[0]), self.regName(args[1]), self.regName(dest) });
         } else if (std.mem.eql(u8, name, "set_has")) {
             if (args.len >= 2) self.lineFmt("{{ const list = @as(*const rt.List, @ptrFromInt({s})); var found: i64 = 0; var si: i64 = 0; while (si < list.len) : (si += 1) {{ if (list.get(si) == {s}) {{ found = 1; break; }} }} {s} = found; }}", .{ self.regName(args[0]), self.regName(args[1]), self.regName(dest) });
         } else if (std.mem.eql(u8, name, "string_len")) {

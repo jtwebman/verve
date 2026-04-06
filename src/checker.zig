@@ -791,9 +791,9 @@ pub const Checker = struct {
         for (stmts) |stmt| {
             switch (stmt) {
                 .while_stmt => |w| {
-                    // while true { ... } with no return/break is infinite
+                    // while true { ... } with no reachable return/break is likely infinite
                     if (w.condition == .bool_literal and w.condition.bool_literal) {
-                        if (!self.bodyHasReturn(w.body)) {
+                        if (!self.bodyHasExit(w.body)) {
                             try self.addError("potential infinite loop — 'while true' with no return statement", w.span);
                         }
                     }
@@ -803,18 +803,24 @@ pub const Checker = struct {
         }
     }
 
-    fn bodyHasReturn(self: *Checker, stmts: []const ast.Stmt) bool {
+    fn bodyHasExit(self: *Checker, stmts: []const ast.Stmt) bool {
         for (stmts) |stmt| {
             switch (stmt) {
                 .return_stmt => return true,
                 .break_stmt => return true,
+                .if_stmt => |i| {
+                    if (self.bodyHasExit(i.body)) return true;
+                    if (i.else_body) |else_body| {
+                        if (self.bodyHasExit(else_body)) return true;
+                    }
+                },
                 .match_stmt => |m| {
                     for (m.arms) |arm| {
-                        if (self.bodyHasReturn(arm.body)) return true;
+                        if (self.bodyHasExit(arm.body)) return true;
                     }
                 },
                 .while_stmt => |w| {
-                    if (self.bodyHasReturn(w.body)) return true;
+                    if (self.bodyHasExit(w.body)) return true;
                 },
                 else => {},
             }
