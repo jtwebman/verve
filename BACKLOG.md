@@ -59,7 +59,7 @@ These are the tasks required before "humans can trust it" is a fair claim.
 - [ ] Audit process lifecycle cleanup paths for stale state reuse
 
 ### Validation discipline
-- [ ] Run compile tests in ReleaseSafe regularly, not just as an optional path
+- [x] Run compile tests in ReleaseSafe regularly, not just as an optional path
 - [ ] Add targeted runtime safety regression tests
 - [ ] Add fuzz/property-style testing for compiler/runtime invariants where practical
 

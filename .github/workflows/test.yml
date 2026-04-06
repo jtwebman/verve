@@ -13,7 +13,7 @@ jobs:
     env:
       VERVE_ZIG: zig
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install Zig
         uses: goto-bus-stop/setup-zig@v2
@@ -42,7 +42,7 @@ jobs:
     env:
       VERVE_ZIG: zig
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install Zig
         uses: goto-bus-stop/setup-zig@v2
@@ -52,13 +52,29 @@ jobs:
       - name: Run compile tests
         run: zig build test-compile
 
+  compile-safe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      VERVE_ZIG: zig
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Zig
+        uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: 0.15.2
+
+      - name: Run ReleaseSafe compile tests
+        run: zig build test-compile-safe
+
   network:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
       VERVE_ZIG: zig
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install Zig
         uses: goto-bus-stop/setup-zig@v2
